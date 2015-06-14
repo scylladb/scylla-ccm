@@ -4,6 +4,7 @@ import yaml
 from ccmlib import common
 from ccmlib.cluster import Cluster
 from ccmlib.dse_cluster import DseCluster
+from ccmlib.urchin_cluster import UrchinCluster
 from ccmlib import repository
 from ccmlib.node import Node
 
@@ -24,7 +25,9 @@ class ClusterFactory():
                 install_dir = data['cassandra_dir']
                 repository.validate(install_dir)
 
-            if common.isDse(install_dir):
+            if common.isUrchin(install_dir):
+                cluster = UrchinCluster(path, data['name'], install_dir=install_dir, create_directory=False)
+            elif common.isDse(install_dir):
                 cluster = DseCluster(path, data['name'], install_dir=install_dir, create_directory=False)
             else:
                 cluster = Cluster(path, data['name'], install_dir=install_dir, create_directory=False)
