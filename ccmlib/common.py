@@ -19,6 +19,8 @@ BIN_DIR= "bin"
 CASSANDRA_CONF_DIR= "conf"
 DSE_CASSANDRA_CONF_DIR="resources/cassandra/conf"
 OPSCENTER_CONF_DIR= "conf"
+URCHIN_CONF_DIR= "conf"
+
 
 CASSANDRA_CONF = "cassandra.yaml"
 LOG4J_CONF = "log4j-server.properties"
@@ -302,6 +304,18 @@ def isDse(install_dir):
     dse_script = os.path.join(bin_dir, 'dse')
     return os.path.exists(dse_script)
 
+def isUrchin(install_dir):
+    if install_dir is None:
+        raise ArgumentError('Undefined installation directory')
+
+    bin_dir = os.path.join(install_dir, os.path.join('build','release'))
+
+    if not os.path.exists(bin_dir):
+        return False
+
+    urchin_exec = os.path.join(bin_dir, 'seastar')
+    return os.path.exists(urchin_exec)
+
 def isOpscenter(install_dir):
     if install_dir is None:
         raise ArgumentError('Undefined installation directory')
@@ -324,7 +338,10 @@ def validate_install_dir(install_dir):
             raise ArgumentError('%s does not appear to be a cassandra or dse installation directory.  Please use absolute pathing (e.g. C:/cassandra.' % install_dir)
 
     bin_dir = os.path.join(install_dir, BIN_DIR)
-    if isDse(install_dir):
+    if isUrchin(install_dir):
+        bin_dir = os.path.join(install_dir, os.path.join('build','release'))
+        conf_dir = os.path.join(install_dir, URCHIN_CONF_DIR)
+    elif isDse(install_dir):
         conf_dir = os.path.join(install_dir, DSE_CASSANDRA_CONF_DIR)
     elif isOpscenter(install_dir):
         conf_dir = os.path.join(install_dir, OPSCENTER_CONF_DIR)
@@ -332,7 +349,7 @@ def validate_install_dir(install_dir):
         conf_dir = os.path.join(install_dir, CASSANDRA_CONF_DIR)
     cnd = os.path.exists(bin_dir)
     cnd = cnd and os.path.exists(conf_dir)
-    if not isOpscenter(install_dir):
+    if isUrchin(install_dir) or not isOpscenter(install_dir):
         cnd = cnd and os.path.exists(os.path.join(conf_dir, CASSANDRA_CONF))
     if not cnd:
         raise ArgumentError('%s does not appear to be a cassandra or dse installation directory' % install_dir)
@@ -426,6 +443,9 @@ def get_version_from_build(install_dir=None, node_path=None):
     if install_dir is None and node_path is not None:
         install_dir = get_install_dir_from_cluster_conf(node_path)
     if install_dir is not None:
+        urchin_version = get_urchin_version(install_dir)
+        if (urchin_version is not None):
+            return urchin_version
         # Binary cassandra installs will have a 0.version.txt file
         version_file = os.path.join(install_dir, '0.version.txt')
         if os.path.exists(version_file):
@@ -443,6 +463,13 @@ def get_version_from_build(install_dir=None, node_path=None):
                 if match:
                     return match.group(1)
     raise CCMError("Cannot find version")
+
+def get_urchin_version(install_dir):
+    # FIXME
+    if isUrchin(install_dir):
+       return '3.0'
+    else:
+       return None
 
 def get_dse_version(install_dir):
     for root, dirs, files in os.walk(install_dir):
