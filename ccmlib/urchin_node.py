@@ -10,6 +10,7 @@ import subprocess
 import time
 import yaml
 import signal
+import psutil
 
 from ccmlib.node import Node
 from ccmlib.node import NodeError
@@ -109,7 +110,7 @@ class UrchinNode(Node):
         #launch_bin = common.join_bin(cdir, 'bin', 'seastar')
         ## Copy back the cassandra scripts since profiling may have modified it the previous time
         #shutil.copy(launch_bin, self.get_bin_dir())
-        launch_bin = common.join_bin(self.get_path(), 'bin', 'seastar')
+        launch_bin = common.join_bin(self.get_path(), 'bin', 'run.sh')
 
         # If Windows, change entries in .bat file to split conf from binaries
         #if common.is_win():
@@ -136,7 +137,7 @@ class UrchinNode(Node):
 
         pidfile = os.path.join(self.get_path(), 'cassandra.pid')
         # FIXME we do not support this forcing specific settings
-        args = [launch_bin, '--options-file', os.path.join(self.get_path(), 'conf', 'cassandra.yaml'),'--smp','1']
+        args = [launch_bin, os.path.join(self.get_path(), 'bin', 'seastar'), '--options-file', os.path.join(self.get_path(), 'conf', 'cassandra.yaml'),'--smp','1']
         #args = [launch_bin, '-p', pidfile, '-Dcassandra.join_ring=%s' % str(join_ring)]
         #if replace_token is not None:
         #    args.append('-Dcassandra.replace_token=%s' % str(replace_token))
@@ -159,7 +160,8 @@ class UrchinNode(Node):
             process = subprocess.Popen(args, cwd=self.get_bin_dir(), env=env, stdout=FNULL, stderr=subprocess.PIPE)
         else:
             # FIXME
-            process = subprocess.Popen(args, stdout=FNULL, stderr=subprocess.PIPE)
+            process = subprocess.Popen(args,stdout=FNULL,stderr=FNULL,close_fds=True)
+            #process = subprocess.Popen(args, stdout=FNULL, stderr=subprocess.PIPE)
             # FIXME workaround create empty system.log
             l = open(os.path.join(self.get_path(), 'logs','system.log'),"w")
             l.write("Starting listening for CQL clients")
@@ -167,7 +169,13 @@ class UrchinNode(Node):
             # FIXME workaround create pid file
             pidfile = os.path.join(self.get_path(), 'cassandra.pid')
             f = open(pidfile,"w")
-            f.write(str(process.pid))
+            # we are waiting for the run script to have time to run seastar process
+            time.sleep(1)
+            p = psutil.Process(process.pid)
+            child_p = p.get_children()
+            if child_p[0].name() != 'seastar':
+               raise NodeError("Error starting urchin node");
+            f.write(str(child_p[0].pid))
             f.close
 
         # Our modified batch file writes a dirty output with more than just the pid - clean it to get in parity
@@ -182,6 +190,7 @@ class UrchinNode(Node):
                 raise NodeError("Error starting node %s" % self.name, process)
 
 	# FIXME logs
+        print "wait_other_notice :" + str(wait_other_notice)
         #if wait_other_notice:
         #    for node, mark in marks:
         #        node.watch_log_for_alive(self, from_mark=mark)
@@ -372,6 +381,7 @@ class UrchinNode(Node):
     def import_bin_files(self):
         # FIXME - currently no scripts only executable - copying exec
         #os.makedirs(os.path.join(self.get_path(), 'bin'))
+        shutil.copy(os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'resources','bin', 'run.sh'), self.get_bin_dir())
         shutil.copy(os.path.join(self.get_install_dir(), 'build', 'release', 'seastar'), self.get_bin_dir())
 
     def _save(self):
