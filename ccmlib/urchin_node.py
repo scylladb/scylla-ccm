@@ -190,7 +190,6 @@ class UrchinNode(Node):
                 raise NodeError("Error starting node %s" % self.name, process)
 
 	# FIXME logs
-        print "wait_other_notice :" + str(wait_other_notice)
         #if wait_other_notice:
         #    for node, mark in marks:
         #        node.watch_log_for_alive(self, from_mark=mark)
@@ -381,7 +380,12 @@ class UrchinNode(Node):
     def import_bin_files(self):
         # FIXME - currently no scripts only executable - copying exec
         #os.makedirs(os.path.join(self.get_path(), 'bin'))
-        shutil.copy(os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'resources','bin', 'run.sh'), self.get_bin_dir())
+        resources_bin_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'resources', 'bin')
+        for name in os.listdir(resources_bin_dir):
+            filename = os.path.join(resources_bin_dir, name)
+            if os.path.isfile(filename):
+                shutil.copy(filename, self.get_bin_dir())
+                common.add_exec_permission(self.get_bin_dir(), name)
         shutil.copy(os.path.join(self.get_install_dir(), 'build', 'release', 'seastar'), self.get_bin_dir())
 
     def _save(self):
