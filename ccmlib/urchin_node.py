@@ -175,7 +175,7 @@ class UrchinNode(Node):
             time.sleep(1)
             p = psutil.Process(process.pid)
             child_p = p.get_children()
-            if child_p[0].name() != 'seastar':
+            if child_p[0].name != 'seastar':
                raise NodeError("Error starting urchin node");
             f.write(str(child_p[0].pid))
             f.close
