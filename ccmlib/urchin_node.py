@@ -178,7 +178,10 @@ class UrchinNode(Node):
             if child_p[0].name() != 'seastar':
                raise NodeError("Error starting urchin node");
             f.write(str(child_p[0].pid))
+            f.flush()
+            os.fsync(f)
             f.close
+            os.fsync(f)
 
         # Our modified batch file writes a dirty output with more than just the pid - clean it to get in parity
         # with *nix operation here.
