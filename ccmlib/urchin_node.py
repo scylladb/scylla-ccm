@@ -140,6 +140,8 @@ class UrchinNode(Node):
         args = [launch_bin, os.path.join(self.get_path(), 'bin', 'seastar'), '--options-file', os.path.join(self.get_path(), 'conf', 'cassandra.yaml')] + jvm_args
         if '--smp' not in args:
            args += ['--smp', '1']
+        if '--memory' not in args:
+           args += ['--memory','512M']
         #args = [launch_bin, '-p', pidfile, '-Dcassandra.join_ring=%s' % str(join_ring)]
         #if replace_token is not None:
         #    args.append('-Dcassandra.replace_token=%s' % str(replace_token))
