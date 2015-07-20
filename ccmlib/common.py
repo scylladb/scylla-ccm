@@ -313,7 +313,7 @@ def isUrchin(install_dir):
     if not os.path.exists(bin_dir):
         return False
 
-    urchin_exec = os.path.join(bin_dir, 'seastar')
+    urchin_exec = os.path.join(bin_dir, 'scylla')
     return os.path.exists(urchin_exec)
 
 def isOpscenter(install_dir):
