@@ -107,7 +107,7 @@ class UrchinNode(Node):
         self.mark = self.mark_log()
 
         cdir = self.get_install_dir()
-        #launch_bin = common.join_bin(cdir, 'bin', 'seastar')
+        #launch_bin = common.join_bin(cdir, 'bin', 'scylla')
         ## Copy back the cassandra scripts since profiling may have modified it the previous time
         #shutil.copy(launch_bin, self.get_bin_dir())
         launch_bin = common.join_bin(self.get_path(), 'bin', 'run.sh')
@@ -137,7 +137,7 @@ class UrchinNode(Node):
 
         pidfile = os.path.join(self.get_path(), 'cassandra.pid')
         # FIXME we do not support this forcing specific settings
-        args = [launch_bin, os.path.join(self.get_path(), 'bin', 'seastar'), '--options-file', os.path.join(self.get_path(), 'conf', 'cassandra.yaml')] + jvm_args
+        args = [launch_bin, os.path.join(self.get_path(), 'bin', 'scylla'), '--options-file', os.path.join(self.get_path(), 'conf', 'cassandra.yaml')] + jvm_args
         if '--smp' not in args:
            args += ['--smp', '1']
         if '--memory' not in args:
@@ -173,11 +173,11 @@ class UrchinNode(Node):
             # FIXME workaround create pid file
             pidfile = os.path.join(self.get_path(), 'cassandra.pid')
             f = open(pidfile,"w")
-            # we are waiting for the run script to have time to run seastar process
+            # we are waiting for the run script to have time to run scylla process
             time.sleep(1)
             p = psutil.Process(process.pid)
             child_p = p.children()
-            if child_p[0].name() != 'seastar':
+            if child_p[0].name() != 'scylla':
                raise NodeError("Error starting urchin node");
             f.write(str(child_p[0].pid))
             f.flush()
@@ -393,7 +393,7 @@ class UrchinNode(Node):
             if os.path.isfile(filename):
                 shutil.copy(filename, self.get_bin_dir())
                 common.add_exec_permission(self.get_bin_dir(), name)
-        shutil.copy(os.path.join(self.get_install_dir(), 'build', 'release', 'seastar'), self.get_bin_dir())
+        shutil.copy(os.path.join(self.get_install_dir(), 'build', 'release', 'scylla'), self.get_bin_dir())
 
     def _save(self):
         # FIXME - overwrite node
