@@ -166,10 +166,6 @@ class UrchinNode(Node):
             # FIXME
             process = subprocess.Popen(args,stdout=FNULL,stderr=FNULL,close_fds=True)
             #process = subprocess.Popen(args, stdout=FNULL, stderr=subprocess.PIPE)
-            # FIXME workaround create empty system.log
-            l = open(os.path.join(self.get_path(), 'logs','system.log'),"w")
-            l.write("Starting listening for CQL clients")
-            l.close
             # FIXME workaround create pid file
             pidfile = os.path.join(self.get_path(), 'cassandra.pid')
             f = open(pidfile,"w")
