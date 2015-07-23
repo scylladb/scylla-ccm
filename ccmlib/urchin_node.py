@@ -137,7 +137,7 @@ class UrchinNode(Node):
 
         pidfile = os.path.join(self.get_path(), 'cassandra.pid')
         # FIXME we do not support this forcing specific settings
-        args = [launch_bin, os.path.join(self.get_path(), 'bin', 'scylla'), '--options-file', os.path.join(self.get_path(), 'conf', 'cassandra.yaml')] + jvm_args
+        args = [launch_bin, os.path.join(self.get_path(), 'logs', 'system.log'), os.path.join(self.get_path(), 'bin', 'scylla'), '--options-file', os.path.join(self.get_path(), 'conf', 'cassandra.yaml')] + jvm_args
         if '--smp' not in args:
            args += ['--smp', '1']
         if '--memory' not in args:
