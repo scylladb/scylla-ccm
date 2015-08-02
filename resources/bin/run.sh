@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/sh -x
 
 # 1 - log file to write output
 # 2 - executable
@@ -16,5 +16,8 @@ echo "Starting listening for CQL clients" >> $1
 echo "end facked message" >> $1
 exec "$2" "${@:3}" <&- 2>&1 | tee -a "$1" &
 sleep 2
+# FIXME workaround for starting urchin-jmx - should use run script
+exec_dir=$(dirname $2)
+exec java -Dapiaddress=$ip -Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.port=7100 -Dcom.sun.management.jmxremote.local.only=false -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false -jar $exec_dir/urchin-mbean-1.0.jar <&- 2>$1.jmx &
 
 sleep 8
