@@ -26,11 +26,9 @@ class UrchinNode(Node):
         self.get_cassandra_version()
 
     def get_install_cassandra_root(self):
-        raise Exception ("no impl")
         return os.path.join(self.get_install_dir(), 'resources', 'cassandra')
 
     def get_node_cassandra_root(self):
-        raise Exception ("no impl")
         return os.path.join(self.get_path(), 'resources', 'cassandra')
 
     def get_conf_dir(self):
@@ -40,7 +38,6 @@ class UrchinNode(Node):
         return os.path.join(self.get_path(), 'conf')
 
     def get_tool(self, toolname):
-        raise Exception ("no impl")
         return common.join_bin(os.path.join(self.get_install_dir(), 'resources', 'cassandra'), 'bin', toolname)
 
     def get_tool_args(self, toolname):
@@ -388,15 +385,22 @@ class UrchinNode(Node):
                 shutil.copytree(src_webapps, dst_webapps)
 
     def import_bin_files(self):
+        # selectivly copying files to reduce risk of using unintended items
+        files = ['cassandra.in.sh','nodetool']
+        os.makedirs(os.path.join(self.get_path(), 'resources', 'cassandra', 'bin'))
+        for name in files:
+            shutil.copy(os.path.join(self.get_install_dir(), 'resources', 'cassandra', 'bin',name), os.path.join(self.get_path(), 'resources', 'cassandra', 'bin',name))
+
         # FIXME - currently no scripts only executable - copying exec
-        #os.makedirs(os.path.join(self.get_path(), 'bin'))
+        shutil.copy(os.path.join(self.get_install_dir(), 'build', 'release', 'scylla'), self.get_bin_dir())
+        shutil.copy(os.path.join(self.get_install_dir(), '../urchin-jmx', 'target', 'urchin-mbean-1.0.jar'), self.get_bin_dir())
+
         resources_bin_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'resources', 'bin')
         for name in os.listdir(resources_bin_dir):
             filename = os.path.join(resources_bin_dir, name)
             if os.path.isfile(filename):
                 shutil.copy(filename, self.get_bin_dir())
                 common.add_exec_permission(self.get_bin_dir(), name)
-        shutil.copy(os.path.join(self.get_install_dir(), 'build', 'release', 'scylla'), self.get_bin_dir())
 
     def _save(self):
         # FIXME - overwrite node
