@@ -50,7 +50,7 @@ class UrchinNode(Node):
 
     def get_cassandra_version(self):
         # FIXME
-        return '3.0'
+        return '2.1'
 
     def set_log_level(self, new_level, class_name=None):
         # FIXME overwritting node.py
