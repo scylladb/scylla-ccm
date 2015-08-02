@@ -12,6 +12,8 @@ echo "end facked message" >> $1
 exec $1/bin/scylla --options-file $1/conf/cassandra.yaml "${@:2}" <&- 2>&1 | tee -a "$1/logs/system.log" &
 sleep 2
 # FIXME workaround for starting urchin-jmx - should use run script
-exec java -Dapiaddress=$ip -Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.port=$jmx_port -Dcom.sun.management.jmxremote.local.only=false -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false -jar $1/bin/urchin-mbean-1.0.jar <&- 2>$1.jmx &
+pkill -f com.sun.management.jmxremote.port=$jmx_port || true
+sleep 2
+exec java -Dapiaddress=$ip -Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.port=$jmx_port -Dcom.sun.management.jmxremote.local.only=false -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false -jar $1/bin/urchin-mbean-1.0.jar <&- 2>&1 | tee -a "$1/logs/system.log.jmx" &
 
-sleep 8
+sleep 6
