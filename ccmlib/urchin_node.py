@@ -141,7 +141,7 @@ class UrchinNode(Node):
              data = yaml.load(f)
         jvm_args = jvm_args + ['--api-address',data['api_address']]
 
-        args = [launch_bin, os.path.join(self.get_path(), 'logs', 'system.log'), os.path.join(self.get_path(), 'bin', 'scylla'), '--options-file', os.path.join(self.get_path(), 'conf', 'cassandra.yaml')] + jvm_args
+        args = [launch_bin, self.get_path()] + jvm_args
         if '--smp' not in args:
            args += ['--smp', '1']
         if '--memory' not in args:
