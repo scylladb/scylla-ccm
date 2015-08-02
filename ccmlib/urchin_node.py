@@ -137,6 +137,13 @@ class UrchinNode(Node):
 
         pidfile = os.path.join(self.get_path(), 'cassandra.pid')
         # FIXME we do not support this forcing specific settings
+
+        # workaround for api-address as we do not load it from config file urchin#59
+        conf_file = os.path.join(self.get_path(), 'conf', 'cassandra.yaml')
+        with open(conf_file, 'r') as f:
+             data = yaml.load(f)
+        jvm_args = jvm_args + ['--api-address',data['api_address']]
+
         args = [launch_bin, os.path.join(self.get_path(), 'logs', 'system.log'), os.path.join(self.get_path(), 'bin', 'scylla'), '--options-file', os.path.join(self.get_path(), 'conf', 'cassandra.yaml')] + jvm_args
         if '--smp' not in args:
            args += ['--smp', '1']
@@ -433,6 +440,7 @@ class UrchinNode(Node):
             data['partitioner'] = self.cluster.partitioner
 
         # FIXME add urchin options
+        data['api_address'] = data['listen_address']
         # full_options = dict(list(self.cluster._config_options.items()) + list(self.__config_options.items())) # last win and we want node options to win
         full_options = dict(list(self.cluster._config_options.items())) # last win and we want node options to win
         for name in full_options:
