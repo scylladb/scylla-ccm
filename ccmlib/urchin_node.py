@@ -11,6 +11,7 @@ import time
 import yaml
 import signal
 import psutil
+import socket
 
 from ccmlib.node import Node
 from ccmlib.node import NodeError
@@ -140,6 +141,7 @@ class UrchinNode(Node):
         with open(conf_file, 'r') as f:
              data = yaml.load(f)
         jvm_args = jvm_args + ['--api-address',data['api_address']]
+        jvm_args = jvm_args + ['--collectd-hostname',socket.gethostname()+"."+self.name]
 
         args = [launch_bin, self.get_path()] + jvm_args
         if '--smp' not in args:
