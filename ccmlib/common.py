@@ -23,6 +23,7 @@ URCHIN_CONF_DIR= "conf"
 
 
 CASSANDRA_CONF = "cassandra.yaml"
+URCHIN_CONF = "scylla.yaml"
 LOG4J_CONF = "log4j-server.properties"
 LOG4J_TOOL_CONF = "log4j-tools.properties"
 LOGBACK_CONF = "logback.xml"
@@ -349,7 +350,9 @@ def validate_install_dir(install_dir):
         conf_dir = os.path.join(install_dir, CASSANDRA_CONF_DIR)
     cnd = os.path.exists(bin_dir)
     cnd = cnd and os.path.exists(conf_dir)
-    if isUrchin(install_dir) or not isOpscenter(install_dir):
+    if isUrchin(install_dir):
+        cnd = os.path.exists(os.path.join(conf_dir, URCHIN_CONF))
+    elif not isOpscenter(install_dir):
         cnd = cnd and os.path.exists(os.path.join(conf_dir, CASSANDRA_CONF))
     if not cnd:
         raise ArgumentError('%s does not appear to be a cassandra or dse installation directory' % install_dir)
