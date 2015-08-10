@@ -179,6 +179,8 @@ def make_cassandra_env(install_dir, node_path):
     env['CASSANDRA_INCLUDE'] = os.path.join(dst)
     env['MAX_HEAP_SIZE'] = os.environ.get('CCM_MAX_HEAP_SIZE', '500M')
     env['HEAP_NEWSIZE'] = os.environ.get('CCM_HEAP_NEWSIZE', '50M')
+    # FIXME workaround for now - should be removed and maybe included in tool execution scripts
+    env['cassandra.config'] = "file://" + os.path.join(node_path, 'conf','cassandra.yaml')
 
     return env
 

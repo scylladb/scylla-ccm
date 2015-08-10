@@ -30,7 +30,7 @@ class UrchinNode(Node):
         return os.path.join(self.get_install_dir(), 'resources', 'cassandra')
 
     def get_node_cassandra_root(self):
-        return os.path.join(self.get_path(), 'resources', 'cassandra')
+        return os.path.join(self.get_path())
 
     def get_conf_dir(self):
         """
@@ -392,6 +392,12 @@ class UrchinNode(Node):
         os.makedirs(os.path.join(self.get_path(), 'resources', 'cassandra', 'bin'))
         for name in files:
             shutil.copy(os.path.join(self.get_install_dir(), 'resources', 'cassandra', 'bin',name), os.path.join(self.get_path(), 'resources', 'cassandra', 'bin',name))
+
+        # selectivly copying files to reduce risk of using unintended items
+        files = ['sstable2json']
+        os.makedirs(os.path.join(self.get_path(), 'resources', 'cassandra', 'tools','bin'))
+        for name in files:
+            shutil.copy(os.path.join(self.get_install_dir(), 'resources', 'cassandra', 'tools','bin',name), os.path.join(self.get_path(), 'resources', 'cassandra', 'tools','bin',name))
 
         # FIXME - currently no scripts only executable - copying exec
         shutil.copy(os.path.join(self.get_install_dir(), 'build', 'release', 'scylla'), self.get_bin_dir())
