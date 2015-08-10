@@ -343,6 +343,8 @@ class UrchinNode(Node):
         # FIXME override node - enable logging
         self._update_config()
         self.copy_config_files()
+        # FIXME - for now moving scylla.yaml to cassandra.yaml
+        os.rename(os.path.join(self.get_conf_dir(),"scylla.yaml"),os.path.join(self.get_conf_dir(),"cassandra.yaml"))
         self.__update_yaml()
         ## loggers changed > 2.1
         #if self.get_base_cassandra_version() < 2.1:
