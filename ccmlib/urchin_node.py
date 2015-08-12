@@ -148,6 +148,8 @@ class UrchinNode(Node):
            args += ['--smp', '1']
         if '--memory' not in args:
            args += ['--memory','512M']
+        if '--default-log-level' not in args:
+           args += ['--default-log-level','info']
         #args = [launch_bin, '-p', pidfile, '-Dcassandra.join_ring=%s' % str(join_ring)]
         #if replace_token is not None:
         #    args.append('-Dcassandra.replace_token=%s' % str(replace_token))
