@@ -9,7 +9,7 @@ jmx_port=`cat $1/node.conf | grep 'jmx_port' | cut -f2 -d"'"`
 # FIXME workaround for log message
 echo "Starting listening for CQL clients" >> $1/logs/system.log
 echo "end facked message" >> $1
-exec $1/bin/scylla --options-file $1/conf/cassandra.yaml "${@:2}" <&- 2>&1 | tee -a "$1/logs/system.log" &
+exec $1/bin/scylla --options-file $1/conf/scylla.yaml "${@:2}" <&- 2>&1 | tee -a "$1/logs/system.log" &
 sleep 2
 # FIXME workaround for starting urchin-jmx - should use run script
 pkill -f com.sun.management.jmxremote.port=$jmx_port || true

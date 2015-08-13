@@ -136,8 +136,8 @@ class UrchinNode(Node):
         pidfile = os.path.join(self.get_path(), 'cassandra.pid')
         # FIXME we do not support this forcing specific settings
 
-        # workaround for api-address as we do not load it from config file urchin#59
-        conf_file = os.path.join(self.get_path(), 'conf', 'cassandra.yaml')
+        # FIXME workaround for api-address as we do not load it from config file urchin#59
+        conf_file = os.path.join(self.get_conf_dir(),common.URCHIN_CONF)
         with open(conf_file, 'r') as f:
              data = yaml.load(f)
         jvm_args = jvm_args + ['--api-address',data['api_address']]
@@ -345,9 +345,6 @@ class UrchinNode(Node):
         # FIXME override node - enable logging
         self._update_config()
         self.copy_config_files()
-        # FIXME - for now moving scylla.yaml to cassandra.yaml
-        os.rename(os.path.join(self.get_conf_dir(),"scylla.yaml"),os.path.join(self.get_conf_dir(),"cassandra.yaml"))
-        self.__update_yaml()
         ## loggers changed > 2.1
         #if self.get_base_cassandra_version() < 2.1:
         #    self._update_log4j()
@@ -428,7 +425,7 @@ class UrchinNode(Node):
 
     def __update_yaml(self):
         # FIXME copied from node.py
-        conf_file = os.path.join(self.get_conf_dir(), common.CASSANDRA_CONF)
+        conf_file = os.path.join(self.get_conf_dir(), common.URCHIN_CONF)
         with open(conf_file, 'r') as f:
             data = yaml.load(f)
 
@@ -479,6 +476,17 @@ class UrchinNode(Node):
 
         with open(conf_file, 'w') as f:
             yaml.safe_dump(data, f, default_flow_style=False)
+
+        # FIXME - for now create a cassandra conf file leaving only cassandra config items - this should be removed once tools are updated to remove urchin conf and use a "shrinked" version
+        cassandra_conf_file = os.path.join(self.get_conf_dir(), common.CASSANDRA_CONF)
+        cassandra_conf_items = {'cluster_name':0,'num_tokens':0,'hinted_handoff_enabled':0,'max_hint_window_in_ms':0,'hinted_handoff_throttle_in_kb':0,'max_hints_delivery_threads':0,'batchlog_replay_throttle_in_kb':0,'authenticator':0,'authorizer':0,'permissions_validity_in_ms':0,'partitioner':0,'data_file_directories':0,'commitlog_directory':0,'disk_failure_policy':0,'commit_failure_policy':0,'key_cache_size_in_mb':0,'key_cache_save_period':0,'key_cache_keys_to_save':0,'row_cache_size_in_mb':0,'row_cache_save_period':0,'row_cache_keys_to_save':0,'counter_cache_size_in_mb':0,'counter_cache_save_period':0,'counter_cache_keys_to_save':0,'memory_allocator':0,'commitlog_sync_batch_window_in_ms':0,'commitlog_sync':0,'commitlog_sync_period_in_ms':0,'commitlog_segment_size_in_mb':0,'seed_provider':0,'concurrent_reads':0,'concurrent_writes':0,'concurrent_counter_writes':0,'file_cache_size_in_mb':0,'memtable_heap_space_in_mb':0,'memtable_offheap_space_in_mb':0,'memtable_cleanup_threshold':0,'memtable_allocation_type':0,'commitlog_total_space_in_mb':0,'memtable_flush_writers':0,'index_summary_capacity_in_mb':0,'index_summary_resize_interval_in_minutes':0,'trickle_fsync':0,'trickle_fsync_interval_in_kb':0,'storage_port':0,'ssl_storage_port':0,'listen_address':0,'listen_interface':0,'listen_interface_prefer_ipv6':0,'broadcast_address':0,'internode_authenticator':0,'start_native_transport':0,'native_transport_port':0,'native_transport_max_threads':0,'native_transport_max_frame_size_in_mb':0,'native_transport_max_concurrent_connections':0,'native_transport_max_concurrent_connections_per_ip':0,'start_rpc':0,'rpc_address':0,'rpc_interface':0,'rpc_interface_prefer_ipv6':0,'rpc_port':0,'broadcast_rpc_address':0,'rpc_keepalive':0,'rpc_server_type':0,'rpc_min_threads':0,'rpc_max_threads':0,'rpc_send_buff_size_in_bytes':0,'rpc_recv_buff_size_in_bytes':0,'thrift_framed_transport_size_in_mb':0,'incremental_backups':0,'snapshot_before_compaction':0,'auto_snapshot':0,'tombstone_warn_threshold':0,'tombstone_failure_threshold':0,'column_index_size_in_kb':0,'batch_size_warn_threshold_in_kb':0,'concurrent_compactors':0,'compaction_throughput_mb_per_sec':0,'compaction_large_partition_warning_threshold_mb':0,'sstable_preemptive_open_interval_in_mb':0,'stream_throughput_outbound_megabits_per_sec':0,'inter_dc_stream_throughput_outbound_megabits_per_sec':0,'read_request_timeout_in_ms':0,'range_request_timeout_in_ms':0,'write_request_timeout_in_ms':0,'counter_write_request_timeout_in_ms':0,'cas_contention_timeout_in_ms':0,'truncate_request_timeout_in_ms':0,'request_timeout_in_ms':0,'cross_node_timeout':0,'streaming_socket_timeout_in_ms':0,'phi_convict_threshold':0,'endpoint_snitch':0,'dynamic_snitch_update_interval_in_ms':0,'dynamic_snitch_reset_interval_in_ms':0,'dynamic_snitch_badness_threshold':0,'request_scheduler':0,'request_scheduler_options':0,'request_scheduler_id':0,'server_encryption_options':0,'client_encryption_options':0,'internode_compression':0,'inter_dc_tcp_nodelay':0}
+        cassandra_data = {}
+        for key in data:
+            if key in cassandra_conf_items:
+                cassandra_data[key] = data[key]
+        
+        with open(cassandra_conf_file, 'w') as f:
+            yaml.safe_dump(cassandra_data, f, default_flow_style=False)
 
     def __update_yaml_dse(self):
         raise Exception ("no impl")
