@@ -634,3 +634,8 @@ class UrchinNode(Node):
     # Overload
     def watch_log_for_alive(self, nodes, from_mark=None, timeout=120):
         return True
+
+    # Overload - FIXME - urchin flush is aynch - so it returns immediatly
+    def flush(self):
+        self.nodetool("flush")
+        time.sleep(2)
