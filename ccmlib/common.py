@@ -472,7 +472,7 @@ def get_version_from_build(install_dir=None, node_path=None):
 def get_urchin_version(install_dir):
     # FIXME
     if isUrchin(install_dir):
-       return '3.0'
+       return '2.1'
     else:
        return None
 

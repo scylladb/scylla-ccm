@@ -28,4 +28,4 @@ class UrchinCluster(Cluster):
 
     def cassandra_version(self):
         # FIXME
-        return '3.0'
+        return '2.1'
