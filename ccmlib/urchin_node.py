@@ -401,7 +401,8 @@ class UrchinNode(Node):
             shutil.copy(os.path.join(self.get_install_dir(), 'resources', 'cassandra', 'tools','bin',name), os.path.join(self.get_path(), 'resources', 'cassandra', 'tools','bin',name))
 
         # FIXME - currently no scripts only executable - copying exec
-        shutil.copy(os.path.join(self.get_install_dir(), 'build', 'release', 'scylla'), self.get_bin_dir())
+        urchin_mode = self.cluster.get_urchin_mode();
+        shutil.copy(os.path.join(self.get_install_dir(), 'build', urchin_mode, 'scylla'), self.get_bin_dir())
         shutil.copy(os.path.join(self.get_install_dir(), '../urchin-jmx', 'target', 'urchin-mbean-1.0.jar'), self.get_bin_dir())
 
         resources_bin_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'resources', 'bin')

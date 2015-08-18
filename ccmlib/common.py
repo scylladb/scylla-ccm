@@ -311,13 +311,8 @@ def isUrchin(install_dir):
     if install_dir is None:
         raise ArgumentError('Undefined installation directory')
 
-    bin_dir = os.path.join(install_dir, os.path.join('build','release'))
-
-    if not os.path.exists(bin_dir):
-        return False
-
-    urchin_exec = os.path.join(bin_dir, 'scylla')
-    return os.path.exists(urchin_exec)
+    return (os.path.exists(os.path.join(install_dir,'scylla')) or
+        os.path.exists(os.path.join(install_dir,'build','release','scylla')))
 
 def isOpscenter(install_dir):
     if install_dir is None:
@@ -331,6 +326,16 @@ def isOpscenter(install_dir):
     opscenter_script = os.path.join(bin_dir, 'opscenter')
     return os.path.exists(opscenter_script)
 
+def urchin_extract_install_dir_and_mode(install_dir):
+    urchin_mode='release'
+    if install_dir.endswith('build/debug') or install_dir.endswith('build/debug/'):
+       urchin_mode='debug'
+       install_dir = str(os.path.join(install_dir,os.pardir,os.pardir))
+    if install_dir.endswith('build/release') or install_dir.endswith('build/release/'):
+       urchin_mode='release'
+       install_dir = str(os.path.join(install_dir,os.pardir,os.pardir))
+    return install_dir,urchin_mode;
+
 def validate_install_dir(install_dir):
     if install_dir is None:
         raise ArgumentError('Undefined installation directory')
@@ -342,7 +347,8 @@ def validate_install_dir(install_dir):
 
     bin_dir = os.path.join(install_dir, BIN_DIR)
     if isUrchin(install_dir):
-        bin_dir = os.path.join(install_dir, os.path.join('build','release'))
+        install_dir,mode = urchin_extract_install_dir_and_mode(install_dir)
+        bin_dir = install_dir
         conf_dir = os.path.join(install_dir, URCHIN_CONF_DIR)
     elif isDse(install_dir):
         conf_dir = os.path.join(install_dir, DSE_CASSANDRA_CONF_DIR)
