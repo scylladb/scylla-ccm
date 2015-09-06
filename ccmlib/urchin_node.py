@@ -200,16 +200,15 @@ class UrchinNode(Node):
             if not self.is_running():
                 raise NodeError("Error starting node %s" % self.name, process)
 
-	# FIXME logs
-        #if wait_other_notice:
-        #    for node, mark in marks:
-        #        node.watch_log_for_alive(self, from_mark=mark)
+        if wait_other_notice:
+            for node, mark in marks:
+                node.watch_log_for_alive(self, from_mark=mark)
 
-        #if wait_for_binary_proto and self.cluster.version() >= '1.2':
-        #    self.watch_log_for("Starting listening for CQL clients", from_mark=self.mark)
-        #    # we're probably fine at that point but just wait some tiny bit more because
-        #    # the msg is logged just before starting the binary protocol server
-        #    time.sleep(0.2)
+        if wait_for_binary_proto and self.cluster.version() >= '1.2':
+            self.watch_log_for("Starting listening for CQL clients", from_mark=self.mark)
+            # we're probably fine at that point but just wait some tiny bit more because
+            # the msg is logged just before starting the binary protocol server
+            time.sleep(0.2)
 
         self.is_running()
         return process
@@ -345,6 +344,7 @@ class UrchinNode(Node):
         # FIXME override node - enable logging
         self._update_config()
         self.copy_config_files()
+        self.__update_yaml()
         ## loggers changed > 2.1
         #if self.get_base_cassandra_version() < 2.1:
         #    self._update_log4j()
