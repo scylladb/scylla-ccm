@@ -321,7 +321,7 @@ class Node(object):
             [stdout, stderr] = proc.communicate()
         except ValueError:
             [stdout, stderr] = ['', '']
-        if len(stderr) > 1:
+        if stderr and len(stderr) > 1:
             print_("[%s ERROR] %s" % (name, stderr.strip()))
 
     # This will return when exprs are found or it timeouts
@@ -922,7 +922,7 @@ class Node(object):
 
     def stress(self, stress_options=[], **kwargs):
         stress = common.get_stress_bin(self.get_install_dir())
-        if self.cluster.cassandra_version() <= '2.1':
+        if self.cluster.cassandra_version() < '2.1':
             stress_options.append('-d')
             stress_options.append(self.address())
         else:
