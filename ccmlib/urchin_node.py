@@ -631,10 +631,6 @@ class UrchinNode(Node):
             f.write('log4j.appender.R.File=./log/agent.log\n')
             f.close()
 
-    # Overload
-    def watch_log_for_alive(self, nodes, from_mark=None, timeout=120):
-        return True
-
     # Overload - FIXME - urchin flush is aynch - so it returns immediatly
     def flush(self):
         self.nodetool("flush")
