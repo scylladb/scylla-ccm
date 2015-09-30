@@ -312,6 +312,7 @@ def isUrchin(install_dir):
         raise ArgumentError('Undefined installation directory')
 
     return (os.path.exists(os.path.join(install_dir,'scylla')) or
+        os.path.exists(os.path.join(install_dir,'build','debug','scylla')) or
         os.path.exists(os.path.join(install_dir,'build','release','scylla')))
 
 def isOpscenter(install_dir):
