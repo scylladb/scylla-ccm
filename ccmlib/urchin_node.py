@@ -188,6 +188,25 @@ class UrchinNode(Node):
             f.close
             os.fsync(f)
 
+            # we are waiting to make sure the java process is up  by connecting to the port
+            time.sleep(2)
+            java_up = False
+            iteration = 0
+            while (java_up != True and iteration < 10):
+               iteration = iteration + 1
+               s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+               try:
+                   s.settimeout(1.0)
+                   s.connect((data['listen_address'],int(self.jmx_port)))
+                   java_up = True
+               except:
+                   java_up = False
+               try:
+                  s.close()
+               except:
+                  pass
+            time.sleep(1)
+
         # Our modified batch file writes a dirty output with more than just the pid - clean it to get in parity
         # with *nix operation here.
         if common.is_win():
