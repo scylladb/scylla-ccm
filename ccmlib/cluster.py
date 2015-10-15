@@ -15,11 +15,12 @@ from ccmlib.node import Node, NodeError
 from ccmlib.bulkloader import BulkLoader
 
 class Cluster(object):
-    def __init__(self, path, name, partitioner=None, install_dir=None, create_directory=True, version=None, verbose=False, **kwargs):
+    def __init__(self, path, name, partitioner=None, install_dir=None, create_directory=True, version=None, verbose=False, snitch='org.apache.cassandra.locator.PropertyFileSnitch',**kwargs):
         self.name = name
         self.nodes = {}
         self.seeds = []
         self.partitioner = partitioner
+        self.snitch = snitch
         self._config_options = {}
         self._dse_config_options = {}
         self.__log_level = "INFO"
@@ -68,6 +69,11 @@ class Cluster(object):
 
     def set_partitioner(self, partitioner):
         self.partitioner = partitioner
+        self._update_config()
+        return self
+
+    def set_snitch(self, snitch):
+        self.snitch = snitch
         self._update_config()
         return self
 
@@ -131,7 +137,7 @@ class Cluster(object):
         dcs = []
         self.use_vnodes = use_vnodes
         if isinstance(nodes, list):
-            self.set_configuration_options(values={'endpoint_snitch' : 'org.apache.cassandra.locator.PropertyFileSnitch'})
+            self.set_configuration_options(values={'endpoint_snitch' : self.snitch})
             node_count = 0
             i = 0
             for c in nodes:
@@ -450,6 +456,12 @@ class Cluster(object):
             node._update_pid(p)
 
     def __update_topology_files(self):
+        if self.snitch == 'org.apache.cassandra.locator.PropertyFileSnitch':
+           self.__update_topology_using_toplogy_properties()
+        elif self.snitch == 'org.apache.cassandra.locator.GossipingPropertyFileSnitch':
+           self.__update_topology_using_rackdc_properties()
+
+    def __update_topology_using_toplogy_properties(self):
         dcs = [('default', 'dc1')]
         for node in self.nodelist():
             if node.data_center is not None:
@@ -463,6 +475,16 @@ class Cluster(object):
             topology_file = os.path.join(node.get_conf_dir(), 'cassandra-topology.properties')
             with open(topology_file, 'w') as f:
                 f.write(content)
+
+    def __update_topology_using_rackdc_properties(self):
+        for node in self.nodelist():
+            dc = 'dc1'
+            if node.data_center is not None:
+                dc = node.data_center
+            rackdc_file = os.path.join(node.get_conf_dir(), 'cassandra-rackdc.properties')
+            with open(rackdc_file, 'w') as f:
+                f.write("dc=%s\n" % dc)
+                f.write("rack=RAC1\n")
 
     def enable_ssl(self, ssl_path, require_client_auth):
         shutil.copyfile(os.path.join(ssl_path, 'keystore.jks'), os.path.join(self.get_path(), 'keystore.jks'))
