@@ -14,7 +14,7 @@ from ccmlib import common
 class UrchinCluster(Cluster):
     def __init__(self, path, name, partitioner=None, install_dir=None, create_directory=True, version=None, verbose=False, **kwargs):
         install_dir, self.urchin_mode=common.urchin_extract_install_dir_and_mode(install_dir)
-        super(UrchinCluster, self).__init__(path, name, partitioner, install_dir, create_directory, version, verbose)
+        super(UrchinCluster, self).__init__(path, name, partitioner, install_dir, create_directory, version, verbose, snitch='org.apache.cassandra.locator.GossipingPropertyFileSnitch')
 
     def load_from_repository(self, version, verbose):
         raise Exception("no impl");
