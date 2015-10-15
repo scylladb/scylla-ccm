@@ -105,6 +105,8 @@ class ClusterCreateCmd(Cmd):
             help="Path to keystore.jks and truststore.jks for internode encryption", default=None)
         parser.add_option("--urchin", action="store_true", dest="urchin",
             help="Must specify --install-dir holding Urchin")
+        parser.add_option("--snitch", type="string", dest="snitch",
+            help="Supports 'org.apache.cassandra.locator.PropertyFileSnitch','org.apache.cassandra.locator.GossipingPropertyFileSnitch' used only in multidc clusters")
         return parser
 
     def validate(self, parser, options, args):
@@ -119,6 +121,13 @@ class ClusterCreateCmd(Cmd):
             print_("Can't set --vnodes if not populating cluster in this command.")
             parser.print_help()
             exit(1)
+        if self.options.snitch and \
+            (not isinstance(self.nodes, list) or \
+            not (self.options.snitch == 'org.apache.cassandra.locator.PropertyFileSnitch' or \
+            self.options.snitch == 'org.apache.cassandra.locator.GossipingPropertyFileSnitch')):
+            parser.print_help()
+            exit(1)
+
         if not options.version:
             try:
                 common.validate_install_dir(options.install_dir)
@@ -142,6 +151,9 @@ class ClusterCreateCmd(Cmd):
 
         if self.options.partitioner:
             cluster.set_partitioner(self.options.partitioner)
+
+        if self.options.snitch:
+            cluster.set_snitch(self.options.snitch)
 
         if cluster.cassandra_version() >= "1.2.5":
             self.options.binary_protocol = True
