@@ -12,6 +12,7 @@ import yaml
 import signal
 import psutil
 import socket
+import errno
 
 from ccmlib.node import Node
 from ccmlib.node import NodeError
