@@ -412,18 +412,18 @@ class UrchinNode(Node):
         files = ['cassandra.in.sh','nodetool']
         os.makedirs(os.path.join(self.get_path(), 'resources', 'cassandra', 'bin'))
         for name in files:
-            shutil.copy(os.path.join(self.get_install_dir(), 'resources', 'cassandra', 'bin',name), os.path.join(self.get_path(), 'resources', 'cassandra', 'bin',name))
+            os.link(os.path.join(self.get_install_dir(), 'resources', 'cassandra', 'bin',name), os.path.join(self.get_path(), 'resources', 'cassandra', 'bin',name))
 
         # selectivly copying files to reduce risk of using unintended items
         files = ['sstable2json']
         os.makedirs(os.path.join(self.get_path(), 'resources', 'cassandra', 'tools','bin'))
         for name in files:
-            shutil.copy(os.path.join(self.get_install_dir(), 'resources', 'cassandra', 'tools','bin',name), os.path.join(self.get_path(), 'resources', 'cassandra', 'tools','bin',name))
+            os.link(os.path.join(self.get_install_dir(), 'resources', 'cassandra', 'tools','bin',name), os.path.join(self.get_path(), 'resources', 'cassandra', 'tools','bin',name))
 
         # FIXME - currently no scripts only executable - copying exec
         urchin_mode = self.cluster.get_urchin_mode();
-        shutil.copy(os.path.join(self.get_install_dir(), 'build', urchin_mode, 'scylla'), self.get_bin_dir())
-        shutil.copy(os.path.join(self.get_install_dir(), '../urchin-jmx', 'target', 'urchin-mbean-1.0.jar'), self.get_bin_dir())
+        os.link(os.path.join(self.get_install_dir(), 'build', urchin_mode, 'scylla'), os.path.join(self.get_bin_dir(),'scylla'))
+        os.link(os.path.join(self.get_install_dir(), '../urchin-jmx', 'target', 'urchin-mbean-1.0.jar'), os.path.join(self.get_bin_dir(),'urchin-mbean-1.0.jar'))
 
         resources_bin_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'resources', 'bin')
         for name in os.listdir(resources_bin_dir):
