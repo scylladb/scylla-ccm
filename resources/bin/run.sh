@@ -6,6 +6,7 @@
 i=0
 ip=`cat $1/conf/cassandra.yaml | grep 'listen_address' | cut -f2 -d' '`
 jmx_port=`cat $1/node.conf | grep 'jmx_port' | cut -f2 -d"'"`
+rm -Rf $1/logs/system.log
 echo "" > $1/logs/system.log
 export SCYLLA_HOME=$1
 exec $1/bin/scylla --options-file $1/conf/scylla.yaml "${@:2}" <&- 2>&1 | tee -a "$1/logs/system.log" &
