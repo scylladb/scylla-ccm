@@ -952,6 +952,11 @@ class Node(object):
         info = self.nodetool('info', capture_output=True)[0]
         return _get_load_from_info_output(info)
 
+    def row_cache_entries(self):
+        """Uses `nodetool info` to get the node row cache entry count."""
+        info = self.nodetool('info', capture_output=True)[0]
+        return _get_row_cache_entries_from_info_output(info)
+
     def flush(self):
         self.nodetool("flush")
 
@@ -1480,6 +1485,15 @@ def _get_load_from_info_output(info):
 
     return float(load_num) * load_mult
 
+def _get_row_cache_entries_from_info_output(info):
+    row_cache_lines = [s for s in info.split('\n')
+                  if s.startswith('Row Cache')]
+    if not len(row_cache_lines) == 1:
+        msg = ('Expected output from `nodetool info` to contain exactly 1 '
+               'line starting with "Row Cache". Found:\n') + info
+        raise RuntimeError(msg)
+    row_cache_line = row_cache_lines[0].replace(",","").split()
+    return int(row_cache_line[4])
 
 def _grep_log_for_errors(log):
     matchings = []
