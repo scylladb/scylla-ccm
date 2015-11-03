@@ -110,8 +110,8 @@ class ClusterCreateCmd(Cmd):
         return parser
 
     def validate(self, parser, options, args):
-        if options.urchin and (not options.install_dir or not options.vnodes):
-            parser.error("must specify install_dir and vnodes when using urchin")
+        if options.urchin and not options.install_dir:
+            parser.error("must specify install_dir using urchin")
         Cmd.validate(self, parser, options, args, cluster_name=True)
         if options.ipprefix and options.ipformat:
             parser.print_help()
