@@ -485,8 +485,7 @@ class UrchinNode(Node):
 
         # FIXME add urchin options
         data['api_address'] = data['listen_address']
-        # full_options = dict(list(self.cluster._config_options.items()) + list(self.__config_options.items())) # last win and we want node options to win
-        full_options = dict(list(self.cluster._config_options.items())) # last win and we want node options to win
+        full_options = dict(list(self.cluster._config_options.items()) + list(self.get_configuration_options().items())) # last win and we want node options to win
         for name in full_options:
             value = full_options[name]
             if value is None:
