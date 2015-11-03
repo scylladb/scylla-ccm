@@ -241,6 +241,9 @@ class Node(object):
 
         self.import_config_files()
 
+    def get_configuration_options(self):
+        return self.__config_options
+
     def show(self, only_status=False, show_cluster=True):
         """
         Print infos on this node configuration.
