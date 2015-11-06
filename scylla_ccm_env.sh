@@ -1,4 +1,4 @@
-export PATH=`pwd`/urchin-ccm:$PATH
+export PATH=`pwd`:$PATH
 export PERL5LIB=`pwd`
 export PYTHONPATH=`pwd`
 
