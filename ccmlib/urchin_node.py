@@ -65,6 +65,15 @@ class UrchinNode(Node):
         if workload == 'solr':
             self.__generate_server_xml()
 
+    def cpuset(self,id,count):
+        # leaving one core for other executables to run
+        allocated_cpus = psutil.cpu_count()-1
+        start_id = id*count % allocated_cpus
+        cpuset = []
+        for cpuid in xrange(start_id,start_id+count):
+            cpuset.append(str(cpuid % allocated_cpus))
+        return cpuset
+
     # Urchin Overload start
     def start(self,
               join_ring=True,
@@ -152,6 +161,11 @@ class UrchinNode(Node):
            args += ['--default-log-level','info']
         if '--collectd' not in args:
            args += ['--collectd','0']
+        if '--cpuset' not in args:
+           smp = int(args[args.index('--smp')+1])
+           id = int(data['listen_address'].split('.')[3]) - 1
+           cpuset = self.cpuset(id,smp)
+           args += ['--cpuset',','.join(cpuset)]
         #args = [launch_bin, '-p', pidfile, '-Dcassandra.join_ring=%s' % str(join_ring)]
         #if replace_token is not None:
         #    args.append('-Dcassandra.replace_token=%s' % str(replace_token))
