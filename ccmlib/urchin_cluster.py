@@ -11,13 +11,15 @@ from ccmlib.cluster import Cluster
 from ccmlib.urchin_node import UrchinNode
 from ccmlib import common
 
+
 class UrchinCluster(Cluster):
+
     def __init__(self, path, name, partitioner=None, install_dir=None, create_directory=True, version=None, verbose=False, **kwargs):
-        install_dir, self.urchin_mode=common.urchin_extract_install_dir_and_mode(install_dir)
+        install_dir, self.urchin_mode = common.urchin_extract_install_dir_and_mode(install_dir)
         super(UrchinCluster, self).__init__(path, name, partitioner, install_dir, create_directory, version, verbose, snitch='org.apache.cassandra.locator.GossipingPropertyFileSnitch')
 
     def load_from_repository(self, version, verbose):
-        raise Exception("no impl");
+        raise Exception("no impl")
 #        return repository.setup_dse(version, self.dse_username, self.dse_password, verbose)
 
     def create_node(self, name, auto_bootstrap, thrift_interface, storage_interface, jmx_port, remote_debug_port, initial_token, save=True, binary_interface=None):
@@ -27,8 +29,8 @@ class UrchinCluster(Cluster):
     def __update_pids(self, started):
         for node, p, _ in started:
             node._update_pid(p)
-    
-    # overidr cluster 
+
+    # overidr cluster
     def start(self, no_wait=False, verbose=False, wait_for_binary_proto=False, wait_other_notice=False, jvm_args=[], profile_options=None):
         if wait_other_notice:
             marks = [(node, node.mark_log()) for node in list(self.nodes.values())]
@@ -44,7 +46,7 @@ class UrchinCluster(Cluster):
                 started.append((node, p, mark))
 
         if no_wait and not verbose:
-            time.sleep(2) # waiting 2 seconds to check for early errors and for the pid to be set
+            time.sleep(2)  # waiting 2 seconds to check for early errors and for the pid to be set
         else:
             for node, p, mark in started:
                 try:
@@ -82,10 +84,9 @@ class UrchinCluster(Cluster):
 
         return started
 
-
     def cassandra_version(self):
         # FIXME
         return '2.1'
 
     def get_urchin_mode(self):
-        return self.urchin_mode;
+        return self.urchin_mode

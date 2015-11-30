@@ -130,9 +130,9 @@ class ClusterCreateCmd(Cmd):
             parser.print_help()
             exit(1)
         if self.options.snitch and \
-            (not isinstance(self.nodes, list) or \
-            not (self.options.snitch == 'org.apache.cassandra.locator.PropertyFileSnitch' or \
-            self.options.snitch == 'org.apache.cassandra.locator.GossipingPropertyFileSnitch')):
+            (not isinstance(self.nodes, list) or
+             not (self.options.snitch == 'org.apache.cassandra.locator.PropertyFileSnitch' or
+                  self.options.snitch == 'org.apache.cassandra.locator.GossipingPropertyFileSnitch')):
             parser.print_help()
             exit(1)
 

@@ -18,7 +18,9 @@ from ccmlib.node import Node
 from ccmlib.node import NodeError
 from ccmlib import common
 
+
 class UrchinNode(Node):
+
     """
     Provides interactions to a Urchin node.
     """
@@ -43,11 +45,11 @@ class UrchinNode(Node):
         return common.join_bin(os.path.join(self.get_install_dir(), 'resources', 'cassandra'), 'bin', toolname)
 
     def get_tool_args(self, toolname):
-        raise Exception ("no impl")
+        raise Exception("no impl")
         return [common.join_bin(os.path.join(self.get_install_dir(), 'resources', 'cassandra'), 'bin', 'dse'), toolname]
 
     def get_env(self):
-        raise Exception ("no impl")
+        raise Exception("no impl")
         return common.make_dse_env(self.get_install_dir(), self.get_path())
 
     def get_cassandra_version(self):
@@ -59,18 +61,18 @@ class UrchinNode(Node):
         return self
 
     def set_workload(self, workload):
-        raise Exception ("no impl")
+        raise Exception("no impl")
         self.workload = workload
         self._update_config()
         if workload == 'solr':
             self.__generate_server_xml()
 
-    def cpuset(self,id,count):
+    def cpuset(self, id, count):
         # leaving one core for other executables to run
-        allocated_cpus = psutil.cpu_count()-1
-        start_id = id*count % allocated_cpus
+        allocated_cpus = psutil.cpu_count() - 1
+        start_id = id * count % allocated_cpus
         cpuset = []
-        for cpuid in xrange(start_id,start_id+count):
+        for cpuid in xrange(start_id, start_id + count):
             cpuset.append(str(cpuid % allocated_cpus))
         return cpuset
 
@@ -146,26 +148,26 @@ class UrchinNode(Node):
         # FIXME we do not support this forcing specific settings
 
         # FIXME workaround for api-address as we do not load it from config file urchin#59
-        conf_file = os.path.join(self.get_conf_dir(),common.URCHIN_CONF)
+        conf_file = os.path.join(self.get_conf_dir(), common.URCHIN_CONF)
         with open(conf_file, 'r') as f:
-             data = yaml.load(f)
-        jvm_args = jvm_args + ['--api-address',data['api_address']]
-        jvm_args = jvm_args + ['--collectd-hostname',socket.gethostname()+"."+self.name]
+            data = yaml.load(f)
+        jvm_args = jvm_args + ['--api-address', data['api_address']]
+        jvm_args = jvm_args + ['--collectd-hostname', socket.gethostname() + "." + self.name]
 
         args = [launch_bin, self.get_path()] + jvm_args
         if '--smp' not in args:
-           args += ['--smp', '1']
+            args += ['--smp', '1']
         if '--memory' not in args:
-           args += ['--memory','512M']
+            args += ['--memory', '512M']
         if '--default-log-level' not in args:
-           args += ['--default-log-level','info']
+            args += ['--default-log-level', 'info']
         if '--collectd' not in args:
-           args += ['--collectd','0']
+            args += ['--collectd', '0']
         if '--cpuset' not in args:
-           smp = int(args[args.index('--smp')+1])
-           id = int(data['listen_address'].split('.')[3]) - 1
-           cpuset = self.cpuset(id,smp)
-           args += ['--cpuset',','.join(cpuset)]
+            smp = int(args[args.index('--smp') + 1])
+            id = int(data['listen_address'].split('.')[3]) - 1
+            cpuset = self.cpuset(id, smp)
+            args += ['--cpuset', ','.join(cpuset)]
         #args = [launch_bin, '-p', pidfile, '-Dcassandra.join_ring=%s' % str(join_ring)]
         #if replace_token is not None:
         #    args.append('-Dcassandra.replace_token=%s' % str(replace_token))
@@ -188,17 +190,17 @@ class UrchinNode(Node):
             process = subprocess.Popen(args, cwd=self.get_bin_dir(), env=env, stdout=FNULL, stderr=subprocess.PIPE)
         else:
             # FIXME
-            process = subprocess.Popen(args,stdout=FNULL,stderr=FNULL,close_fds=True)
+            process = subprocess.Popen(args, stdout=FNULL, stderr=FNULL, close_fds=True)
             #process = subprocess.Popen(args, stdout=FNULL, stderr=subprocess.PIPE)
             # FIXME workaround create pid file
             pidfile = os.path.join(self.get_path(), 'cassandra.pid')
-            f = open(pidfile,"w")
+            f = open(pidfile, "w")
             # we are waiting for the run script to have time to run scylla process
             time.sleep(1)
             p = psutil.Process(process.pid)
             child_p = p.children()
             if child_p[0].name() != 'scylla':
-               raise NodeError("Error starting urchin node");
+                raise NodeError("Error starting urchin node")
             f.write(str(child_p[0].pid))
             f.flush()
             os.fsync(f)
@@ -209,19 +211,19 @@ class UrchinNode(Node):
             time.sleep(2)
             java_up = False
             iteration = 0
-            while (java_up != True and iteration < 10):
-               iteration = iteration + 1
-               s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-               try:
-                   s.settimeout(1.0)
-                   s.connect((data['listen_address'],int(self.jmx_port)))
-                   java_up = True
-               except:
-                   java_up = False
-               try:
-                  s.close()
-               except:
-                  pass
+            while not java_up and iteration < 10:
+                iteration = iteration + 1
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                try:
+                    s.settimeout(1.0)
+                    s.connect((data['listen_address'], int(self.jmx_port)))
+                    java_up = True
+                except:
+                    java_up = False
+                try:
+                    s.close()
+                except:
+                    pass
             time.sleep(1)
 
         # Our modified batch file writes a dirty output with more than just the pid - clean it to get in parity
@@ -249,17 +251,17 @@ class UrchinNode(Node):
         return process
 
     def start_dse(self,
-              join_ring=True,
-              no_wait=False,
-              verbose=False,
-              update_pid=True,
-              wait_other_notice=False,
-              replace_token=None,
-              replace_address=None,
-              jvm_args=[],
-              wait_for_binary_proto=False,
-              profile_options=None,
-              use_jna=False):
+                  join_ring=True,
+                  no_wait=False,
+                  verbose=False,
+                  update_pid=True,
+                  wait_other_notice=False,
+                  replace_token=None,
+                  replace_address=None,
+                  jvm_args=[],
+                  wait_for_binary_proto=False,
+                  profile_options=None,
+                  use_jna=False):
         """
         Start the node. Options includes:
           - join_ring: if false, start the node with -Dcassandra.join_ring=False
@@ -270,7 +272,7 @@ class UrchinNode(Node):
           - replace_token: start the node with the -Dcassandra.replace_token option.
           - replace_address: start the node with the -Dcassandra.replace_address option.
         """
-        raise Exception ("no impl")
+        raise Exception("no impl")
 
         if self.is_running():
             raise NodeError("%s is already running" % self.name)
@@ -280,8 +282,7 @@ class UrchinNode(Node):
                 common.check_socket_available(itf)
 
         if wait_other_notice:
-            marks = [ (node, node.mark_log()) for node in list(self.cluster.nodes.values()) if node.is_running() ]
-
+            marks = [(node, node.mark_log()) for node in list(self.cluster.nodes.values()) if node.is_running()]
 
         cdir = self.get_install_dir()
         launch_bin = common.join_bin(cdir, 'bin', 'dse')
@@ -295,14 +296,14 @@ class UrchinNode(Node):
 
         if profile_options is not None:
             config = common.get_config()
-            if not 'yourkit_agent' in config:
+            if 'yourkit_agent' not in config:
                 raise NodeError("Cannot enable profile. You need to set 'yourkit_agent' to the path of your agent in a ~/.ccm/config")
             cmd = '-agentpath:%s' % config['yourkit_agent']
             if 'options' in profile_options:
                 cmd = cmd + '=' + profile_options['options']
             print_(cmd)
             # Yes, it's fragile as shit
-            pattern=r'cassandra_parms="-Dlog4j.configuration=log4j-server.properties -Dlog4j.defaultInitOverride=true'
+            pattern = r'cassandra_parms="-Dlog4j.configuration=log4j-server.properties -Dlog4j.defaultInitOverride=true'
             common.replace_in_file(launch_bin, pattern, '    ' + pattern + ' ' + cmd + '"')
 
         os.chmod(launch_bin, os.stat(launch_bin).st_mode | stat.S_IEXEC)
@@ -310,7 +311,7 @@ class UrchinNode(Node):
         env = common.make_dse_env(self.get_install_dir(), self.get_path())
 
         if common.is_win():
-            self._clean_win_jmx();
+            self._clean_win_jmx()
 
         pidfile = os.path.join(self.get_path(), 'cassandra.pid')
         args = [launch_bin, 'cassandra']
@@ -324,7 +325,7 @@ class UrchinNode(Node):
                 args.append('-k')
             if 'cfs' in self.workload:
                 args.append('-c')
-        args += [ '-p', pidfile, '-Dcassandra.join_ring=%s' % str(join_ring) ]
+        args += ['-p', pidfile, '-Dcassandra.join_ring=%s' % str(join_ring)]
         if replace_token is not None:
             args.append('-Dcassandra.replace_token=%s' % str(replace_token))
         if replace_address is not None:
@@ -349,7 +350,7 @@ class UrchinNode(Node):
             self._update_pid(process)
         elif update_pid:
             if no_wait:
-                time.sleep(2) # waiting 2 seconds nevertheless to check for early errors and for the pid to be set
+                time.sleep(2)  # waiting 2 seconds nevertheless to check for early errors and for the pid to be set
             else:
                 for line in process.stdout:
                     if verbose:
@@ -389,7 +390,7 @@ class UrchinNode(Node):
         #self.__update_envfile()
 
     def import_dse_config_files(self):
-        raise Exception ("no impl")
+        raise Exception("no impl")
         self._update_config()
         if not os.path.isdir(os.path.join(self.get_path(), 'resources', 'dse', 'conf')):
             os.makedirs(os.path.join(self.get_path(), 'resources', 'dse', 'conf'))
@@ -397,7 +398,7 @@ class UrchinNode(Node):
         self.__update_yaml()
 
     def copy_config_files_dse(self):
-        raise Exception ("no impl")
+        raise Exception("no impl")
         for product in ['dse', 'cassandra', 'hadoop', 'sqoop', 'hive', 'tomcat', 'spark', 'shark', 'mahout', 'pig', 'solr']:
             src_conf = os.path.join(self.get_install_dir(), 'resources', product, 'conf')
             dst_conf = os.path.join(self.get_path(), 'resources', product, 'conf')
@@ -422,32 +423,32 @@ class UrchinNode(Node):
                     common.rmdirs(dst_webapps)
                 shutil.copytree(src_webapps, dst_webapps)
 
-    def hard_link_or_copy(self,src,dst):
+    def hard_link_or_copy(self, src, dst):
         try:
-            os.link(src,dst)
+            os.link(src, dst)
         except OSError as oserror:
             if oserror.errno == errno.EXDEV or oserror.errno == errno.EMLINK:
-                shutil.copy(src,dst)
+                shutil.copy(src, dst)
             else:
                 raise oserror
 
     def import_bin_files(self):
         # selectivly copying files to reduce risk of using unintended items
-        files = ['cassandra.in.sh','nodetool']
+        files = ['cassandra.in.sh', 'nodetool']
         os.makedirs(os.path.join(self.get_path(), 'resources', 'cassandra', 'bin'))
         for name in files:
-            self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'resources', 'cassandra', 'bin',name), os.path.join(self.get_path(), 'resources', 'cassandra', 'bin',name))
+            self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'resources', 'cassandra', 'bin', name), os.path.join(self.get_path(), 'resources', 'cassandra', 'bin', name))
 
         # selectivly copying files to reduce risk of using unintended items
         files = ['sstable2json']
-        os.makedirs(os.path.join(self.get_path(), 'resources', 'cassandra', 'tools','bin'))
+        os.makedirs(os.path.join(self.get_path(), 'resources', 'cassandra', 'tools', 'bin'))
         for name in files:
-            self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'resources', 'cassandra', 'tools','bin',name), os.path.join(self.get_path(), 'resources', 'cassandra', 'tools','bin',name))
+            self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'resources', 'cassandra', 'tools', 'bin', name), os.path.join(self.get_path(), 'resources', 'cassandra', 'tools', 'bin', name))
 
         # FIXME - currently no scripts only executable - copying exec
-        urchin_mode = self.cluster.get_urchin_mode();
-        self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'build', urchin_mode, 'scylla'), os.path.join(self.get_bin_dir(),'scylla'))
-        self.hard_link_or_copy(os.path.join(self.get_install_dir(),'..','scylla-jmx', 'target', 'urchin-mbean-1.0.jar'), os.path.join(self.get_bin_dir(),'urchin-mbean-1.0.jar'))
+        urchin_mode = self.cluster.get_urchin_mode()
+        self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'build', urchin_mode, 'scylla'), os.path.join(self.get_bin_dir(), 'scylla'))
+        self.hard_link_or_copy(os.path.join(self.get_install_dir(), '..', 'scylla-jmx', 'target', 'urchin-mbean-1.0.jar'), os.path.join(self.get_bin_dir(), 'urchin-mbean-1.0.jar'))
 
         resources_bin_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'resources', 'bin')
         for name in os.listdir(resources_bin_dir):
@@ -499,7 +500,7 @@ class UrchinNode(Node):
 
         # FIXME add urchin options
         data['api_address'] = data['listen_address']
-        full_options = dict(list(self.cluster._config_options.items()) + list(self.get_configuration_options().items())) # last win and we want node options to win
+        full_options = dict(list(self.cluster._config_options.items()) + list(self.get_configuration_options().items()))  # last win and we want node options to win
         for name in full_options:
             value = full_options[name]
             if value is None:
@@ -523,17 +524,17 @@ class UrchinNode(Node):
 
         # FIXME - for now create a cassandra conf file leaving only cassandra config items - this should be removed once tools are updated to remove urchin conf and use a "shrinked" version
         cassandra_conf_file = os.path.join(self.get_conf_dir(), common.CASSANDRA_CONF)
-        cassandra_conf_items = {'cluster_name':0,'num_tokens':0,'hinted_handoff_enabled':0,'max_hint_window_in_ms':0,'hinted_handoff_throttle_in_kb':0,'max_hints_delivery_threads':0,'batchlog_replay_throttle_in_kb':0,'authenticator':0,'authorizer':0,'permissions_validity_in_ms':0,'partitioner':0,'data_file_directories':0,'commitlog_directory':0,'disk_failure_policy':0,'commit_failure_policy':0,'key_cache_size_in_mb':0,'key_cache_save_period':0,'key_cache_keys_to_save':0,'row_cache_size_in_mb':0,'row_cache_save_period':0,'row_cache_keys_to_save':0,'counter_cache_size_in_mb':0,'counter_cache_save_period':0,'counter_cache_keys_to_save':0,'memory_allocator':0,'commitlog_sync_batch_window_in_ms':0,'commitlog_sync':0,'commitlog_sync_period_in_ms':0,'commitlog_segment_size_in_mb':0,'seed_provider':0,'concurrent_reads':0,'concurrent_writes':0,'concurrent_counter_writes':0,'file_cache_size_in_mb':0,'memtable_heap_space_in_mb':0,'memtable_offheap_space_in_mb':0,'memtable_cleanup_threshold':0,'memtable_allocation_type':0,'commitlog_total_space_in_mb':0,'memtable_flush_writers':0,'index_summary_capacity_in_mb':0,'index_summary_resize_interval_in_minutes':0,'trickle_fsync':0,'trickle_fsync_interval_in_kb':0,'storage_port':0,'ssl_storage_port':0,'listen_address':0,'listen_interface':0,'listen_interface_prefer_ipv6':0,'broadcast_address':0,'internode_authenticator':0,'start_native_transport':0,'native_transport_port':0,'native_transport_max_threads':0,'native_transport_max_frame_size_in_mb':0,'native_transport_max_concurrent_connections':0,'native_transport_max_concurrent_connections_per_ip':0,'start_rpc':0,'rpc_address':0,'rpc_interface':0,'rpc_interface_prefer_ipv6':0,'rpc_port':0,'broadcast_rpc_address':0,'rpc_keepalive':0,'rpc_server_type':0,'rpc_min_threads':0,'rpc_max_threads':0,'rpc_send_buff_size_in_bytes':0,'rpc_recv_buff_size_in_bytes':0,'thrift_framed_transport_size_in_mb':0,'incremental_backups':0,'snapshot_before_compaction':0,'auto_snapshot':0,'tombstone_warn_threshold':0,'tombstone_failure_threshold':0,'column_index_size_in_kb':0,'batch_size_warn_threshold_in_kb':0,'concurrent_compactors':0,'compaction_throughput_mb_per_sec':0,'compaction_large_partition_warning_threshold_mb':0,'sstable_preemptive_open_interval_in_mb':0,'stream_throughput_outbound_megabits_per_sec':0,'inter_dc_stream_throughput_outbound_megabits_per_sec':0,'read_request_timeout_in_ms':0,'range_request_timeout_in_ms':0,'write_request_timeout_in_ms':0,'counter_write_request_timeout_in_ms':0,'cas_contention_timeout_in_ms':0,'truncate_request_timeout_in_ms':0,'request_timeout_in_ms':0,'cross_node_timeout':0,'streaming_socket_timeout_in_ms':0,'phi_convict_threshold':0,'endpoint_snitch':0,'dynamic_snitch_update_interval_in_ms':0,'dynamic_snitch_reset_interval_in_ms':0,'dynamic_snitch_badness_threshold':0,'request_scheduler':0,'request_scheduler_options':0,'request_scheduler_id':0,'server_encryption_options':0,'client_encryption_options':0,'internode_compression':0,'inter_dc_tcp_nodelay':0}
+        cassandra_conf_items = {'cluster_name': 0, 'num_tokens': 0, 'hinted_handoff_enabled': 0, 'max_hint_window_in_ms': 0, 'hinted_handoff_throttle_in_kb': 0, 'max_hints_delivery_threads': 0, 'batchlog_replay_throttle_in_kb': 0, 'authenticator': 0, 'authorizer': 0, 'permissions_validity_in_ms': 0, 'partitioner': 0, 'data_file_directories': 0, 'commitlog_directory': 0, 'disk_failure_policy': 0, 'commit_failure_policy': 0, 'key_cache_size_in_mb': 0, 'key_cache_save_period': 0, 'key_cache_keys_to_save': 0, 'row_cache_size_in_mb': 0, 'row_cache_save_period': 0, 'row_cache_keys_to_save': 0, 'counter_cache_size_in_mb': 0, 'counter_cache_save_period': 0, 'counter_cache_keys_to_save': 0, 'memory_allocator': 0, 'commitlog_sync_batch_window_in_ms': 0, 'commitlog_sync': 0, 'commitlog_sync_period_in_ms': 0, 'commitlog_segment_size_in_mb': 0, 'seed_provider': 0, 'concurrent_reads': 0, 'concurrent_writes': 0, 'concurrent_counter_writes': 0, 'file_cache_size_in_mb': 0, 'memtable_heap_space_in_mb': 0, 'memtable_offheap_space_in_mb': 0, 'memtable_cleanup_threshold': 0, 'memtable_allocation_type': 0, 'commitlog_total_space_in_mb': 0, 'memtable_flush_writers': 0, 'index_summary_capacity_in_mb': 0, 'index_summary_resize_interval_in_minutes': 0, 'trickle_fsync': 0, 'trickle_fsync_interval_in_kb': 0, 'storage_port': 0, 'ssl_storage_port': 0, 'listen_address': 0, 'listen_interface': 0, 'listen_interface_prefer_ipv6': 0, 'broadcast_address': 0, 'internode_authenticator': 0, 'start_native_transport': 0, 'native_transport_port': 0, 'native_transport_max_threads': 0, 'native_transport_max_frame_size_in_mb': 0, 'native_transport_max_concurrent_connections': 0, 'native_transport_max_concurrent_connections_per_ip': 0, 'start_rpc': 0, 'rpc_address': 0, 'rpc_interface': 0, 'rpc_interface_prefer_ipv6': 0, 'rpc_port': 0, 'broadcast_rpc_address': 0, 'rpc_keepalive': 0, 'rpc_server_type': 0, 'rpc_min_threads': 0, 'rpc_max_threads': 0, 'rpc_send_buff_size_in_bytes': 0, 'rpc_recv_buff_size_in_bytes': 0, 'thrift_framed_transport_size_in_mb': 0, 'incremental_backups': 0, 'snapshot_before_compaction': 0, 'auto_snapshot': 0, 'tombstone_warn_threshold': 0, 'tombstone_failure_threshold': 0, 'column_index_size_in_kb': 0, 'batch_size_warn_threshold_in_kb': 0, 'concurrent_compactors': 0, 'compaction_throughput_mb_per_sec': 0, 'compaction_large_partition_warning_threshold_mb': 0, 'sstable_preemptive_open_interval_in_mb': 0, 'stream_throughput_outbound_megabits_per_sec': 0, 'inter_dc_stream_throughput_outbound_megabits_per_sec': 0, 'read_request_timeout_in_ms': 0, 'range_request_timeout_in_ms': 0, 'write_request_timeout_in_ms': 0, 'counter_write_request_timeout_in_ms': 0, 'cas_contention_timeout_in_ms': 0, 'truncate_request_timeout_in_ms': 0, 'request_timeout_in_ms': 0, 'cross_node_timeout': 0, 'streaming_socket_timeout_in_ms': 0, 'phi_convict_threshold': 0, 'endpoint_snitch': 0, 'dynamic_snitch_update_interval_in_ms': 0, 'dynamic_snitch_reset_interval_in_ms': 0, 'dynamic_snitch_badness_threshold': 0, 'request_scheduler': 0, 'request_scheduler_options': 0, 'request_scheduler_id': 0, 'server_encryption_options': 0, 'client_encryption_options': 0, 'internode_compression': 0, 'inter_dc_tcp_nodelay': 0}
         cassandra_data = {}
         for key in data:
             if key in cassandra_conf_items:
                 cassandra_data[key] = data[key]
-        
+
         with open(cassandra_conf_file, 'w') as f:
             yaml.safe_dump(cassandra_data, f, default_flow_style=False)
 
     def __update_yaml_dse(self):
-        raise Exception ("no impl")
+        raise Exception("no impl")
         conf_file = os.path.join(self.get_path(), 'resources', 'dse', 'conf', 'dse.yaml')
         with open(conf_file, 'r') as f:
             data = yaml.load(f)
@@ -542,7 +543,7 @@ class UrchinNode(Node):
 
         full_options = dict(list(self.cluster._dse_config_options.items()))
         for name in full_options:
-            if not name is 'dse_yaml_file':
+            if name != 'dse_yaml_file':
                 value = full_options[name]
                 if value is None:
                     try:
@@ -562,7 +563,7 @@ class UrchinNode(Node):
             yaml.safe_dump(data, f, default_flow_style=False)
 
     def _update_log4j(self):
-        raise Exception ("no impl")
+        raise Exception("no impl")
         super(UrchinNode, self)._update_log4j()
 
         conf_file = os.path.join(self.get_conf_dir(), common.LOG4J_CONF)
@@ -585,7 +586,7 @@ class UrchinNode(Node):
         common.replace_in_file(conf_file, append_pattern, append_pattern + log_file)
 
     def __generate_server_xml(self):
-        raise Exception ("no impl")
+        raise Exception("no impl")
         server_xml = os.path.join(self.get_path(), 'resources', 'tomcat', 'conf', 'server.xml')
         if os.path.isfile(server_xml):
             os.remove(server_xml)
@@ -606,19 +607,19 @@ class UrchinNode(Node):
     def _get_directories(self):
         dirs = {}
         #for i in ['data', 'commitlogs', 'saved_caches', 'logs', 'bin', 'keys', 'resources']:
-        for i in ['data', 'commitlogs', 'bin', 'conf','logs']:
+        for i in ['data', 'commitlogs', 'bin', 'conf', 'logs']:
             dirs[i] = os.path.join(self.get_path(), i)
         return dirs
 
     def _copy_agent(self):
-        raise Exception ("no impl")
+        raise Exception("no impl")
         agent_source = os.path.join(self.get_install_dir(), 'datastax-agent')
         agent_target = os.path.join(self.get_path(), 'datastax-agent')
         if os.path.exists(agent_source) and not os.path.exists(agent_target):
             shutil.copytree(agent_source, agent_target)
 
     def _start_agent(self):
-        raise Exception ("no impl")
+        raise Exception("no impl")
         agent_dir = os.path.join(self.get_path(), 'datastax-agent')
         if os.path.exists(agent_dir):
             self._write_agent_address_yaml(agent_dir)
@@ -627,7 +628,7 @@ class UrchinNode(Node):
             subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     def _stop_agent(self):
-        raise Exception ("no impl")
+        raise Exception("no impl")
         agent_dir = os.path.join(self.get_path(), 'datastax-agent')
         if os.path.exists(agent_dir):
             pidfile = os.path.join(agent_dir, 'datastax-agent.pid')
@@ -643,7 +644,7 @@ class UrchinNode(Node):
             os.remove(pidfile)
 
     def _write_agent_address_yaml(self, agent_dir):
-        raise Exception ("no impl")
+        raise Exception("no impl")
         address_yaml = os.path.join(agent_dir, 'conf', 'address.yaml')
         if not os.path.exists(address_yaml):
             with open(address_yaml, 'w+') as f:
@@ -661,7 +662,7 @@ class UrchinNode(Node):
                 f.close()
 
     def _write_agent_log4j_properties(self, agent_dir):
-        raise Exception ("no impl")
+        raise Exception("no impl")
         log4j_properties = os.path.join(agent_dir, 'conf', 'log4j.properties')
         with open(log4j_properties, 'w+') as f:
             f.write('log4j.rootLogger=INFO,R\n')

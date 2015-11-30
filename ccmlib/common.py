@@ -16,11 +16,11 @@ import time
 import yaml
 from six import print_
 
-BIN_DIR= "bin"
-CASSANDRA_CONF_DIR= "conf"
-DSE_CASSANDRA_CONF_DIR="resources/cassandra/conf"
-OPSCENTER_CONF_DIR= "conf"
-URCHIN_CONF_DIR= "conf"
+BIN_DIR = "bin"
+CASSANDRA_CONF_DIR = "conf"
+DSE_CASSANDRA_CONF_DIR = "resources/cassandra/conf"
+OPSCENTER_CONF_DIR = "conf"
+URCHIN_CONF_DIR = "conf"
 
 
 CASSANDRA_CONF = "cassandra.yaml"
@@ -217,7 +217,7 @@ def make_cassandra_env(install_dir, node_path, update_conf=True):
     env['MAX_HEAP_SIZE'] = os.environ.get('CCM_MAX_HEAP_SIZE', '500M')
     env['HEAP_NEWSIZE'] = os.environ.get('CCM_HEAP_NEWSIZE', '50M')
     # FIXME workaround for now - should be removed and maybe included in tool execution scripts
-    env['cassandra.config'] = "file://" + os.path.join(node_path, 'conf','cassandra.yaml')
+    env['cassandra.config'] = "file://" + os.path.join(node_path, 'conf', 'cassandra.yaml')
     env['CASSANDRA_HOME'] = install_dir
     env['CASSANDRA_CONF'] = os.path.join(node_path, 'conf')
 
@@ -361,13 +361,15 @@ def isDse(install_dir):
     dse_script = os.path.join(bin_dir, 'dse')
     return os.path.exists(dse_script)
 
+
 def isUrchin(install_dir):
     if install_dir is None:
         raise ArgumentError('Undefined installation directory')
 
-    return (os.path.exists(os.path.join(install_dir,'scylla')) or
-        os.path.exists(os.path.join(install_dir,'build','debug','scylla')) or
-        os.path.exists(os.path.join(install_dir,'build','release','scylla')))
+    return (os.path.exists(os.path.join(install_dir, 'scylla')) or
+            os.path.exists(os.path.join(install_dir, 'build', 'debug', 'scylla')) or
+            os.path.exists(os.path.join(install_dir, 'build', 'release', 'scylla')))
+
 
 def isOpscenter(install_dir):
     if install_dir is None:
@@ -381,15 +383,17 @@ def isOpscenter(install_dir):
     opscenter_script = os.path.join(bin_dir, 'opscenter')
     return os.path.exists(opscenter_script)
 
+
 def urchin_extract_install_dir_and_mode(install_dir):
-    urchin_mode='release'
+    urchin_mode = 'release'
     if install_dir.endswith('build/debug') or install_dir.endswith('build/debug/'):
-       urchin_mode='debug'
-       install_dir = str(os.path.join(install_dir,os.pardir,os.pardir))
+        urchin_mode = 'debug'
+        install_dir = str(os.path.join(install_dir, os.pardir, os.pardir))
     if install_dir.endswith('build/release') or install_dir.endswith('build/release/'):
-       urchin_mode='release'
-       install_dir = str(os.path.join(install_dir,os.pardir,os.pardir))
-    return install_dir,urchin_mode;
+        urchin_mode = 'release'
+        install_dir = str(os.path.join(install_dir, os.pardir, os.pardir))
+    return install_dir, urchin_mode
+
 
 def validate_install_dir(install_dir):
     if install_dir is None:
@@ -402,7 +406,7 @@ def validate_install_dir(install_dir):
 
     bin_dir = os.path.join(install_dir, BIN_DIR)
     if isUrchin(install_dir):
-        install_dir,mode = urchin_extract_install_dir_and_mode(install_dir)
+        install_dir, mode = urchin_extract_install_dir_and_mode(install_dir)
         bin_dir = install_dir
         conf_dir = os.path.join(install_dir, URCHIN_CONF_DIR)
     elif isDse(install_dir):
@@ -555,12 +559,14 @@ def get_version_from_build(install_dir=None, node_path=None):
                     return match.group(1)
     raise CCMError("Cannot find version")
 
+
 def get_urchin_version(install_dir):
     # FIXME
     if isUrchin(install_dir):
-       return '2.1'
+        return '2.1'
     else:
-       return None
+        return None
+
 
 def get_dse_version(install_dir):
     for root, dirs, files in os.walk(install_dir):

@@ -15,7 +15,8 @@ from ccmlib.node import Node, NodeError
 
 
 class Cluster(object):
-    def __init__(self, path, name, partitioner=None, install_dir=None, create_directory=True, version=None, verbose=False, snitch='org.apache.cassandra.locator.PropertyFileSnitch',**kwargs):
+
+    def __init__(self, path, name, partitioner=None, install_dir=None, create_directory=True, version=None, verbose=False, snitch='org.apache.cassandra.locator.PropertyFileSnitch', **kwargs):
         self.name = name
         self.nodes = {}
         self.seeds = []
@@ -140,7 +141,7 @@ class Cluster(object):
         dcs = []
         self.use_vnodes = use_vnodes
         if isinstance(nodes, list):
-            self.set_configuration_options(values={'endpoint_snitch' : self.snitch})
+            self.set_configuration_options(values={'endpoint_snitch': self.snitch})
             node_count = 0
             i = 0
             for c in nodes:
@@ -191,9 +192,9 @@ class Cluster(object):
 
     def balanced_tokens(self, node_count):
         if self.cassandra_version() >= '1.2' and not self.partitioner:
-            ptokens = [(i * (2**64 // node_count)) for i in xrange(0, node_count)]
-            return [int(t - 2**63) for t in ptokens]
-        return [int(i * (2**127 // node_count)) for i in range(0, node_count)]
+            ptokens = [(i * (2 ** 64 // node_count)) for i in xrange(0, node_count)]
+            return [int(t - 2 ** 63) for t in ptokens]
+        return [int(i * (2 ** 127 // node_count)) for i in range(0, node_count)]
 
     def balanced_tokens_across_dcs(self, dcs):
         tokens = []
@@ -488,9 +489,9 @@ class Cluster(object):
 
     def __update_topology_files(self):
         if self.snitch == 'org.apache.cassandra.locator.PropertyFileSnitch':
-           self.__update_topology_using_toplogy_properties()
+            self.__update_topology_using_toplogy_properties()
         elif self.snitch == 'org.apache.cassandra.locator.GossipingPropertyFileSnitch':
-           self.__update_topology_using_rackdc_properties()
+            self.__update_topology_using_rackdc_properties()
 
     def __update_topology_using_toplogy_properties(self):
         dcs = [('default', 'dc1')]
