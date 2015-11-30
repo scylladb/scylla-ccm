@@ -20,11 +20,11 @@ BIN_DIR = "bin"
 CASSANDRA_CONF_DIR = "conf"
 DSE_CASSANDRA_CONF_DIR = "resources/cassandra/conf"
 OPSCENTER_CONF_DIR = "conf"
-URCHIN_CONF_DIR = "conf"
+SCYLLA_CONF_DIR = "conf"
 
 
 CASSANDRA_CONF = "cassandra.yaml"
-URCHIN_CONF = "scylla.yaml"
+SCYLLA_CONF = "scylla.yaml"
 LOG4J_CONF = "log4j-server.properties"
 LOG4J_TOOL_CONF = "log4j-tools.properties"
 LOGBACK_CONF = "logback.xml"
@@ -362,7 +362,7 @@ def isDse(install_dir):
     return os.path.exists(dse_script)
 
 
-def isUrchin(install_dir):
+def isScylla(install_dir):
     if install_dir is None:
         raise ArgumentError('Undefined installation directory')
 
@@ -384,15 +384,15 @@ def isOpscenter(install_dir):
     return os.path.exists(opscenter_script)
 
 
-def urchin_extract_install_dir_and_mode(install_dir):
-    urchin_mode = 'release'
+def scylla_extract_install_dir_and_mode(install_dir):
+    scylla_mode = 'release'
     if install_dir.endswith('build/debug') or install_dir.endswith('build/debug/'):
-        urchin_mode = 'debug'
+        scylla_mode = 'debug'
         install_dir = str(os.path.join(install_dir, os.pardir, os.pardir))
     if install_dir.endswith('build/release') or install_dir.endswith('build/release/'):
-        urchin_mode = 'release'
+        scylla_mode = 'release'
         install_dir = str(os.path.join(install_dir, os.pardir, os.pardir))
-    return install_dir, urchin_mode
+    return install_dir, scylla_mode
 
 
 def validate_install_dir(install_dir):
@@ -405,10 +405,10 @@ def validate_install_dir(install_dir):
             raise ArgumentError('%s does not appear to be a cassandra or dse installation directory.  Please use absolute pathing (e.g. C:/cassandra.' % install_dir)
 
     bin_dir = os.path.join(install_dir, BIN_DIR)
-    if isUrchin(install_dir):
-        install_dir, mode = urchin_extract_install_dir_and_mode(install_dir)
+    if isScylla(install_dir):
+        install_dir, mode = scylla_extract_install_dir_and_mode(install_dir)
         bin_dir = install_dir
-        conf_dir = os.path.join(install_dir, URCHIN_CONF_DIR)
+        conf_dir = os.path.join(install_dir, SCYLLA_CONF_DIR)
     elif isDse(install_dir):
         conf_dir = os.path.join(install_dir, DSE_CASSANDRA_CONF_DIR)
     elif isOpscenter(install_dir):
@@ -417,8 +417,8 @@ def validate_install_dir(install_dir):
         conf_dir = os.path.join(install_dir, CASSANDRA_CONF_DIR)
     cnd = os.path.exists(bin_dir)
     cnd = cnd and os.path.exists(conf_dir)
-    if isUrchin(install_dir):
-        cnd = os.path.exists(os.path.join(conf_dir, URCHIN_CONF))
+    if isScylla(install_dir):
+        cnd = os.path.exists(os.path.join(conf_dir, SCYLLA_CONF))
     elif not isOpscenter(install_dir):
         cnd = cnd and os.path.exists(os.path.join(conf_dir, CASSANDRA_CONF))
     if not cnd:
@@ -538,9 +538,9 @@ def get_version_from_build(install_dir=None, node_path=None):
     if install_dir is None and node_path is not None:
         install_dir = get_install_dir_from_cluster_conf(node_path)
     if install_dir is not None:
-        urchin_version = get_urchin_version(install_dir)
-        if (urchin_version is not None):
-            return urchin_version
+        scylla_version = get_scylla_version(install_dir)
+        if (scylla_version is not None):
+            return scylla_version
         # Binary cassandra installs will have a 0.version.txt file
         version_file = os.path.join(install_dir, '0.version.txt')
         if os.path.exists(version_file):
@@ -560,9 +560,9 @@ def get_version_from_build(install_dir=None, node_path=None):
     raise CCMError("Cannot find version")
 
 
-def get_urchin_version(install_dir):
+def get_scylla_version(install_dir):
     # FIXME
-    if isUrchin(install_dir):
+    if isScylla(install_dir):
         return '2.1'
     else:
         return None

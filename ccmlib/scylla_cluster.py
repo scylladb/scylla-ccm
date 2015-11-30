@@ -8,22 +8,22 @@ import time
 from six import iteritems
 from ccmlib import repository
 from ccmlib.cluster import Cluster
-from ccmlib.urchin_node import UrchinNode
+from ccmlib.scylla_node import ScyllaNode
 from ccmlib import common
 
 
-class UrchinCluster(Cluster):
+class ScyllaCluster(Cluster):
 
     def __init__(self, path, name, partitioner=None, install_dir=None, create_directory=True, version=None, verbose=False, **kwargs):
-        install_dir, self.urchin_mode = common.urchin_extract_install_dir_and_mode(install_dir)
-        super(UrchinCluster, self).__init__(path, name, partitioner, install_dir, create_directory, version, verbose, snitch='org.apache.cassandra.locator.GossipingPropertyFileSnitch')
+        install_dir, self.scylla_mode = common.scylla_extract_install_dir_and_mode(install_dir)
+        super(ScyllaCluster, self).__init__(path, name, partitioner, install_dir, create_directory, version, verbose, snitch='org.apache.cassandra.locator.GossipingPropertyFileSnitch')
 
     def load_from_repository(self, version, verbose):
         raise Exception("no impl")
 #        return repository.setup_dse(version, self.dse_username, self.dse_password, verbose)
 
     def create_node(self, name, auto_bootstrap, thrift_interface, storage_interface, jmx_port, remote_debug_port, initial_token, save=True, binary_interface=None):
-        return UrchinNode(name, self, auto_bootstrap, thrift_interface, storage_interface, jmx_port, remote_debug_port, initial_token, save, binary_interface)
+        return ScyllaNode(name, self, auto_bootstrap, thrift_interface, storage_interface, jmx_port, remote_debug_port, initial_token, save, binary_interface)
 
     # copy from cluster
     def __update_pids(self, started):
@@ -50,8 +50,8 @@ class UrchinCluster(Cluster):
         else:
             for node, p, mark in started:
                 try:
-                    # updated code, urchin starts CQL only by default
-                    # process should not be checked for urchin as the process is a bootup script (that ends after boot)
+                    # updated code, scylla starts CQL only by default
+                    # process should not be checked for scylla as the process is a bootup script (that ends after boot)
                     start_message = "Starting listening for CQL clients"
                     node.watch_log_for(start_message, timeout=300, verbose=verbose, from_mark=mark)
                 except RuntimeError:
@@ -88,5 +88,5 @@ class UrchinCluster(Cluster):
         # FIXME
         return '2.1'
 
-    def get_urchin_mode(self):
-        return self.urchin_mode
+    def get_scylla_mode(self):
+        return self.scylla_mode

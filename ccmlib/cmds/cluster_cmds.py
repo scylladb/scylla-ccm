@@ -10,7 +10,7 @@ from ccmlib.cluster_factory import ClusterFactory
 from ccmlib.cmds.command import Cmd
 from ccmlib.common import ArgumentError
 from ccmlib.dse_cluster import DseCluster
-from ccmlib.urchin_cluster import UrchinCluster
+from ccmlib.scylla_cluster import ScyllaCluster
 from ccmlib.dse_node import DseNode
 from ccmlib.node import Node, NodeError
 
@@ -111,15 +111,15 @@ class ClusterCreateCmd(Cmd):
                           help="Enable client authentication (only vaid with --ssl)", default=False)
         parser.add_option('--node-ssl', type="string", dest="node_ssl_path",
                           help="Path to keystore.jks and truststore.jks for internode encryption", default=None)
-        parser.add_option("--urchin", action="store_true", dest="urchin",
-                          help="Must specify --install-dir holding Urchin")
+        parser.add_option("--scylla", action="store_true", dest="scylla",
+                          help="Must specify --install-dir holding Scylla")
         parser.add_option("--snitch", type="string", dest="snitch",
                           help="Supports 'org.apache.cassandra.locator.PropertyFileSnitch','org.apache.cassandra.locator.GossipingPropertyFileSnitch' used only in multidc clusters")
         return parser
 
     def validate(self, parser, options, args):
-        if options.urchin and not options.install_dir:
-            parser.error("must specify install_dir using urchin")
+        if options.scylla and not options.install_dir:
+            parser.error("must specify install_dir using scylla")
         Cmd.validate(self, parser, options, args, cluster_name=True)
         if options.ipprefix and options.ipformat:
             parser.print_help()
@@ -151,8 +151,8 @@ class ClusterCreateCmd(Cmd):
 
     def run(self):
         try:
-            if self.options.urchin:
-                cluster = UrchinCluster(self.path, self.name, install_dir=self.options.install_dir, version=self.options.version, verbose=True)
+            if self.options.scylla:
+                cluster = ScyllaCluster(self.path, self.name, install_dir=self.options.install_dir, version=self.options.version, verbose=True)
             elif self.options.dse or (not self.options.version and common.isDse(self.options.install_dir)):
                 cluster = DseCluster(self.path, self.name, install_dir=self.options.install_dir, version=self.options.version, dse_username=self.options.dse_username, dse_password=self.options.dse_password, opscenter=self.options.opscenter, verbose=True)
             else:
