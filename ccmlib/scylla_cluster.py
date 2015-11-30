@@ -38,7 +38,8 @@ class ScyllaCluster(Cluster):
 
     # override cluster
     def start(self, no_wait=False, verbose=False, wait_for_binary_proto=False,
-              wait_other_notice=False, jvm_args=None, profile_options=None):
+              wait_other_notice=False, jvm_args=None, profile_options=None,
+              quiet_start=False):
         p = None
         if jvm_args is None:
             jvm_args = []

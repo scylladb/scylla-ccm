@@ -81,7 +81,7 @@ class ScyllaNode(Node):
     def start(self, join_ring=True, no_wait=False, verbose=False,
               update_pid=True, wait_other_notice=False, replace_token=None,
               replace_address=None, jvm_args=None, wait_for_binary_proto=False,
-              profile_options=None, use_jna=False):
+              profile_options=None, use_jna=False, quiet_start=False):
         """
         Start the node. Options includes:
           - join_ring: if false, start the node with -Dcassandra.join_ring=False
