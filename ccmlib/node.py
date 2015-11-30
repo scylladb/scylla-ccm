@@ -183,6 +183,9 @@ class Node(object):
         """
         return os.path.join(self.get_path(), 'conf')
 
+    def get_config_options(self):
+        return self.__config_options
+
     def address(self):
         """
         Returns the IP use by this node for internal communication
