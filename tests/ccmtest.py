@@ -1,6 +1,5 @@
-import os
 from unittest import TestCase
-
+import os
 
 class Tester(TestCase):
 

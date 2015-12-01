@@ -40,9 +40,6 @@ Windows only:
   - To install psutil, you must use the .msi from pypi. pip install psutil will not work
   - You will need ant.bat in your PATH in order to build C* from source
   - You must run with an Unrestricted Powershell Execution-Policy if using Cassandra 2.1.0+
-  - Ant installed via [chocolatey](https://chocolatey.org/) will not be found by ccm, so you must create a symbolic
-    link in order to fix the issue (as administrator):
-    - cmd /c mklink C:\ProgramData\chocolatey\bin\ant.bat C:\ProgramData\chocolatey\bin\ant.exe
 
 Installation
 ------------
@@ -51,16 +48,9 @@ ccm uses python distutils so from the source directory run:
 
     sudo ./setup.py install
 
-ccm is available on the [Python Package Index][pip]:
+MacPorts has ccm available as a port:
 
-    pip install ccm
-
-There is also a [Homebrew package][brew] available:
-
-    brew install ccm
-
-  [pip]: https://pypi.python.org/pypi/ccm
-  [brew]: https://github.com/Homebrew/homebrew/blob/master/Library/Formula/ccm.rb
+    sudo port -v sync && sudo port -v install ccm
 
 Usage
 -----
@@ -92,8 +82,8 @@ tell ccm how to find the sources:
 
           ccm create test -v 2.0.5
 
-     ccm will download the binary (from http://archive.apache.org/dist/cassandra),
-     and set the new cluster to use it. This means
+     ccm will download the source (from http://archive.apache.org/dist/cassandra),
+     compile it, and set the new cluster to use it. This means
      that this command can take a few minutes the first time you
      create a cluster for a given version. ccm saves the compiled
      source in `~/.ccm/repository/`, so creating a cluster for that
@@ -155,30 +145,12 @@ The list of other provided commands is available through
 Each command is then documented through the `-h` (or `--help`) flag. For
 instance `ccm add -h` describes the options for `ccm add`.
 
-### Source Distribution
+### Binary Distribution
 
-If you'd like to use a source distribution instead of the default binary each time (for example, for Continuous Integration), you can prefix cassandra version with `source:`, for example:
-
-```
-ccm create test -v source:2.0.5 -n 3 -s
-```
-
-### Automatic Version Fallback
-
-If 'binary:' or 'source:' are not explicitly specified in your version string, then ccm will fallback to building the requested version from git if it cannot access the apache mirrors.
-
-### Git and GitHub
-
-To use the latest version from the [canonical Apache Git repository](https://git-wip-us.apache.org/repos/asf?p=cassandra.git), use the version name `git:branch-name`, e.g.:
+If you'd like to use a binary distribution instead of compiling from sources each time (for example, for Continuous Integration), you can prefix cassandra version with `binary:`, for example:
 
 ```
-ccm create trunk -v git:trunk -n 5
-```
-
-and to download a branch from a GitHub fork of Cassandra, you can prefix the repository and branch with `github:`, e.g.:
-
-```
-ccm create patched -v github:jbellis/trunk -n 1
+ccm create test -v binary:2.0.5 -n 3 -s
 ```
 
 Remote debugging

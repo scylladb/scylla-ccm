@@ -2,7 +2,6 @@
 # Cassandra Cluster Management lib
 #
 
-import fnmatch
 import os
 import platform
 import re
@@ -11,80 +10,57 @@ import socket
 import stat
 import subprocess
 import sys
-import time
-
-import yaml
 from six import print_
+import time
+import yaml
+import fnmatch
 
-BIN_DIR = "bin"
-CASSANDRA_CONF_DIR = "conf"
-DSE_CASSANDRA_CONF_DIR = "resources/cassandra/conf"
-OPSCENTER_CONF_DIR = "conf"
-SCYLLA_CONF_DIR = "conf"
+BIN_DIR= "bin"
+CASSANDRA_CONF_DIR= "conf"
+DSE_CASSANDRA_CONF_DIR="resources/cassandra/conf"
+OPSCENTER_CONF_DIR= "conf"
+URCHIN_CONF_DIR= "conf"
 
 
 CASSANDRA_CONF = "cassandra.yaml"
-SCYLLA_CONF = "scylla.yaml"
+URCHIN_CONF = "scylla.yaml"
 LOG4J_CONF = "log4j-server.properties"
 LOG4J_TOOL_CONF = "log4j-tools.properties"
 LOGBACK_CONF = "logback.xml"
-LOGBACK_TOOLS_CONF = "logback-tools.xml"
 CASSANDRA_ENV = "cassandra-env.sh"
 CASSANDRA_WIN_ENV = "cassandra-env.ps1"
 CASSANDRA_SH = "cassandra.in.sh"
 
 CONFIG_FILE = "config"
-CCM_CONFIG_DIR = "CCM_CONFIG_DIR"
-
 
 class CCMError(Exception):
     pass
 
-
 class LoadError(CCMError):
     pass
-
 
 class ArgumentError(CCMError):
     pass
 
-
 class UnavailableSocketError(CCMError):
     pass
 
-
 def get_default_path():
-    if CCM_CONFIG_DIR in os.environ and os.environ[CCM_CONFIG_DIR]:
-        default_path = os.environ[CCM_CONFIG_DIR]
-    else:
-        default_path = os.path.join(get_user_home(), '.ccm')
-
+    default_path = os.path.join(get_user_home(), '.ccm')
     if not os.path.exists(default_path):
         os.mkdir(default_path)
     return default_path
-
-
-def get_default_path_display_name():
-    default_path = get_default_path().lower()
-    user_home = get_user_home().lower()
-
-    if default_path.startswith(user_home):
-        default_path = os.path.join('~', default_path[len(user_home) + 1:])
-
-    return default_path
-
 
 def get_user_home():
     if is_win():
         if sys.platform == "cygwin":
             # Need the fully qualified directory
-            output = subprocess.Popen(["cygpath", "-m", os.path.expanduser('~')], stdout=subprocess.PIPE, stderr=subprocess.STDOUT).communicate()[0].rstrip()
+            output = subprocess.Popen(["cygpath", "-m", os.path.expanduser('~')], stdout = subprocess.PIPE, stderr = subprocess.STDOUT).communicate()[0].rstrip()
             return output
         else:
             return os.environ['USERPROFILE']
     else:
         return os.path.expanduser('~')
-
 
 def get_config():
     config_path = os.path.join(get_default_path(), CONFIG_FILE)
@@ -94,10 +70,8 @@ def get_config():
     with open(config_path, 'r') as f:
         return yaml.load(f)
 
-
 def now_ms():
     return int(round(time.time() * 1000))
-
 
 def parse_interface(itf, default_port):
     i = itf.split(':')
@@ -108,7 +82,6 @@ def parse_interface(itf, default_port):
     else:
         raise ValueError("Invalid interface definition: " + itf)
 
-
 def current_cluster_name(path):
     try:
         with open(os.path.join(path, 'CURRENT'), 'r') as f:
@@ -116,18 +89,15 @@ def current_cluster_name(path):
     except IOError:
         return None
 
-
 def switch_cluster(path, new_name):
     with open(os.path.join(path, 'CURRENT'), 'w') as f:
         f.write(new_name + '\n')
 
-
 def replace_in_file(file, regexp, replace):
     replaces_in_file(file, [(regexp, replace)])
 
-
 def replaces_in_file(file, replacement_list):
-    rs = [(re.compile(regexp), repl) for (regexp, repl) in replacement_list]
+    rs = [ (re.compile(regexp), repl) for (regexp, repl) in replacement_list]
     file_tmp = file + ".tmp"
     with open(file, 'r') as f:
         with open(file_tmp, 'w') as f_tmp:
@@ -139,13 +109,11 @@ def replaces_in_file(file, replacement_list):
                 f_tmp.write(line)
     shutil.move(file_tmp, file)
 
-
 def replace_or_add_into_file_tail(file, regexp, replace):
     replaces_or_add_into_file_tail(file, [(regexp, replace)])
 
-
 def replaces_or_add_into_file_tail(file, replacement_list):
-    rs = [(re.compile(regexp), repl) for (regexp, repl) in replacement_list]
+    rs = [ (re.compile(regexp), repl) for (regexp, repl) in replacement_list]
     is_line_found = False
     file_tmp = file + ".tmp"
     with open(file, 'r') as f:
@@ -159,7 +127,7 @@ def replaces_or_add_into_file_tail(file, replacement_list):
                 if "</configuration>" not in line:
                     f_tmp.write(line)
             # In case, entry is not found, and need to be added
-            if not is_line_found:
+            if is_line_found == False:
                 f_tmp.write('\n' + replace + "\n")
             # We are moving the closing tag to the end of the file.
             # Previously, we were having an issue where new lines we wrote
@@ -168,7 +136,6 @@ def replaces_or_add_into_file_tail(file, replacement_list):
 
     shutil.move(file_tmp, file)
 
-
 def rmdirs(path):
     if is_win():
         # Handle Windows 255 char limit
@@ -176,8 +143,7 @@ def rmdirs(path):
     else:
         shutil.rmtree(path)
 
-
-def make_cassandra_env(install_dir, node_path, update_conf=True):
+def make_cassandra_env(install_dir, node_path):
     if is_win() and get_version_from_build(node_path=node_path) >= '2.1':
         sh_file = os.path.join(CASSANDRA_CONF_DIR, CASSANDRA_WIN_ENV)
     else:
@@ -186,21 +152,19 @@ def make_cassandra_env(install_dir, node_path, update_conf=True):
     dst = os.path.join(node_path, sh_file)
     if not os.path.exists(dst):
         shutil.copy(orig, dst)
-
-    if update_conf:
-        replacements = ""
-        if is_win() and get_version_from_build(node_path=node_path) >= '2.1':
-            replacements = [
-                ('env:CASSANDRA_HOME =', '        $env:CASSANDRA_HOME="%s"' % install_dir),
-                ('env:CASSANDRA_CONF =', '    $env:CCM_DIR="' + node_path + '\\conf"\n    $env:CASSANDRA_CONF="$env:CCM_DIR"'),
-                ('cp = ".*?env:CASSANDRA_HOME.conf', '    $cp = """$env:CASSANDRA_CONF"""')
-            ]
-        else:
-            replacements = [
-                ('CASSANDRA_HOME=', '\tCASSANDRA_HOME=%s' % install_dir),
-                ('CASSANDRA_CONF=', '\tCASSANDRA_CONF=%s' % os.path.join(node_path, 'conf'))
-            ]
-        replaces_in_file(dst, replacements)
+    replacements = ""
+    if is_win() and get_version_from_build(node_path=node_path) >= '2.1':
+        replacements = [
+            ('env:CASSANDRA_HOME =', '        $env:CASSANDRA_HOME="%s"' % install_dir),
+            ('env:CASSANDRA_CONF =', '    $env:CCM_DIR="' + node_path + '\\conf"\n    $env:CASSANDRA_CONF="$env:CCM_DIR"'),
+            ('cp = ".*?env:CASSANDRA_HOME.conf', '    $cp = """$env:CASSANDRA_CONF"""')
+        ]
+    else:
+        replacements = [
+            ('CASSANDRA_HOME=', '\tCASSANDRA_HOME=%s' % install_dir),
+            ('CASSANDRA_CONF=', '\tCASSANDRA_CONF=%s' % os.path.join(node_path, 'conf'))
+        ]
+    replaces_in_file(dst, replacements)
 
     # If a cluster-wide cassandra.in.sh file exists in the parent
     # directory, append it to the node specific one:
@@ -217,12 +181,9 @@ def make_cassandra_env(install_dir, node_path, update_conf=True):
     env['MAX_HEAP_SIZE'] = os.environ.get('CCM_MAX_HEAP_SIZE', '500M')
     env['HEAP_NEWSIZE'] = os.environ.get('CCM_HEAP_NEWSIZE', '50M')
     # FIXME workaround for now - should be removed and maybe included in tool execution scripts
-    env['cassandra.config'] = "file://" + os.path.join(node_path, 'conf', 'cassandra.yaml')
-    env['CASSANDRA_HOME'] = install_dir
-    env['CASSANDRA_CONF'] = os.path.join(node_path, 'conf')
+    env['cassandra.config'] = "file://" + os.path.join(node_path, 'conf','cassandra.yaml')
 
     return env
-
 
 def make_dse_env(install_dir, node_path):
     env = os.environ.copy()
@@ -243,51 +204,40 @@ def make_dse_env(install_dir, node_path):
     env['SHARK_CONF_DIR'] = os.path.join(node_path, 'resources', 'shark', 'conf')
     return env
 
-
 def check_win_requirements():
     if is_win():
         # Make sure ant.bat is in the path and executable before continuing
         try:
-            subprocess.Popen('ant.bat', stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        except Exception:
+            process = subprocess.Popen('ant.bat', stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        except Exception as e:
             sys.exit("ERROR!  Could not find or execute ant.bat.  Please fix this before attempting to run ccm on Windows.")
 
         # Confirm matching architectures
         # 32-bit python distributions will launch 32-bit cmd environments, losing PowerShell execution privileges on a 64-bit system
-        if sys.maxsize <= 2 ** 32 and platform.machine().endswith('64'):
+        if sys.maxsize <= 2**32 and platform.machine().endswith('64'):
             sys.exit("ERROR!  64-bit os and 32-bit python distribution found.  ccm requires matching architectures.")
 
-
 def is_win():
-    return sys.platform in ("cygwin", "win32")
-
+    return True if sys.platform == "cygwin" or sys.platform == "win32" else False
 
 def is_ps_unrestricted():
     if not is_win():
         raise CCMError("Can only check PS Execution Policy on Windows")
     else:
-        try:
-            p = subprocess.Popen(['powershell', 'Get-ExecutionPolicy'], stdout=subprocess.PIPE)
-        # pylint: disable=E0602
-        except WindowsError:
-            print_("ERROR: Could not find powershell. Is it in your path?")
+        p = subprocess.Popen(['powershell', 'Get-ExecutionPolicy'], stdout=subprocess.PIPE)
         if "Unrestricted" in p.communicate()[0]:
             return True
         else:
             return False
 
-
 def join_bin(root, dir, executable):
     return os.path.join(root, dir, platform_binary(executable))
-
 
 def platform_binary(input):
     return input + ".bat" if is_win() else input
 
-
 def platform_pager():
     return "more" if sys.platform == "win32" else "less"
-
 
 def add_exec_permission(path, executable):
     # 1) os.chmod on Windows can't add executable permissions
@@ -297,7 +247,6 @@ def add_exec_permission(path, executable):
         cmd = "cd " + path + "; chmod u+x " + executable
         os.system(cmd)
 
-
 def parse_path(executable):
     sep = os.sep
     if sys.platform == "win32":
@@ -306,11 +255,9 @@ def parse_path(executable):
     del tokens[-1]
     return os.sep.join(tokens)
 
-
 def parse_bin(executable):
     tokens = re.split(os.sep, executable)
     return tokens[-1]
-
 
 def get_stress_bin(install_dir):
     candidates = [
@@ -348,7 +295,6 @@ def get_stress_bin(install_dir):
 
     return stress
 
-
 def isDse(install_dir):
     if install_dir is None:
         raise ArgumentError('Undefined installation directory')
@@ -361,15 +307,13 @@ def isDse(install_dir):
     dse_script = os.path.join(bin_dir, 'dse')
     return os.path.exists(dse_script)
 
-
-def isScylla(install_dir):
+def isUrchin(install_dir):
     if install_dir is None:
         raise ArgumentError('Undefined installation directory')
 
-    return (os.path.exists(os.path.join(install_dir, 'scylla')) or
-            os.path.exists(os.path.join(install_dir, 'build', 'debug', 'scylla')) or
-            os.path.exists(os.path.join(install_dir, 'build', 'release', 'scylla')))
-
+    return (os.path.exists(os.path.join(install_dir,'scylla')) or
+        os.path.exists(os.path.join(install_dir,'build','debug','scylla')) or
+        os.path.exists(os.path.join(install_dir,'build','release','scylla')))
 
 def isOpscenter(install_dir):
     if install_dir is None:
@@ -383,17 +327,15 @@ def isOpscenter(install_dir):
     opscenter_script = os.path.join(bin_dir, 'opscenter')
     return os.path.exists(opscenter_script)
 
-
-def scylla_extract_install_dir_and_mode(install_dir):
-    scylla_mode = 'release'
+def urchin_extract_install_dir_and_mode(install_dir):
+    urchin_mode='release'
     if install_dir.endswith('build/debug') or install_dir.endswith('build/debug/'):
-        scylla_mode = 'debug'
-        install_dir = str(os.path.join(install_dir, os.pardir, os.pardir))
+       urchin_mode='debug'
+       install_dir = str(os.path.join(install_dir,os.pardir,os.pardir))
     if install_dir.endswith('build/release') or install_dir.endswith('build/release/'):
-        scylla_mode = 'release'
-        install_dir = str(os.path.join(install_dir, os.pardir, os.pardir))
-    return install_dir, scylla_mode
-
+       urchin_mode='release'
+       install_dir = str(os.path.join(install_dir,os.pardir,os.pardir))
+    return install_dir,urchin_mode;
 
 def validate_install_dir(install_dir):
     if install_dir is None:
@@ -405,10 +347,10 @@ def validate_install_dir(install_dir):
             raise ArgumentError('%s does not appear to be a cassandra or dse installation directory.  Please use absolute pathing (e.g. C:/cassandra.' % install_dir)
 
     bin_dir = os.path.join(install_dir, BIN_DIR)
-    if isScylla(install_dir):
-        install_dir, mode = scylla_extract_install_dir_and_mode(install_dir)
+    if isUrchin(install_dir):
+        install_dir,mode = urchin_extract_install_dir_and_mode(install_dir)
         bin_dir = install_dir
-        conf_dir = os.path.join(install_dir, SCYLLA_CONF_DIR)
+        conf_dir = os.path.join(install_dir, URCHIN_CONF_DIR)
     elif isDse(install_dir):
         conf_dir = os.path.join(install_dir, DSE_CASSANDRA_CONF_DIR)
     elif isOpscenter(install_dir):
@@ -417,13 +359,12 @@ def validate_install_dir(install_dir):
         conf_dir = os.path.join(install_dir, CASSANDRA_CONF_DIR)
     cnd = os.path.exists(bin_dir)
     cnd = cnd and os.path.exists(conf_dir)
-    if isScylla(install_dir):
-        cnd = os.path.exists(os.path.join(conf_dir, SCYLLA_CONF))
+    if isUrchin(install_dir):
+        cnd = os.path.exists(os.path.join(conf_dir, URCHIN_CONF))
     elif not isOpscenter(install_dir):
         cnd = cnd and os.path.exists(os.path.join(conf_dir, CASSANDRA_CONF))
     if not cnd:
         raise ArgumentError('%s does not appear to be a cassandra or dse installation directory' % install_dir)
-
 
 def check_socket_available(itf):
     info = socket.getaddrinfo(itf[0], itf[1], socket.AF_UNSPEC, socket.SOCK_STREAM)
@@ -442,23 +383,6 @@ def check_socket_available(itf):
         addr, port = itf
         raise UnavailableSocketError("Inet address %s:%s is not available: %s" % (addr, port, msg))
 
-
-def check_socket_listening(itf, timeout=60):
-    end = time.time() + timeout
-    while time.time() <= end:
-        try:
-            sock = socket.socket()
-            sock.connect(itf)
-            sock.close()
-            return True
-        except socket.error:
-            # Try again in another 200ms
-            time.sleep(.2)
-            continue
-
-    return False
-
-
 def interface_is_ipv6(itf):
     info = socket.getaddrinfo(itf[0], itf[1], socket.AF_UNSPEC, socket.SOCK_STREAM)
     if not info:
@@ -467,8 +391,6 @@ def interface_is_ipv6(itf):
     return socket.AF_INET6 == info[0][0]
 
 # note: does not handle collapsing hextets with leading zeros
-
-
 def normalize_interface(itf):
     if not itf:
         return itf
@@ -479,7 +401,6 @@ def normalize_interface(itf):
         zeros = '0'.join([':'] * missing_hextets)
         ip = ''.join(['0' if p == '' else zeros if p == '::' else p for p in ip.partition('::')])
     return (ip, itf[1])
-
 
 def parse_settings(args):
     settings = {}
@@ -517,8 +438,6 @@ def parse_settings(args):
 #
 # Copy file from source to destination with reasonable error handling
 #
-
-
 def copy_file(src_file, dst_file):
     try:
         shutil.copy2(src_file, dst_file)
@@ -526,21 +445,19 @@ def copy_file(src_file, dst_file):
         print_(str(e), file=sys.stderr)
         exit(1)
 
-
 def copy_directory(src_dir, dst_dir):
     for name in os.listdir(src_dir):
         filename = os.path.join(src_dir, name)
         if os.path.isfile(filename):
             shutil.copy(filename, dst_dir)
 
-
 def get_version_from_build(install_dir=None, node_path=None):
     if install_dir is None and node_path is not None:
         install_dir = get_install_dir_from_cluster_conf(node_path)
     if install_dir is not None:
-        scylla_version = get_scylla_version(install_dir)
-        if (scylla_version is not None):
-            return scylla_version
+        urchin_version = get_urchin_version(install_dir)
+        if (urchin_version is not None):
+            return urchin_version
         # Binary cassandra installs will have a 0.version.txt file
         version_file = os.path.join(install_dir, '0.version.txt')
         if os.path.exists(version_file):
@@ -559,23 +476,20 @@ def get_version_from_build(install_dir=None, node_path=None):
                     return match.group(1)
     raise CCMError("Cannot find version")
 
-
-def get_scylla_version(install_dir):
+def get_urchin_version(install_dir):
     # FIXME
-    if isScylla(install_dir):
-        return '2.1'
+    if isUrchin(install_dir):
+       return '2.1'
     else:
-        return None
-
+       return None
 
 def get_dse_version(install_dir):
     for root, dirs, files in os.walk(install_dir):
         for file in files:
-            match = re.search('^dse(?:-core)?-([0-9.]+)(?:-SNAPSHOT)?\.jar', file)
+            match = re.search('^dse-([0-9.]+)(?:-SNAPSHOT)?\.jar', file)
             if match:
                 return match.group(1)
     return None
-
 
 def get_dse_cassandra_version(install_dir):
     clib = os.path.join(install_dir, 'resources', 'cassandra', 'lib')
@@ -584,8 +498,7 @@ def get_dse_cassandra_version(install_dir):
             match = re.search('cassandra-all-([0-9.]+)(?:-.*)?\.jar', file)
             if match:
                 return match.group(1)
-    raise ArgumentError("Unable to determine Cassandra version in: " + install_dir)
-
+    raise ArgumentError("Unable to determine Cassandra version in: "+install_dir)
 
 def get_install_dir_from_cluster_conf(node_path):
     file = os.path.join(os.path.dirname(node_path), "cluster.conf")
@@ -595,7 +508,6 @@ def get_install_dir_from_cluster_conf(node_path):
             if match:
                 return match.group(1)
     return None
-
 
 def is_dse_cluster(path):
     try:
@@ -610,18 +522,5 @@ def is_dse_cluster(path):
     except IOError:
         return False
 
-
 def invalidate_cache():
     rmdirs(os.path.join(get_default_path(), 'repository'))
-
-
-def get_jdk_version():
-    version = subprocess.check_output(['java', '-version'], stderr=subprocess.STDOUT)
-    ver_pattern = '\"(\d+\.\d+).*\"'
-    return re.search(ver_pattern, str(version)).groups()[0]
-
-
-def assert_jdk_valid_for_cassandra_version(cassandra_version):
-    if cassandra_version >= '3.0' and get_jdk_version() < '1.8':
-        print_('ERROR: Cassandra 3.0+ requires Java >= 1.8, found Java {}'.format(get_jdk_version()))
-        exit(1)

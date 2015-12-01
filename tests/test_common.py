@@ -1,8 +1,6 @@
-import unittest
-
-from ccmlib import common
 from . import ccmtest
-
+from ccmlib import common
+import yaml
 
 class TestCommon(ccmtest.Tester):
 
@@ -23,4 +21,4 @@ class TestCommon(ccmtest.Tester):
         self.assertEqual(normalized, ('fd6d:404d:54cb:0:0:0:0:1', 9042))
 
 if __name__ == '__main__':
-    unittest.main()
+        unittest.main()
