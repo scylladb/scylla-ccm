@@ -6,11 +6,11 @@ echo "Examples:"
 echo
 
 echo "=== Create scylla cluster with single node"
-echo "ccm create scylla-1 --urchin --vnodes -n 1 --install-dir=`pwd`/../scylla"
+echo "ccm create scylla-1 --scylla --vnodes -n 1 --install-dir=`pwd`/../scylla"
 echo
 
 echo "=== Create scylla cluster with 3 nodes"
-echo "ccm create scylla-3 --urchin --vnodes -n 3 --install-dir=`pwd`/../scylla"
+echo "ccm create scylla-3 --scylla --vnodes -n 3 --install-dir=`pwd`/../scylla"
 echo
 
 echo "=== Create cassandra cluster with 3 nodes"
