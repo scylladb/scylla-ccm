@@ -55,7 +55,8 @@ class ScyllaNode(Node):
         raise NotImplementedError('ScyllaNode.get_tool_args')
 
     def get_env(self):
-        raise NotImplementedError('ScyllaNode.get_env')
+        return common.make_cassandra_env(self.get_install_cassandra_root(),
+                                         self.get_node_cassandra_root())
 
     def get_cassandra_version(self):
         # TODO: Handle versioning
