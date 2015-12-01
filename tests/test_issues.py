@@ -1,10 +1,9 @@
-from ccmlib.cluster import Cluster
-from ccmlib.node import Node
 from . import TEST_DIR
 from . import ccmtest
+from ccmlib.cluster import Cluster
+from ccmlib.node import Node
 
 CLUSTER_PATH = TEST_DIR
-
 
 class TestCCMIssues(ccmtest.Tester):
 
@@ -16,7 +15,7 @@ class TestCCMIssues(ccmtest.Tester):
         dcs.append('dc2')
 
         node4 = Node('node4', self.cluster, True, ('127.0.0.4', 9160), ('127.0.0.4', 7000),
-                     '7400', '2000', None)
+            '7400', '2000', None)
         self.cluster.add(node4, False, 'dc2')
         node4.start()
 
