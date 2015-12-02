@@ -1,16 +1,18 @@
 # ccm clusters
 import os
 import shutil
-import subprocess
 import signal
+import subprocess
 
 from six import iteritems
-from ccmlib import repository
+
+from ccmlib import common, repository
 from ccmlib.cluster import Cluster
 from ccmlib.dse_node import DseNode
-from ccmlib import common
+
 
 class DseCluster(Cluster):
+
     def __init__(self, path, name, partitioner=None, install_dir=None, create_directory=True, version=None, dse_username=None, dse_password=None, opscenter=None, verbose=False):
         self.dse_username = dse_username
         self.dse_password = dse_password
@@ -30,7 +32,9 @@ class DseCluster(Cluster):
     def create_node(self, name, auto_bootstrap, thrift_interface, storage_interface, jmx_port, remote_debug_port, initial_token, save=True, binary_interface=None):
         return DseNode(name, self, auto_bootstrap, thrift_interface, storage_interface, jmx_port, remote_debug_port, initial_token, save, binary_interface)
 
-    def start(self, no_wait=False, verbose=False, wait_for_binary_proto=False, wait_other_notice=False, jvm_args=[], profile_options=None):
+    def start(self, no_wait=False, verbose=False, wait_for_binary_proto=False, wait_other_notice=False, jvm_args=None, profile_options=None, quiet_start=False):
+        if jvm_args is None:
+            jvm_args = []
         started = super(DseCluster, self).start(no_wait, verbose, wait_for_binary_proto, wait_other_notice, jvm_args, profile_options)
         self.start_opscenter()
         return started
