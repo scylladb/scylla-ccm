@@ -30,7 +30,6 @@ class Status():
     DOWN = "DOWN"
     DECOMMISSIONED = "DECOMMISSIONED"
 
-
 class NodeError(Exception):
 
     def __init__(self, msg, process=None):
@@ -1143,6 +1142,17 @@ class Node(object):
         self.nodetool("decommission")
         self.status = Status.DECOMMISSIONED
         self._update_config()
+
+    def hostid(self):
+        info = self.nodetool('info', capture_output=True)[0]
+        id_lines = [s for s in info.split('\n')
+                       if s.startswith('ID')]
+        if not len(id_lines) == 1:
+           msg = ('Expected output from `nodetool info` to contain exactly 1 '
+                 'line starting with "ID". Found:\n') + info
+           raise RuntimeError(msg)
+        id_line = id_lines[0].replace(":", "").split()
+        return id_line[1]
 
     def removeToken(self, token):
         self.nodetool("removeToken " + str(token))
