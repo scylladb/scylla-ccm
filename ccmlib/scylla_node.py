@@ -142,6 +142,8 @@ class ScyllaNode(Node):
             id = int(data['listen_address'].split('.')[3]) - 1
             cpuset = self.cpuset(id, smp)
             args += ['--cpuset', ','.join(cpuset)]
+        if replace_address:
+            args += ['--replace-address', replace_address]
 
         # In case we are restarting a node
         # we risk reading the old cassandra.pid file
@@ -160,9 +162,6 @@ class ScyllaNode(Node):
             # TODO: Support same cmdline options
             process = subprocess.Popen(args, stdout=FNULL, stderr=FNULL,
                                        close_fds=True)
-            # TODO: workaround create pid file
-            pidfile = os.path.join(self.get_path(), 'cassandra.pid')
-            f = open(pidfile, "w")
             # we are waiting for the run script to have time to
             # run scylla process
             time.sleep(1)
@@ -170,11 +169,11 @@ class ScyllaNode(Node):
             child_p = p.children()
             if child_p[0].name() != 'scylla':
                 raise NodeError("Error starting scylla node")
-            f.write(str(child_p[0].pid))
-            f.flush()
-            os.fsync(f)
-            f.close
-            os.fsync(f)
+
+            pid_filename = os.path.join(self.get_path(),
+                                        'cassandra.pid')
+            with open(pid_filename, 'w') as pid_file:
+                pid_file.write(str(child_p[0].pid))
 
             # we are waiting to make sure the java process is up
             # by connecting to the port
