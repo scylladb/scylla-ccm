@@ -1089,6 +1089,44 @@ class Node(object):
         except KeyboardInterrupt:
             pass
 
+    @staticmethod
+    def _set_stress_val(key, val, res):
+        if "[" in val:
+            p = re.compile('^\s*([\d\.]+)\s*\[.*')
+            m = p.match(val)
+            if m:
+                res[key] = float(m.group(1))
+            p = re.compile('^.*READ:([\d\.]+)[^\d].*')
+            m = p.match(val)
+            if m:
+                res[key + ":read"] = float(m.group(1))
+            p = re.compile('.*WRITE:([\d\.]+)[^\d].*')
+            m = p.match(val)
+            if m:
+                res[key + ":write"] = float(m.group(1))
+        else:
+            try:
+                res[key] = float(val)
+            except ValueError:
+                res[key] = val
+
+    def stress_object(self, stress_options=[], **kwargs):
+        out, err = self.stress(stress_options, True, **kwargs)
+        if err != "":
+            return err
+        p = re.compile('^\s*([^:]+)\s*:\s*(\S.*)\s*$')
+        res = {}
+        start = False
+        for l in [s.strip() for s in out.splitlines()]:
+            if start:
+                m = p.match(l)
+                if m:
+                    Node._set_stress_val(m.group(1).strip(), m.group(2).strip(), res)
+            else:
+                if l == 'Results:':
+                    start = True
+        return res
+
     def shuffle(self, cmd):
         cdir = self.get_install_dir()
         shuffle = common.join_bin(cdir, 'bin', 'cassandra-shuffle')
