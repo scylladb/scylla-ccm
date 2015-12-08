@@ -142,6 +142,8 @@ class ScyllaNode(Node):
             id = int(data['listen_address'].split('.')[3]) - 1
             cpuset = self.cpuset(id, smp)
             args += ['--cpuset', ','.join(cpuset)]
+        if replace_address:
+            args += ['--replace-address', replace_address]
 
         # In case we are restarting a node
         # we risk reading the old cassandra.pid file
