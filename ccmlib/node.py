@@ -375,7 +375,7 @@ class Node(object):
 
         log_file = os.path.join(self.get_path(), 'logs', filename)
         while not os.path.exists(log_file):
-            time.sleep(.5)
+            time.sleep(.1)
             if process:
                 process.poll()
                 if process.returncode is not None:
@@ -410,9 +410,9 @@ class Node(object):
                                 return matchings[0] if isinstance(exprs, string_types) else matchings
                 else:
                     # yep, it's ugly
-                    time.sleep(1)
+                    time.sleep(0.01)
                     elapsed = elapsed + 1
-                    if elapsed > timeout:
+                    if elapsed > 100*timeout:
                         raise TimeoutError(time.strftime("%d %b %Y %H:%M:%S", time.gmtime()) + " [" + self.name + "] Missing: " + str([e.pattern for e in tofind]) + ":\n" + reads[:50] + ".....\nSee {} for remainder".format(filename))
 
                 if process:
