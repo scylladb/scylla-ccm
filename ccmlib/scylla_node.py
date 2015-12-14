@@ -100,6 +100,31 @@ class ScyllaNode(Node):
         if jvm_args is None:
             jvm_args = []
 
+        scylla_cassandra_mapping = {'-Dcassandra.replace_address_first_boot':
+                                        '--replace-address-first-boot'}
+        # Replace args in the form
+        # ['-Dcassandra.foo=bar'] to ['-Dcassandra.foo', 'bar']
+        translated_args = []
+        new_jvm_args = []
+        for jvm_arg in jvm_args:
+            if '=' in jvm_arg:
+                split_option = jvm_arg.split("=")
+                e_msg = ("Option %s not in the form '-Dcassandra.foo=bar'. "
+                         "Please check your test" % jvm_arg)
+                assert len(split_option) == 2, e_msg
+                option, value = split_option
+                # If we have information on how to translate the jvm option,
+                # translate it
+                if option in scylla_cassandra_mapping:
+                    translated_args += [scylla_cassandra_mapping[option],
+                                           value]
+                # Otherwise, just pass it as is
+                else:
+                    new_jvm_args += split_option
+            else:
+                new_jvm_args += jvm_arg
+        jvm_args = new_jvm_args
+
         if self.is_running():
             raise NodeError("%s is already running" % self.name)
 
@@ -128,7 +153,9 @@ class ScyllaNode(Node):
         jvm_args = jvm_args + ['--collectd-hostname',
                                '%s.%s' % (socket.gethostname(), self.name)]
 
-        args = [launch_bin, self.get_path()] + jvm_args
+        # Let's add jvm_args and the translated args
+        args = [launch_bin, self.get_path()] + jvm_args + translated_args
+
         if '--smp' not in args:
             args += ['--smp', '1']
         if '--memory' not in args:
