@@ -334,9 +334,9 @@ class ScyllaNode(Node):
                                os.path.join(self.get_bin_dir(), 'scylla'))
         self.hard_link_or_copy(os.path.join(self.get_install_dir(),
                                             '..', 'scylla-jmx', 'target',
-                                            'urchin-mbean-1.0.jar'),
+                                            'scylla-jmx-1.0.jar'),
                                os.path.join(self.get_bin_dir(),
-                                            'urchin-mbean-1.0.jar'))
+                                            'scylla-jmx-1.0.jar'))
 
         parent_dir = os.path.dirname(os.path.realpath(__file__))
         resources_bin_dir = os.path.join(parent_dir, '..', 'resources', 'bin')
