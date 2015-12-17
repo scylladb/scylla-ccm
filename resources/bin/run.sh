@@ -11,9 +11,9 @@ export SCYLLA_HOME=$1
 shift
 exec $SCYLLA_HOME/bin/scylla --options-file $SCYLLA_HOME/conf/scylla.yaml "$@" <&- 2>&1 | tee -a "$SCYLLA_HOME/logs/system.log" &
 sleep 2
-# FIXME workaround for starting urchin-jmx - should use run script
+# FIXME workaround for starting scylla-jmx - should use run script
 pkill -f com.sun.management.jmxremote.port=$jmx_port || true
 sleep 2
-exec java -Dapiaddress=$ip -Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.port=$jmx_port -Dcom.sun.management.jmxremote.local.only=false -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false -jar $SCYLLA_HOME/bin/urchin-mbean-1.0.jar <&- 2>&1 | tee -a "$SCYLLA_HOME/logs/system.log.jmx" &
+exec java -Dapiaddress=$ip -Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.port=$jmx_port -Dcom.sun.management.jmxremote.local.only=false -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false -jar $SCYLLA_HOME/bin/scylla-jmx-1.0.jar <&- 2>&1 | tee -a "$SCYLLA_HOME/logs/system.log.jmx" &
 
 sleep 6
