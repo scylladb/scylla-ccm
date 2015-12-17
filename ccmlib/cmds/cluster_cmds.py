@@ -582,7 +582,7 @@ class ClusterStartCmd(Cmd):
                         print_(line.rstrip('\n'), file=sys.stderr)
                 else:
                     print_("Process died prematurely and doesn't have "
-                           "stdout/stderr recorded:", file=sys.stderr)
+                           "stdout/stderr recorded", file=sys.stderr)
             exit(1)
 
 
