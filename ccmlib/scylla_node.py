@@ -195,7 +195,9 @@ class ScyllaNode(Node):
             p = psutil.Process(process.pid)
             child_p = p.children()
             if child_p[0].name() != 'scylla':
-                raise NodeError("Error starting scylla node")
+                raise NodeError("Error starting scylla node: child process "
+                                "name is %s" % child_p[0].name(),
+                                process=process)
 
             pid_filename = os.path.join(self.get_path(),
                                         'cassandra.pid')
