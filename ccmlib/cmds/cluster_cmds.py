@@ -575,9 +575,14 @@ class ClusterStartCmd(Cmd):
                 exit(1)
         except NodeError as e:
             print_(str(e), file=sys.stderr)
-            print_("Standard error output is:", file=sys.stderr)
-            for line in e.process.stderr:
-                print_(line.rstrip('\n'), file=sys.stderr)
+            if e.process is not None:
+                if e.process.stderr is not None:
+                    print_("Standard error output is:", file=sys.stderr)
+                    for line in e.process.stderr.splitlines():
+                        print_(line.rstrip('\n'), file=sys.stderr)
+                else:
+                    print_("Process died prematurely and doesn't have "
+                           "stdout/stderr recorded:", file=sys.stderr)
             exit(1)
 
 

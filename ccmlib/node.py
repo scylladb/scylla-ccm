@@ -30,6 +30,7 @@ class Status():
     DOWN = "DOWN"
     DECOMMISSIONED = "DECOMMISSIONED"
 
+
 class NodeError(Exception):
 
     def __init__(self, msg, process=None):
@@ -130,7 +131,8 @@ class Node(object):
             binary_interface = None
             if 'binary' in itf and itf['binary'] is not None:
                 binary_interface = tuple(itf['binary'])
-            node = cluster.create_node(data['name'], data['auto_bootstrap'], tuple(itf['thrift']), tuple(itf['storage']), data['jmx_port'], remote_debug_port, initial_token, save=False, binary_interface=binary_interface)
+            node = cluster.create_node(data['name'], data['auto_bootstrap'], tuple(itf['thrift']), tuple(itf['storage']), data[
+                                       'jmx_port'], remote_debug_port, initial_token, save=False, binary_interface=binary_interface)
             node.status = data['status']
             if 'pid' in data:
                 node.pid = int(data['pid'])
@@ -412,8 +414,9 @@ class Node(object):
                     # yep, it's ugly
                     time.sleep(0.01)
                     elapsed = elapsed + 1
-                    if elapsed > 100*timeout:
-                        raise TimeoutError(time.strftime("%d %b %Y %H:%M:%S", time.gmtime()) + " [" + self.name + "] Missing: " + str([e.pattern for e in tofind]) + ":\n" + reads[:50] + ".....\nSee {} for remainder".format(filename))
+                    if elapsed > 100 * timeout:
+                        raise TimeoutError(time.strftime("%d %b %Y %H:%M:%S", time.gmtime()) + " [" + self.name + "] Missing: " + str(
+                            [e.pattern for e in tofind]) + ":\n" + reads[:50] + ".....\nSee {} for remainder".format(filename))
 
                 if process:
                     if common.is_win():
@@ -1184,11 +1187,11 @@ class Node(object):
     def hostid(self):
         info = self.nodetool('info', capture_output=True)[0]
         id_lines = [s for s in info.split('\n')
-                       if s.startswith('ID')]
+                    if s.startswith('ID')]
         if not len(id_lines) == 1:
-           msg = ('Expected output from `nodetool info` to contain exactly 1 '
-                 'line starting with "ID". Found:\n') + info
-           raise RuntimeError(msg)
+            msg = ('Expected output from `nodetool info` to contain exactly 1 '
+                   'line starting with "ID". Found:\n') + info
+            raise RuntimeError(msg)
         id_line = id_lines[0].replace(":", "").split()
         return id_line[1]
 
