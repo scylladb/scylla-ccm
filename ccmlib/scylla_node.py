@@ -122,7 +122,7 @@ class ScyllaNode(Node):
                 else:
                     new_jvm_args += split_option
             else:
-                new_jvm_args += jvm_arg
+                new_jvm_args.append(jvm_arg)
         jvm_args = new_jvm_args
 
         if self.is_running():
