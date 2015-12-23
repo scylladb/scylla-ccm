@@ -580,9 +580,6 @@ class ClusterStartCmd(Cmd):
                     print_("Standard error output is:", file=sys.stderr)
                     for line in e.process.stderr:
                         print_(line.rstrip('\n'), file=sys.stderr)
-                else:
-                    print_("Process died prematurely and doesn't have "
-                           "stdout/stderr recorded", file=sys.stderr)
             sys.exit(1)
 
 
