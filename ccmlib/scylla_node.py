@@ -187,7 +187,15 @@ class ScyllaNode(Node):
                                        stdout=FNULL, stderr=subprocess.PIPE)
         else:
             # TODO: Support same cmdline options
-            process = subprocess.Popen(args, stdout=FNULL, stderr=FNULL,
+            stdout_log = os.path.join(self.get_path(), 'scylla-script-stdout')
+            if os.path.isfile(stdout_log):
+                try:
+                    os.remove(stdout_log)
+                except OSError:
+                    pass
+            stdout_file = open(stdout_log, 'w')
+            process = subprocess.Popen(args, stdout=stdout_file,
+                                       stderr=subprocess.STDOUT,
                                        close_fds=True)
             # we are waiting for the run script to have time to
             # run scylla process
@@ -195,9 +203,16 @@ class ScyllaNode(Node):
             p = psutil.Process(process.pid)
             child_p = p.children()
             if child_p[0].name() != 'scylla':
-                raise NodeError("Error starting scylla node: child process "
-                                "name is %s" % child_p[0].name(),
-                                process=process)
+                print_("Error starting scylla")
+                print_("Waiting for start script '{}' "
+                       "to end".format(" ".join(args)))
+                process.terminate()
+                process.wait()
+                stdout_file.close()
+                stdout_file = open(stdout_log, 'r')
+                print_("output:\n{}".format(stdout_file.read()))
+                stdout_file.close()
+                raise NodeError("Error starting scylla node", process=process)
 
             pid_filename = os.path.join(self.get_path(),
                                         'cassandra.pid')
