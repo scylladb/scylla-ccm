@@ -156,6 +156,8 @@ class ScyllaNode(Node):
         # Let's add jvm_args and the translated args
         args = [launch_bin, self.get_path()] + jvm_args + translated_args
 
+        if '--developer-mode' not in args:
+            args += ['--developer-mode', 'true']
         if '--smp' not in args:
             args += ['--smp', '1']
         if '--memory' not in args:
