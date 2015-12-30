@@ -120,7 +120,7 @@ class ScyllaNode(Node):
                                            value]
                 # Otherwise, just pass it as is
                 else:
-                    new_jvm_args += split_option
+                    new_jvm_args.append(jvm_arg)
             else:
                 new_jvm_args.append(jvm_arg)
         jvm_args = new_jvm_args
