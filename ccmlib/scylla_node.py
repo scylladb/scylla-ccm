@@ -171,6 +171,8 @@ class ScyllaNode(Node):
             id = int(data['listen_address'].split('.')[3]) - 1
             cpuset = self.cpuset(id, smp)
             args += ['--cpuset', ','.join(cpuset)]
+        if '--developer-mode' not in args:
+            args += ['--developer-mode', 'true']
         if replace_address:
             args += ['--replace-address', replace_address]
 
