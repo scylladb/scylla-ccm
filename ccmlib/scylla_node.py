@@ -224,22 +224,6 @@ class ScyllaNode(Node):
             # we are waiting to make sure the java process is up
             # by connecting to the port
             time.sleep(2)
-            java_up = False
-            iteration = 0
-            while not java_up and iteration < 10:
-                iteration += 1
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                try:
-                    s.settimeout(1.0)
-                    s.connect((data['listen_address'], int(self.jmx_port)))
-                    java_up = True
-                except:
-                    java_up = False
-                try:
-                    s.close()
-                except:
-                    pass
-            time.sleep(1)
 
         # Our modified batch file writes a dirty output with more than
         # just the pid - clean it to get in parity
@@ -265,6 +249,26 @@ class ScyllaNode(Node):
             # more because the msg is logged just before starting the binary
             # protocol server
             time.sleep(0.2)
+
+        java_up = False
+        iteration = 0
+        while not java_up and iteration < 30:
+           iteration += 1
+           s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+           try:
+               s.settimeout(1.0)
+               s.connect((data['listen_address'], int(self.jmx_port)))
+               java_up = True
+           except:
+               java_up = False
+           try:
+               s.close()
+           except:
+               pass
+           time.sleep(1)
+
+        if java_up == False:
+            raise NodeError("Error starting node %s" % self.name, process)
 
         self.is_running()
         return process
