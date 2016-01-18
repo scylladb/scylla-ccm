@@ -250,6 +250,13 @@ class ScyllaNode(Node):
             # protocol server
             time.sleep(0.2)
 
+        launch_bin = common.join_bin(self.get_path(), 'bin', 'run_jmx.sh')
+        os.chmod(launch_bin, os.stat(launch_bin).st_mode | stat.S_IEXEC)
+        args[0] = launch_bin
+        FNULL = open(os.devnull, 'w')
+        process_jmx = subprocess.Popen(args, stdout=FNULL,
+                                   stderr=FNULL,
+                                   close_fds=True)
         java_up = False
         iteration = 0
         while not java_up and iteration < 30:
