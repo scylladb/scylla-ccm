@@ -100,7 +100,7 @@ class ScyllaCluster(Cluster):
         if wait_for_binary_proto and self.version() >= '1.2':
             for node, _, mark in started:
                 node.watch_log_for("Starting listening for CQL clients",
-                                   process=p, verbose=verbose, from_mark=mark)
+                                   verbose=verbose, from_mark=mark)
             time.sleep(0.2)
 
         return started
