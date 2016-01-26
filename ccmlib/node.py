@@ -1115,7 +1115,7 @@ class Node(object):
 
     def stress_object(self, stress_options=[], **kwargs):
         out, err = self.stress(stress_options, True, **kwargs)
-        if err != "":
+        if err != "" and not err.startswith("Failed to connect over JMX; not collecting these stats"):
             return err
         p = re.compile('^\s*([^:]+)\s*:\s*(\S.*)\s*$')
         res = {}
