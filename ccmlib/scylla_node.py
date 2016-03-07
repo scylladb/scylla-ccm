@@ -164,7 +164,7 @@ class ScyllaNode(Node):
                add = False
                if scylla_ext_opts[opts_i] not in args:
                   add = True
-               args.append(scylla_ext_opts[opts_i])
+                  args.append(scylla_ext_opts[opts_i])
                opts_i = opts_i + 1
                while opts_i < len(scylla_ext_opts) and not scylla_ext_opts[opts_i].startswith('-'):
                   if add: args.append(scylla_ext_opts[opts_i])
