@@ -1,5 +1,6 @@
 # ccm clusters
 import os
+import shutil
 import time
 
 from ccmlib import common
@@ -111,3 +112,17 @@ class ScyllaCluster(Cluster):
 
     def get_scylla_mode(self):
         return self.scylla_mode
+
+    def enable_internode_ssl(self, node_ssl_path):
+        shutil.copyfile(os.path.join(node_ssl_path, 'trust.pem'), os.path.join(self.get_path(), 'internode-trust.pem'))
+        shutil.copyfile(os.path.join(node_ssl_path, 'ccm_node.pem'), os.path.join(self.get_path(), 'internode-ccm_node.pem'))
+        shutil.copyfile(os.path.join(node_ssl_path, 'ccm_node.key'), os.path.join(self.get_path(), 'internode-ccm_node.key'))
+        node_ssl_options = {
+            'internode_encryption': 'all',
+            'certificate': os.path.join(self.get_path(), 'internode-ccm_node.pem'),
+            'keyfile': os.path.join(self.get_path(), 'internode-ccm_node.key'),
+            'truststore': os.path.join(self.get_path(), 'internode-trust.pem'),
+        }
+
+        self._config_options['server_encryption_options'] = node_ssl_options
+        self._update_config()
