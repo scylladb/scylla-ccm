@@ -380,6 +380,11 @@ class ScyllaNode(Node):
                                             'scylla-jmx-1.0.jar'),
                                os.path.join(self.get_bin_dir(),
                                             'scylla-jmx-1.0.jar'))
+        self.hard_link_or_copy(os.path.join(self.get_install_dir(),
+                                            '..', 'scylla-jmx', 'scripts',
+                                            'scylla-jmx'),
+                               os.path.join(self.get_bin_dir(),
+                                            'scylla-jmx'))
 
         parent_dir = os.path.dirname(os.path.realpath(__file__))
         resources_bin_dir = os.path.join(parent_dir, '..', 'resources', 'bin')
