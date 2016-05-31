@@ -1,8 +1,10 @@
 # ccm node
 from __future__ import with_statement
 
+import datetime
 import errno
 import os
+import signal
 import shutil
 import socket
 import stat
@@ -33,6 +35,7 @@ class ScyllaNode(Node):
                                          jmx_port, remote_debug_port,
                                          initial_token, save, binary_interface)
         self.get_cassandra_version()
+        self._process_jmx = None
 
     def get_install_cassandra_root(self):
         return os.path.join(self.get_install_dir(), 'resources', 'cassandra')
@@ -269,9 +272,13 @@ class ScyllaNode(Node):
         os.chmod(launch_bin, os.stat(launch_bin).st_mode | stat.S_IEXEC)
         args[0] = launch_bin
         FNULL = open(os.devnull, 'w')
-        process_jmx = subprocess.Popen(args, stdout=FNULL,
-                                       stderr=FNULL,
-                                       close_fds=True)
+        subprocess.Popen(args, stdout=FNULL, stderr=FNULL, close_fds=True)
+        jmx_pid = self._wait_jmx_initialized(args)
+        jmx_pid_filename = os.path.join(self.get_path(),
+                                        'scylla-jmx.pid')
+        with open(jmx_pid_filename, 'w') as jmx_pid_file:
+            jmx_pid_file.write(str(jmx_pid))
+
         java_up = False
         iteration = 0
         while not java_up and iteration < 30:
@@ -323,6 +330,104 @@ class ScyllaNode(Node):
         if jvm_args is None:
             jvm_args = []
         raise NotImplementedError('ScyllaNode.start_dse')
+
+    @staticmethod
+    def _wait_jmx_initialized(args):
+        jmx_pid = None
+        while jmx_pid is None:
+            time.sleep(1)
+            for p in psutil.process_iter():
+                try:
+                    if p.cmdline() == ['/bin/bash', '-x'] + args:
+                        child_p = p.children()
+                        try:
+                            assert len(child_p) == 2
+                            assert child_p[0].name() == 'scylla-jmx'
+                            jmx_pid = p.pid
+                        except (IndexError, AssertionError):
+                            pass
+                except psutil.NoSuchProcess:
+                    pass
+        return jmx_pid
+
+    def _update_jmx_pid(self):
+        pidfile = os.path.join(self.get_path(), 'scylla-jmx.pid')
+
+        start = time.time()
+        while not (os.path.isfile(pidfile) and os.stat(pidfile).st_size > 0):
+            if time.time() - start > 30.0:
+                print_("Timed out waiting for pidfile to be filled "
+                       "(current time is %s)" % (datetime.datetime.now()))
+                break
+            else:
+                time.sleep(0.1)
+
+        try:
+            with open(pidfile, 'r') as f:
+                self.jmx_pid = int(f.readline().strip())
+        except IOError as e:
+            raise NodeError('Problem starting node %s scylla-jmx due to %s' %
+                            (self.name, e))
+
+    def stop(self, wait=True, wait_other_notice=False, gently=True):
+        """
+        Stop the node.
+          - wait: if True (the default), wait for the Scylla process to be
+            really dead. Otherwise return after having sent the kill signal.
+          - wait_other_notice: return only when the other live nodes of the
+            cluster have marked this node has dead.
+          - gently: Let Scylla and Scylla JMX clean up and shut down properly.
+            Otherwise do a 'kill -9' which shuts down faster.
+        """
+        if self.is_running():
+            if wait_other_notice:
+                marks = [(node, node.mark_log()) for node in
+                         list(self.cluster.nodes.values()) if
+                         node.is_live() and node is not self]
+            self._update_jmx_pid()
+            jmx_script = psutil.Process(self.jmx_pid)
+            if gently:
+                for child in jmx_script.children():
+                    try:
+                        os.kill(child.pid, signal.SIGTERM)
+                    except OSError:
+                        pass
+                try:
+                    os.kill(self.jmx_pid, signal.SIGTERM)
+                except OSError:
+                    pass
+                os.kill(self.pid, signal.SIGTERM)
+            else:
+                for child in jmx_script.children():
+                    try:
+                        os.kill(child.pid, signal.SIGKILL)
+                    except OSError:
+                        pass
+                try:
+                    os.kill(self.jmx_pid, signal.SIGKILL)
+                except OSError:
+                    pass
+                os.kill(self.pid, signal.SIGKILL)
+
+            if wait_other_notice:
+                for node, mark in marks:
+                    node.watch_log_for_death(self, from_mark=mark)
+            else:
+                time.sleep(.1)
+
+            still_running = self.is_running()
+            if still_running and wait:
+                wait_time_sec = 1
+                for i in xrange(0, 7):
+                    time.sleep(wait_time_sec)
+                    if not self.is_running():
+                        return True
+                    wait_time_sec *= 2
+                raise NodeError("Problem stopping node %s" % self.name)
+            else:
+                return True
+        else:
+            return False
 
     def import_config_files(self):
         # TODO: override node - enable logging
