@@ -155,21 +155,21 @@ class ScyllaNode(Node):
 
         # Let's add jvm_args and the translated args
         args = [launch_bin, self.get_path()] + jvm_args + translated_args
-        
+
         # Lets search for default overrides in SCYLLA_EXT_OPTS
         scylla_ext_opts = os.getenv('SCYLLA_EXT_OPTS', "").split()
         opts_i = 0
         while (opts_i < len(scylla_ext_opts)):
             if scylla_ext_opts[opts_i].startswith('-'):
-               add = False
-               if scylla_ext_opts[opts_i] not in args:
-                  add = True
-                  args.append(scylla_ext_opts[opts_i])
-               opts_i = opts_i + 1
-               while opts_i < len(scylla_ext_opts) and not scylla_ext_opts[opts_i].startswith('-'):
-                  if add: args.append(scylla_ext_opts[opts_i])
-                  opts_i = opts_i + 1
-            
+                add = False
+                if scylla_ext_opts[opts_i] not in args:
+                    add = True
+                    args.append(scylla_ext_opts[opts_i])
+                opts_i = opts_i + 1
+                while opts_i < len(scylla_ext_opts) and not scylla_ext_opts[opts_i].startswith('-'):
+                    if add: args.append(scylla_ext_opts[opts_i])
+                    opts_i = opts_i + 1
+
 
         if '--developer-mode' not in args:
             args += ['--developer-mode', 'true']
@@ -275,19 +275,19 @@ class ScyllaNode(Node):
         java_up = False
         iteration = 0
         while not java_up and iteration < 30:
-           iteration += 1
-           s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-           try:
-               s.settimeout(1.0)
-               s.connect((data['listen_address'], int(self.jmx_port)))
-               java_up = True
-           except:
-               java_up = False
-           try:
-               s.close()
-           except:
-               pass
-           time.sleep(1)
+            iteration += 1
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                s.settimeout(1.0)
+                s.connect((data['listen_address'], int(self.jmx_port)))
+                java_up = True
+            except:
+                java_up = False
+            try:
+                s.close()
+            except:
+                pass
+            time.sleep(1)
 
         if java_up == False:
             raise NodeError("Error starting node %s" % self.name, process)
