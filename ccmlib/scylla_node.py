@@ -101,7 +101,7 @@ class ScyllaNode(Node):
             jvm_args = []
 
         scylla_cassandra_mapping = {'-Dcassandra.replace_address_first_boot':
-                                        '--replace-address-first-boot'}
+                                    '--replace-address-first-boot'}
         # Replace args in the form
         # ['-Dcassandra.foo=bar'] to ['-Dcassandra.foo', 'bar']
         translated_args = []
@@ -117,7 +117,7 @@ class ScyllaNode(Node):
                 # translate it
                 if option in scylla_cassandra_mapping:
                     translated_args += [scylla_cassandra_mapping[option],
-                                           value]
+                                        value]
                 # Otherwise, just pass it as is
                 else:
                     new_jvm_args.append(jvm_arg)
@@ -167,9 +167,9 @@ class ScyllaNode(Node):
                     args.append(scylla_ext_opts[opts_i])
                 opts_i = opts_i + 1
                 while opts_i < len(scylla_ext_opts) and not scylla_ext_opts[opts_i].startswith('-'):
-                    if add: args.append(scylla_ext_opts[opts_i])
+                    if add:
+                        args.append(scylla_ext_opts[opts_i])
                     opts_i = opts_i + 1
-
 
         if '--developer-mode' not in args:
             args += ['--developer-mode', 'true']
@@ -270,8 +270,8 @@ class ScyllaNode(Node):
         args[0] = launch_bin
         FNULL = open(os.devnull, 'w')
         process_jmx = subprocess.Popen(args, stdout=FNULL,
-                                   stderr=FNULL,
-                                   close_fds=True)
+                                       stderr=FNULL,
+                                       close_fds=True)
         java_up = False
         iteration = 0
         while not java_up and iteration < 30:
@@ -289,7 +289,7 @@ class ScyllaNode(Node):
                 pass
             time.sleep(1)
 
-        if java_up == False:
+        if not java_up:
             raise NodeError("Error starting node %s" % self.name, process)
 
         self.is_running()
