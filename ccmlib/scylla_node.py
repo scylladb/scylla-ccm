@@ -384,29 +384,36 @@ class ScyllaNode(Node):
                 marks = [(node, node.mark_log()) for node in
                          list(self.cluster.nodes.values()) if
                          node.is_live() and node is not self]
-            self._update_jmx_pid()
-            jmx_script = psutil.Process(self.jmx_pid)
-            if gently:
-                for child in jmx_script.children():
+
+            try:
+                self._update_jmx_pid()
+                jmx_script = psutil.Process(self.jmx_pid)
+                if gently:
+                    for child in jmx_script.children():
+                        try:
+                            os.kill(child.pid, signal.SIGTERM)
+                        except OSError:
+                            pass
                     try:
-                        os.kill(child.pid, signal.SIGTERM)
+                        os.kill(self.jmx_pid, signal.SIGTERM)
                     except OSError:
                         pass
-                try:
-                    os.kill(self.jmx_pid, signal.SIGTERM)
-                except OSError:
-                    pass
+                else:
+                    for child in jmx_script.children():
+                        try:
+                            os.kill(child.pid, signal.SIGKILL)
+                        except OSError:
+                            pass
+                    try:
+                        os.kill(self.jmx_pid, signal.SIGKILL)
+                    except OSError:
+                        pass
+            except psutil.NoSuchProcess:
+                pass
+
+            if gently:
                 os.kill(self.pid, signal.SIGTERM)
             else:
-                for child in jmx_script.children():
-                    try:
-                        os.kill(child.pid, signal.SIGKILL)
-                    except OSError:
-                        pass
-                try:
-                    os.kill(self.jmx_pid, signal.SIGKILL)
-                except OSError:
-                    pass
                 os.kill(self.pid, signal.SIGKILL)
 
             if wait_other_notice:
