@@ -297,7 +297,7 @@ class ScyllaNode(Node):
             time.sleep(1)
 
         if not java_up:
-            raise NodeError("Error starting node %s" % self.name, process)
+            raise NodeError("Error starting node %s: unable to connect to scylla-jmx" % self.name, process)
 
         self.is_running()
         return process
