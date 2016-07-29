@@ -902,7 +902,7 @@ class Node(object):
             if debug:
                 cmd.append('--debug')
             cmd.append(f)
-            p = subprocess.Popen(cmd, cwd=os.path.join(self.get_install_dir(), 'bin'),
+            p = subprocess.Popen(cmd, cwd=os.path.join(self.get_install_dir(), 'resources', 'cassandra','bin'),
                                  env=env, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
             (out, err) = p.communicate()
             rc = p.returncode
@@ -915,7 +915,7 @@ class Node(object):
 
     def run_sstablemetadata(self, output_file=None, datafiles=None, keyspace=None, column_families=None):
         cdir = self.get_install_dir()
-        sstablemetadata = common.join_bin(cdir, os.path.join('tools', 'bin'), 'sstablemetadata')
+        sstablemetadata = self._find_cmd('sstablemetadata')
         env = self.get_env()
         sstablefiles = self.__gather_sstables(datafiles=datafiles, keyspace=keyspace, columnfamilies=column_families)
         results = []
@@ -934,7 +934,7 @@ class Node(object):
 
     def run_sstableexpiredblockers(self, output_file=None, keyspace=None, column_family=None):
         cdir = self.get_install_dir()
-        sstableexpiredblockers = common.join_bin(cdir, os.path.join('tools', 'bin'), 'sstableexpiredblockers')
+        sstableexpiredblockers = self._find_cmd('sstableexpiredblockers')
         env = self.get_env()
         cmd = [sstableexpiredblockers, keyspace, column_family]
         results = []
@@ -954,7 +954,7 @@ class Node(object):
 
     def run_sstablerepairedset(self, set_repaired=True, datafiles=None, keyspace=None, column_families=None):
         cdir = self.get_install_dir()
-        sstablerepairedset = common.join_bin(cdir, os.path.join('tools', 'bin'), 'sstablerepairedset')
+        sstablerepairedset = self._find_cmd('sstablerepairedset')
         env = self.get_env()
         sstablefiles = self.__gather_sstables(datafiles, keyspace, column_families)
 
@@ -967,7 +967,7 @@ class Node(object):
 
     def run_sstablelevelreset(self, keyspace, cf, output=False):
         cdir = self.get_install_dir()
-        sstablelevelreset = common.join_bin(cdir, os.path.join('tools', 'bin'), 'sstablelevelreset')
+        sstablelevelreset = self._find_cmd('sstablelevelreset')
         env = self.get_env()
 
         cmd = [sstablelevelreset, "--really-reset", keyspace, cf]
@@ -982,7 +982,7 @@ class Node(object):
 
     def run_sstableofflinerelevel(self, keyspace, cf, dry_run=False, output=False):
         cdir = self.get_install_dir()
-        sstableofflinerelevel = common.join_bin(cdir, os.path.join('tools', 'bin'), 'sstableofflinerelevel')
+        sstableofflinerelevel = self._find_cmd('sstableofflinerelevel')
         env = self.get_env()
 
         if dry_run:
@@ -1000,7 +1000,7 @@ class Node(object):
 
     def run_sstableverify(self, keyspace, cf, options=None, output=False):
         cdir = self.get_install_dir()
-        sstableverify = common.join_bin(cdir, 'bin', 'sstableverify')
+        sstableverify = self._find_cmd('sstableverify')
         env = self.get_env()
 
         cmd = [sstableverify, keyspace, cf]
