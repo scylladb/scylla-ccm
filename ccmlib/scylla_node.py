@@ -153,6 +153,7 @@ class ScyllaNode(Node):
         with open(conf_file, 'r') as f:
             data = yaml.load(f)
         jvm_args = jvm_args + ['--api-address', data['api_address']]
+        jvm_args = jvm_args + ['--prometheus-address', data['api_address']]
         jvm_args = jvm_args + ['--collectd-hostname',
                                '%s.%s' % (socket.gethostname(), self.name)]
 
