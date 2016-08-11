@@ -902,7 +902,7 @@ class Node(object):
             if debug:
                 cmd.append('--debug')
             cmd.append(f)
-            p = subprocess.Popen(cmd, cwd=os.path.join(self.get_install_dir(), 'resources', 'cassandra','bin'),
+            p = subprocess.Popen(cmd, cwd=os.path.join(self.get_install_dir(), 'resources', 'cassandra', 'bin'),
                                  env=env, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
             (out, err) = p.communicate()
             rc = p.returncode
@@ -1757,8 +1757,8 @@ def _grep_log_for_errors(log):
     matchings = []
     it = iter(log.splitlines())
     for line in it:
-        is_error_line = ('ERROR' in line
-                         and 'DEBUG' not in line.split('ERROR')[0])
+        is_error_line = ('ERROR' in line and
+                         'DEBUG' not in line.split('ERROR')[0])
         if is_error_line:
             matchings.append([line])
             try:
