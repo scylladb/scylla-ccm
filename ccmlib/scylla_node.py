@@ -445,8 +445,11 @@ class ScyllaNode(Node):
         self.__copy_logback_files()
 
     def __copy_logback_files(self):
-        self.hard_link_or_copy(os.path.join(self.get_install_dir(), common.DSE_CASSANDRA_CONF_DIR, 'logback-tools.xml'),
-                               os.path.join(self.get_conf_dir(), 'logback-tools.xml'))
+        logback_src = os.path.join(self.get_install_dir(),
+                                   common.DSE_CASSANDRA_CONF_DIR, 'logback-tools.xml')
+        logback_dst = os.path.join(self.get_conf_dir(), 'logback-tools.xml')
+        if not os.path.isfile(logback_dst):
+            self.hard_link_or_copy(logback_src, logback_dst)
 
     def import_dse_config_files(self):
         raise NotImplementedError('ScyllaNode.import_dse_config_files')
