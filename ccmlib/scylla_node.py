@@ -21,6 +21,37 @@ from ccmlib.node import Node
 from ccmlib.node import NodeError
 
 
+def wait_for(func, timeout, first=0.0, step=1.0, text=None):
+    """
+    Wait until func() evaluates to True.
+
+    If func() evaluates to True before timeout expires, return the
+    value of func(). Otherwise return None.
+
+    :param func: Function that will be evaluated.
+    :param timeout: Timeout in seconds
+    :param first: Time to sleep before first attempt
+    :param step: Time to sleep between attempts in seconds
+    :param text: Text to print while waiting, for debug purposes
+    """
+    start_time = time.time()
+    end_time = time.time() + timeout
+
+    time.sleep(first)
+
+    while time.time() < end_time:
+        if text:
+            print_("%s (%f secs)" % (text, (time.time() - start_time)))
+
+        output = func()
+        if output:
+            return output
+
+        time.sleep(step)
+
+    return None
+
+
 class ScyllaNode(Node):
 
     """
@@ -732,7 +763,23 @@ class ScyllaNode(Node):
     def _write_agent_log4j_properties(self, agent_dir):
         raise NotImplementedError('ScyllaNode._write_agent_log4j_properties')
 
-    # TODO: - scylla flush is async - it returns immediately
+    def _wait_no_pending_flushes(self, wait_timeout=60):
+        def no_pending_flushes():
+            stdout, _ = self.nodetool('cfstats')
+            pending_flushes = False
+            for line in stdout.splitlines():
+                line = line.strip()
+                if line.startswith('Pending flushes'):
+                    _, pending_flushes_str = line.split(':')
+                    pending_flushes_count = int(pending_flushes_str.strip())
+                    if pending_flushes_count > 0:
+                        pending_flushes = True
+            return not pending_flushes
+        result = wait_for(no_pending_flushes, timeout=wait_timeout, step=1.0)
+        if result is None:
+            raise NodeError("Node %s still has pending flushes after "
+                            "%s seconds" % (self.name, wait_timeout))
+
     def flush(self):
         self.nodetool("flush")
-        time.sleep(2)
+        self._wait_no_pending_flushes()
