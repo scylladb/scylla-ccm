@@ -184,7 +184,6 @@ class ScyllaNode(Node):
         with open(conf_file, 'r') as f:
             data = yaml.load(f)
         jvm_args = jvm_args + ['--api-address', data['api_address']]
-        jvm_args = jvm_args + ['--prometheus-address', data['api_address']]
         jvm_args = jvm_args + ['--collectd-hostname',
                                '%s.%s' % (socket.gethostname(), self.name)]
 
@@ -221,6 +220,8 @@ class ScyllaNode(Node):
             id = int(data['listen_address'].split('.')[3]) - 1
             cpuset = self.cpuset(id, smp)
             args += ['--cpuset', ','.join(cpuset)]
+        if '--prometheus-address' not in args:
+           args += ['--prometheus-address',data['api_address']]
         if replace_address:
             args += ['--replace-address', replace_address]
 
