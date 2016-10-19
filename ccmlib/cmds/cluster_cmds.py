@@ -14,6 +14,8 @@ from ccmlib.scylla_cluster import ScyllaCluster
 from ccmlib.dse_node import DseNode
 from ccmlib.node import Node, NodeError
 
+os.environ['SCYLLA_CCM_STANDALONE'] = '1'
+
 
 def cluster_cmds():
     return [

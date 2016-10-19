@@ -9,8 +9,8 @@ import shutil
 import socket
 import stat
 import subprocess
-import sys
 import time
+import threading
 
 import psutil
 import yaml
@@ -67,6 +67,9 @@ class ScyllaNode(Node):
                                          initial_token, save, binary_interface)
         self.get_cassandra_version()
         self._process_jmx = None
+        self._process_jmx_waiter = None
+        self._process_scylla = None
+        self._process_scylla_waiter = None
 
     def get_install_cassandra_root(self):
         return os.path.join(self.get_install_dir(), 'resources', 'cassandra')
@@ -111,6 +114,114 @@ class ScyllaNode(Node):
         for cpuid in xrange(start_id, start_id + count):
             cpuset.append(str(cpuid % allocated_cpus))
         return cpuset
+
+    def _wait_for_jmx(self):
+        if self._process_jmx:
+            self._process_jmx.wait()
+
+    def _wait_for_scylla(self):
+        if self._process_scylla:
+            self._process_scylla.wait()
+
+    def _start_jmx(self, data):
+        jmx_jar_dir = os.path.join(self.get_path(), 'bin')
+        jmx_java_bin = os.path.join(jmx_jar_dir, 'symlinks', 'scylla-jmx')
+        jmx_jar = os.path.join(jmx_jar_dir, 'scylla-jmx-1.0.jar')
+        args = [jmx_java_bin,
+                '-Dapiaddress=%s' % data['listen_address'],
+                '-Djavax.management.builder.initial=com.scylladb.jmx.utils.APIBuilder',
+                '-Dcom.sun.management.jmxremote',
+                '-Dcom.sun.management.jmxremote.port=%s' % self.jmx_port,
+                '-Dcom.sun.management.jmxremote.rmi.port=%s' % self.jmx_port,
+                '-Dcom.sun.management.jmxremote.local.only=false',
+                '-Xmx256m',
+                '-XX:+UseSerialGC',
+                '-Dcom.sun.management.jmxremote.authenticate=false',
+                '-Dcom.sun.management.jmxremote.ssl=false',
+                '-jar',
+                jmx_jar]
+        log_file = os.path.join(self.get_path(), 'logs', 'system.log.jmx')
+        jmx_log = open(log_file, 'a')
+        env_copy = os.environ
+        env_copy['SCYLLA_HOME'] = self.get_path()
+        self._process_jmx = subprocess.Popen(args, stdout=jmx_log,
+                                             stderr=jmx_log,
+                                             close_fds=True,
+                                             env=env_copy)
+        self._process_jmx.poll()
+        # When running on ccm standalone, the waiter thread would block
+        # the create commands. Besides in that mode, waiting is unnecessary,
+        # since the original popen reference is garbage collected.
+        standalone = os.environ.get('SCYLLA_CCM_STANDALONE', None)
+        if standalone is None:
+            self._process_jmx_waiter = threading.Thread(target=self._wait_for_jmx)
+            self._process_jmx_waiter.start()
+        pid_filename = os.path.join(self.get_path(), 'scylla-jmx.pid')
+        with open(pid_filename, 'w') as pid_file:
+            pid_file.write(str(self._process_jmx.pid))
+
+    def _start_scylla(self, args, marks, update_pid, wait_other_notice,
+                      wait_for_binary_proto):
+        log_file = os.path.join(self.get_path(), 'logs', 'system.log')
+        # In case we are restarting a node
+        # we risk reading the old cassandra.pid file
+        self._delete_old_pid()
+
+        scylla_log = open(log_file, 'a')
+        env_copy = os.environ
+        env_copy['SCYLLA_HOME'] = self.get_path()
+        self._process_scylla = subprocess.Popen(args, stdout=scylla_log,
+                                                stderr=scylla_log,
+                                                close_fds=True,
+                                                env=env_copy)
+        self._process_scylla.poll()
+        # When running on ccm standalone, the waiter thread would block
+        # the create commands. Besides in that mode, waiting is unnecessary,
+        # since the original popen reference is garbage collected.
+        standalone = os.environ.get('SCYLLA_CCM_STANDALONE', None)
+        if standalone is None:
+            self._process_scylla_waiter = threading.Thread(target=self._wait_for_scylla)
+            self._process_scylla_waiter.start()
+        pid_filename = os.path.join(self.get_path(), 'cassandra.pid')
+        with open(pid_filename, 'w') as pid_file:
+            pid_file.write(str(self._process_scylla.pid))
+
+        if update_pid:
+            self._update_pid(self._process_scylla)
+            if not self.is_running():
+                raise NodeError("Error starting node %s" % self.name,
+                                self._process_scylla)
+
+        if wait_other_notice:
+            for node, mark in marks:
+                node.watch_log_for_alive(self, from_mark=mark)
+
+        if wait_for_binary_proto:
+            self.wait_for_binary_interface(from_mark=self.mark)
+        else:
+            time.sleep(2)
+
+        return self._process_scylla
+
+    def _wait_java_up(self, data):
+        java_up = False
+        iteration = 0
+        while not java_up and iteration < 30:
+            iteration += 1
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                s.settimeout(1.0)
+                s.connect((data['listen_address'], int(self.jmx_port)))
+                java_up = True
+            except:
+                java_up = False
+            try:
+                s.close()
+            except:
+                pass
+            time.sleep(1)
+
+        return java_up
 
     # Scylla Overload start
     def start(self, join_ring=True, no_wait=False, verbose=False,
@@ -173,7 +284,8 @@ class ScyllaNode(Node):
 
         self.mark = self.mark_log()
 
-        launch_bin = common.join_bin(self.get_path(), 'bin', 'run.sh')
+        launch_bin = common.join_bin(self.get_path(), 'bin', 'scylla')
+        options_file = os.path.join(self.get_path(), 'conf', 'scylla.yaml')
 
         os.chmod(launch_bin, os.stat(launch_bin).st_mode | stat.S_IEXEC)
 
@@ -188,7 +300,7 @@ class ScyllaNode(Node):
                                '%s.%s' % (socket.gethostname(), self.name)]
 
         # Let's add jvm_args and the translated args
-        args = [launch_bin, self.get_path()] + jvm_args + translated_args
+        args = [launch_bin, '--options-file', options_file, '--log-to-stdout', '1'] + jvm_args + translated_args
 
         # Lets search for default overrides in SCYLLA_EXT_OPTS
         scylla_ext_opts = os.getenv('SCYLLA_EXT_OPTS', "").split()
@@ -225,115 +337,19 @@ class ScyllaNode(Node):
         if replace_address:
             args += ['--replace-address', replace_address]
 
-        # In case we are restarting a node
-        # we risk reading the old cassandra.pid file
-        self._delete_old_pid()
+        scylla_process = self._start_scylla(args, marks, update_pid,
+                                            wait_other_notice,
+                                            wait_for_binary_proto)
+        self._start_jmx(data)
 
-        FNULL = open(os.devnull, 'w')
-        if common.is_win():
-            # clean up any old dirty_pid files from prior runs
-            if os.path.isfile(self.get_path() + "/dirty_pid.tmp"):
-                os.remove(self.get_path() + "/dirty_pid.tmp")
-            # TODO: restore proper environment handling on Windows
-            env = os.environment()
-            process = subprocess.Popen(args, cwd=self.get_bin_dir(), env=env,
-                                       stdout=FNULL, stderr=subprocess.PIPE)
-        else:
-            # TODO: Support same cmdline options
-            stdout_log = os.path.join(self.get_path(), 'scylla-script-stdout')
-            if os.path.isfile(stdout_log):
-                try:
-                    os.remove(stdout_log)
-                except OSError:
-                    pass
-            stdout_file = open(stdout_log, 'w')
-            process = subprocess.Popen(args, stdout=stdout_file,
-                                       stderr=subprocess.STDOUT,
-                                       close_fds=True)
-            # we are waiting for the run script to have time to
-            # run scylla process
-            time.sleep(1)
-            p = psutil.Process(process.pid)
-            child_p = p.children()
-            if child_p[0].name() != 'scylla':
-                print_("Error starting scylla")
-                print_("Waiting for start script '{}' "
-                       "to end".format(" ".join(args)))
-                process.terminate()
-                process.wait()
-                stdout_file.close()
-                stdout_file = open(stdout_log, 'r')
-                print_("output:\n{}".format(stdout_file.read()))
-                stdout_file.close()
-                raise NodeError("Error starting scylla node", process=process)
-
-            pid_filename = os.path.join(self.get_path(),
-                                        'cassandra.pid')
-            with open(pid_filename, 'w') as pid_file:
-                pid_file.write(str(child_p[0].pid))
-
-            # we are waiting to make sure the java process is up
-            # by connecting to the port
-            time.sleep(2)
-
-        # Our modified batch file writes a dirty output with more than
-        # just the pid - clean it to get in parity
-        # with *nix operation here.
-        if common.is_win():
-            self.__clean_win_pid()
-            self._update_pid(process)
-            print_("Started: {0} with pid: {1}".format(self.name, self.pid),
-                   file=sys.stderr, flush=True)
-        elif update_pid:
-            self._update_pid(process)
-            if not self.is_running():
-                raise NodeError("Error starting node %s" % self.name, process)
-
-        if wait_other_notice:
-            for node, mark in marks:
-                node.watch_log_for_alive(self, from_mark=mark)
-
-        if wait_for_binary_proto and self.cluster.version() >= '1.2':
-            self.watch_log_for("Starting listening for CQL clients",
-                               from_mark=self.mark)
-            # we're probably fine at that point but just wait some tiny bit
-            # more because the msg is logged just before starting the binary
-            # protocol server
-            time.sleep(0.2)
-
-        launch_bin = common.join_bin(self.get_path(), 'bin', 'run_jmx.sh')
-        os.chmod(launch_bin, os.stat(launch_bin).st_mode | stat.S_IEXEC)
-        args[0] = launch_bin
-        FNULL = open(os.devnull, 'w')
-        subprocess.Popen(args, stdout=FNULL, stderr=FNULL, close_fds=True)
-        jmx_pid = self._wait_jmx_initialized(args)
-        jmx_pid_filename = os.path.join(self.get_path(),
-                                        'scylla-jmx.pid')
-        with open(jmx_pid_filename, 'w') as jmx_pid_file:
-            jmx_pid_file.write(str(jmx_pid))
-
-        java_up = False
-        iteration = 0
-        while not java_up and iteration < 30:
-            iteration += 1
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            try:
-                s.settimeout(1.0)
-                s.connect((data['listen_address'], int(self.jmx_port)))
-                java_up = True
-            except:
-                java_up = False
-            try:
-                s.close()
-            except:
-                pass
-            time.sleep(1)
-
-        if not java_up:
-            raise NodeError("Error starting node %s: unable to connect to scylla-jmx" % self.name, process)
+        if not self._wait_java_up(data):
+            e_msg = ("Error starting node %s: unable to connect to scylla-jmx" %
+                     self.name)
+            raise NodeError(e_msg, scylla_process)
 
         self.is_running()
-        return process
+
+        return scylla_process
 
     def start_dse(self,
                   join_ring=True,
@@ -364,25 +380,6 @@ class ScyllaNode(Node):
             jvm_args = []
         raise NotImplementedError('ScyllaNode.start_dse')
 
-    @staticmethod
-    def _wait_jmx_initialized(args):
-        jmx_pid = None
-        while jmx_pid is None:
-            time.sleep(1)
-            for p in psutil.process_iter():
-                try:
-                    if p.cmdline() == ['/bin/bash', '-x'] + args:
-                        child_p = p.children()
-                        try:
-                            assert len(child_p) == 2
-                            assert child_p[0].name() == 'scylla-jmx'
-                            jmx_pid = p.pid
-                        except (IndexError, AssertionError):
-                            pass
-                except psutil.NoSuchProcess:
-                    pass
-        return jmx_pid
-
     def _update_jmx_pid(self):
         pidfile = os.path.join(self.get_path(), 'scylla-jmx.pid')
 
@@ -412,42 +409,28 @@ class ScyllaNode(Node):
           - gently: Let Scylla and Scylla JMX clean up and shut down properly.
             Otherwise do a 'kill -9' which shuts down faster.
         """
+        marks = []
         if self.is_running():
             if wait_other_notice:
                 marks = [(node, node.mark_log()) for node in
                          list(self.cluster.nodes.values()) if
                          node.is_live() and node is not self]
+            self._update_jmx_pid()
 
-            try:
-                self._update_jmx_pid()
-                jmx_script = psutil.Process(self.jmx_pid)
+            if self._process_jmx and self._process_scylla:
                 if gently:
-                    for child in jmx_script.children():
-                        try:
-                            os.kill(child.pid, signal.SIGTERM)
-                        except OSError:
-                            pass
-                    try:
-                        os.kill(self.jmx_pid, signal.SIGTERM)
-                    except OSError:
-                        pass
+                    self._process_jmx.terminate()
+                    self._process_scylla.terminate()
                 else:
-                    for child in jmx_script.children():
-                        try:
-                            os.kill(child.pid, signal.SIGKILL)
-                        except OSError:
-                            pass
+                    self._process_jmx.kill()
+                    self._process_scylla.kill()
+            else:
+                signal_mapping = {True: signal.SIGTERM, False: signal.SIGKILL}
+                for pid in [self.jmx_pid, self.pid]:
                     try:
-                        os.kill(self.jmx_pid, signal.SIGKILL)
+                        os.kill(pid, signal_mapping[gently])
                     except OSError:
                         pass
-            except psutil.NoSuchProcess:
-                pass
-
-            if gently:
-                os.kill(self.pid, signal.SIGTERM)
-            else:
-                os.kill(self.pid, signal.SIGKILL)
 
             if wait_other_notice:
                 for node, mark in marks:
