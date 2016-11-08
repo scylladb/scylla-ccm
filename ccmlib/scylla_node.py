@@ -221,7 +221,7 @@ class ScyllaNode(Node):
             cpuset = self.cpuset(id, smp)
             args += ['--cpuset', ','.join(cpuset)]
         if '--prometheus-address' not in args:
-           args += ['--prometheus-address',data['api_address']]
+            args += ['--prometheus-address', data['api_address']]
         if replace_address:
             args += ['--replace-address', replace_address]
 

@@ -467,8 +467,8 @@ class ClusterLivesetCmd(Cmd):
         Cmd.validate(self, parser, options, args, load_cluster=True)
 
     def run(self):
-        l = [node.network_interfaces['storage'][0] for node in list(self.cluster.nodes.values()) if node.is_live()]
-        print_(",".join(l))
+        storage_interfaces = [node.network_interfaces['storage'][0] for node in list(self.cluster.nodes.values()) if node.is_live()]
+        print_(",".join(storage_interfaces))
 
 
 class ClusterSetdirCmd(Cmd):

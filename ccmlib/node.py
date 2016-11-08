@@ -62,6 +62,7 @@ class NodetoolError(Exception):
 
         Exception.__init__(self, message)
 
+
 # Groups: 1 = cf, 2 = tmp or none, 3 = suffix (Compacted or Data.db)
 _sstable_regexp = re.compile('((?P<keyspace>[^\s-]+)-(?P<cf>[^\s-]+)-)?(?P<tmp>tmp(link)?-)?(?P<version>[^\s-]+)-(?P<number>\d+)-(?P<big>big-)?(?P<suffix>[a-zA-Z]+)\.[a-zA-Z0-9]+$')
 
@@ -1120,13 +1121,13 @@ class Node(object):
         p = re.compile('^\s*([^:]+)\s*:\s*(\S.*)\s*$')
         res = {}
         start = False
-        for l in [s.strip() for s in out.splitlines()]:
+        for line in [s.strip() for s in out.splitlines()]:
             if start:
-                m = p.match(l)
+                m = p.match(line)
                 if m:
                     Node._set_stress_val(m.group(1).strip(), m.group(2).strip(), res)
             else:
-                if l == 'Results:':
+                if line == 'Results:':
                     start = True
         return res
 

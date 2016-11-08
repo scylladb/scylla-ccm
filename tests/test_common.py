@@ -22,5 +22,6 @@ class TestCommon(ccmtest.Tester):
         normalized = common.normalize_interface(('fd6d:404d:54cb::1', 9042))
         self.assertEqual(normalized, ('fd6d:404d:54cb:0:0:0:0:1', 9042))
 
+
 if __name__ == '__main__':
     unittest.main()
