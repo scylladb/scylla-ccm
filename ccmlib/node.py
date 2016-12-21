@@ -863,7 +863,7 @@ class Node(object):
         print_("running")
         if out_file is None:
             out_file = sys.stdout
-        sstable2json = self._find_cmd('sstable2dump')
+        sstable2json = self._find_cmd('sstabledump')
         env = self.get_env()
         sstablefiles = self.__gather_sstables(datafiles, keyspace, column_families)
         print_(sstablefiles)
