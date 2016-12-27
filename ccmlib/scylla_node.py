@@ -476,7 +476,7 @@ class ScyllaNode(Node):
             if oserror.errno == errno.EXDEV or oserror.errno == errno.EMLINK:
                 shutil.copy(src, dst)
             else:
-                raise oserror
+                raise RuntimeError("Unable to create hard link from %s to %s: %s" % (src, dst, oserror))
 
     def import_bin_files(self):
         # selectively copying files to reduce risk of using unintended items
