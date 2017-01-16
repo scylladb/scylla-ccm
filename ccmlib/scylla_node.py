@@ -492,7 +492,7 @@ class ScyllaNode(Node):
                                                 'bin', name))
 
         # selectively copying files to reduce risk of using unintended items
-        files = ['sstable2json', 'json2sstable', 'sstablelevelreset', 'sstablemetadata',
+        files = ['sstable2json', 'sstablelevelreset', 'sstablemetadata',
                  'sstablerepairedset', 'sstablesplit']
         os.makedirs(os.path.join(self.get_path(), 'resources', 'cassandra',
                                  'tools', 'bin'))
