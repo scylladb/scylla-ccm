@@ -117,6 +117,8 @@ class ClusterCreateCmd(Cmd):
                           help="Must specify --install-dir holding Scylla")
         parser.add_option("--snitch", type="string", dest="snitch",
                           help="Supports 'org.apache.cassandra.locator.PropertyFileSnitch','org.apache.cassandra.locator.GossipingPropertyFileSnitch' used only in multidc clusters")
+        parser.add_option("--id", type="int", dest="id",
+                          help="Allows running multiple clusters in paralell (up to 100) each must have a unique id value 0-99, this will set the ipprefix value if one was not set to 127.0.<id>.")
         return parser
 
     def validate(self, parser, options, args):
@@ -169,6 +171,11 @@ class ClusterCreateCmd(Cmd):
 
         if self.options.snitch:
             cluster.set_snitch(self.options.snitch)
+
+        if self.options.id:
+            cluster.set_id(self.options.id)
+            if not self.options.ipprefix:
+                self.options.ipprefix = "127.0.%d." % self.options.id
 
         if cluster.cassandra_version() >= "1.2.5":
             self.options.binary_protocol = True

@@ -18,6 +18,7 @@ class Cluster(object):
 
     def __init__(self, path, name, partitioner=None, install_dir=None, create_directory=True, version=None, verbose=False, snitch='org.apache.cassandra.locator.PropertyFileSnitch', **kwargs):
         self.name = name
+        self.id = 0
         self.nodes = {}
         self.seeds = []
         self.partitioner = partitioner
@@ -78,6 +79,11 @@ class Cluster(object):
 
     def set_snitch(self, snitch):
         self.snitch = snitch
+        self._update_config()
+        return self
+
+    def set_id(self, id):
+        self.id = id
         self._update_config()
         return self
 
@@ -179,7 +185,7 @@ class Cluster(object):
                                     auto_bootstrap=False,
                                     thrift_interface=(ipformat % i, 9160),
                                     storage_interface=(ipformat % i, 7000),
-                                    jmx_port=str(7000 + i * 100),
+                                    jmx_port=str(7000 + i * 100 + self.id),
                                     remote_debug_port=str(2000 + i * 100) if debug else str(0),
                                     initial_token=tk,
                                     binary_interface=binary)
@@ -483,7 +489,8 @@ class Cluster(object):
                 'config_options': self._config_options,
                 'dse_config_options': self._dse_config_options,
                 'log_level': self.__log_level,
-                'use_vnodes': self.use_vnodes
+                'use_vnodes': self.use_vnodes,
+                'id' : self.id
             }, f)
 
     def __update_pids(self, started):
