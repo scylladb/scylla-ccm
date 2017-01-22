@@ -19,6 +19,7 @@ class Cluster(object):
     def __init__(self, path, name, partitioner=None, install_dir=None, create_directory=True, version=None, verbose=False, snitch='org.apache.cassandra.locator.PropertyFileSnitch', **kwargs):
         self.name = name
         self.id = 0
+        self.ipprefix = None
         self.nodes = {}
         self.seeds = []
         self.partitioner = partitioner
@@ -87,6 +88,11 @@ class Cluster(object):
         self._update_config()
         return self
 
+    def set_ipprefix(self, ipprefix):
+        self.ipprefix = ipprefix
+        self._update_config()
+        return self
+
     def set_install_dir(self, install_dir=None, version=None, verbose=False):
         if version is None:
             self.__install_dir = install_dir
@@ -143,6 +149,8 @@ class Cluster(object):
         return self
 
     def populate(self, nodes, debug=False, tokens=None, use_vnodes=False, ipprefix='127.0.0.', ipformat=None):
+        if self.ipprefix:
+            ipprefix = self.ipprefix
         node_count = nodes
         dcs = []
         self.use_vnodes = use_vnodes
@@ -490,7 +498,8 @@ class Cluster(object):
                 'dse_config_options': self._dse_config_options,
                 'log_level': self.__log_level,
                 'use_vnodes': self.use_vnodes,
-                'id' : self.id
+                'id' : self.id,
+                'ipprefix' : self.ipprefix
             }, f)
 
     def __update_pids(self, started):
