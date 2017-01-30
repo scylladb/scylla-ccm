@@ -1000,8 +1000,7 @@ class Node(object):
             return subprocess.call(cmd, env=env)
 
     def run_sstableverify(self, keyspace, cf, options=None, output=False):
-        cdir = self.get_install_dir()
-        sstableverify = self._find_cmd('sstableverify')
+        sstableverify = self.get_tool('sstableverify')
         env = self.get_env()
 
         cmd = [sstableverify, keyspace, cf]
