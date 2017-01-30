@@ -106,10 +106,10 @@ class ScyllaNode(Node):
     def set_workload(self, workload):
         raise NotImplementedError('ScyllaNode.set_workload')
 
-    def cpuset(self, id, count):
+    def cpuset(self, id, count, cluster_id):
         # leaving one core for other executables to run
         allocated_cpus = psutil.cpu_count() - 1
-        start_id = id * count % allocated_cpus
+        start_id = (id * count + cluster_id) % allocated_cpus
         cpuset = []
         for cpuid in xrange(start_id, start_id + count):
             cpuset.append(str(cpuid % allocated_cpus))
@@ -330,7 +330,7 @@ class ScyllaNode(Node):
         if '--cpuset' not in args:
             smp = int(args[args.index('--smp') + 1])
             id = int(data['listen_address'].split('.')[3]) - 1
-            cpuset = self.cpuset(id, smp)
+            cpuset = self.cpuset(id, smp, self.cluster.id)
             args += ['--cpuset', ','.join(cpuset)]
         if '--prometheus-address' not in args:
             args += ['--prometheus-address', data['api_address']]
