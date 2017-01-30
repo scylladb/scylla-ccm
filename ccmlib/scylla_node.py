@@ -419,11 +419,23 @@ class ScyllaNode(Node):
 
             if self._process_jmx and self._process_scylla:
                 if gently:
-                    self._process_jmx.terminate()
-                    self._process_scylla.terminate()
+                    try:
+                        self._process_jmx.terminate()
+                    except OSError as e:
+                        pass
+                    try:
+                        self._process_scylla.terminate()
+                    except OSError as e:
+                        pass
                 else:
-                    self._process_jmx.kill()
-                    self._process_scylla.kill()
+                    try:
+                        self._process_jmx.kill()
+                    except OSError as e:
+                        pass
+                    try:
+                        self._process_scylla.kill()
+                    except OSError as e:
+                        pass
             else:
                 signal_mapping = {True: signal.SIGTERM, False: signal.SIGKILL}
                 for pid in [self.jmx_pid, self.pid]:
