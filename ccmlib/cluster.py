@@ -204,6 +204,15 @@ class Cluster(object):
     def create_node(self, name, auto_bootstrap, thrift_interface, storage_interface, jmx_port, remote_debug_port, initial_token, save=True, binary_interface=None):
         return Node(name, self, auto_bootstrap, thrift_interface, storage_interface, jmx_port, remote_debug_port, initial_token, save, binary_interface)
 
+    def get_node_ip(self,nodeid):
+        ipprefix = "127.0.0.%d"
+        if self.ipprefix:
+            ipprefix = self.ipprefix + "%d"
+        return ipprefix % nodeid
+
+    def get_node_jmx_port(self,nodeid):
+        return 7000 + nodeid * 100 + self.id;
+
     def balanced_tokens(self, node_count):
         if self.cassandra_version() >= '1.2' and not self.partitioner:
             ptokens = [(i * (2 ** 64 // node_count)) for i in xrange(0, node_count)]
