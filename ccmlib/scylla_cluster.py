@@ -14,9 +14,12 @@ SNITCH = 'org.apache.cassandra.locator.GossipingPropertyFileSnitch'
 class ScyllaCluster(Cluster):
 
     def __init__(self, path, name, partitioner=None, install_dir=None,
-                 create_directory=True, version=None, verbose=False, **kwargs):
+                 create_directory=True, version=None, verbose=False,
+                 force_wait_for_cluster_start=False, **kwargs):
         install_func = common.scylla_extract_install_dir_and_mode
         install_dir, self.scylla_mode = install_func(install_dir)
+        self.started = False
+        self.force_wait_for_cluster_start = force_wait_for_cluster_start
         super(ScyllaCluster, self).__init__(path, name, partitioner,
                                             install_dir, create_directory,
                                             version, verbose,
@@ -41,6 +44,11 @@ class ScyllaCluster(Cluster):
     def start(self, no_wait=False, verbose=False, wait_for_binary_proto=False,
               wait_other_notice=False, jvm_args=None, profile_options=None,
               quiet_start=False):
+        if not self.started and self.force_wait_for_cluster_start:
+            wait_other_notice=True
+            wait_for_binary_proto=True
+        self.started=True
+
         p = None
         if jvm_args is None:
             jvm_args = []
