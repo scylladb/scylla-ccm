@@ -11,6 +11,7 @@ from ccmlib.cmds.command import Cmd
 from ccmlib.common import ArgumentError
 from ccmlib.dse_cluster import DseCluster
 from ccmlib.scylla_cluster import ScyllaCluster
+from ccmlib.scylla_node import ScyllaNode
 from ccmlib.dse_node import DseNode
 from ccmlib.node import Node, NodeError
 
@@ -242,7 +243,7 @@ class ClusterAddCmd(Cmd):
         parser.add_option('--binary-itf', type="string", dest="binary_itf",
                           help="Set the binary protocol host and port for the node (format: host[:port]).")
         parser.add_option('-j', '--jmx-port', type="string", dest="jmx_port",
-                          help="JMX port for the node", default="7199")
+                          help="JMX port for the node")
         parser.add_option('-r', '--remote-debug-port', type="string", dest="remote_debug_port",
                           help="Remote Debugging Port for the node", default="2000")
         parser.add_option('-n', '--token', type="string", dest="initial_token",
@@ -251,21 +252,15 @@ class ClusterAddCmd(Cmd):
                           help="Datacenter name this node is part of", default=None)
         parser.add_option('--dse', action="store_true", dest="dse_node",
                           help="Add node to DSE Cluster", default=False)
+        parser.add_option('--scylla', action="store_true", dest="scylla_node",
+                          help="Add node to Scylla Cluster", default=False)
         return parser
 
     def validate(self, parser, options, args):
         Cmd.validate(self, parser, options, args, node_name=True, load_cluster=True, load_node=False)
 
         if options.itfs is None and (options.thrift_itf is None or options.storage_itf is None or options.binary_itf is None):
-            print_('Missing thrift and/or storage and/or binary protocol interfaces or jmx port', file=sys.stderr)
-            parser.print_help()
-            sys.exit(1)
-
-        used_jmx_ports = [node.jmx_port for node in self.cluster.nodelist()]
-        if options.jmx_port in used_jmx_ports:
-            print_("This JMX port is already in use. Choose another.", file=sys.stderr)
-            parser.print_help()
-            sys.exit(1)
+            options.itfs = self.cluster.get_node_ip(len(self.cluster.nodelist())+1)
 
         if options.thrift_itf is None:
             options.thrift_itf = options.itfs
@@ -282,13 +277,34 @@ class ClusterAddCmd(Cmd):
             print_('Cannot set a binary address different from the thrift one', file=sys.stderr)
             sys.exit(1)
 
+        used_binary_ips = [node.network_interfaces['binary'][0] for node in self.cluster.nodelist()]
+        used_thrift_ips = [node.network_interfaces['thrift'][0] for node in self.cluster.nodelist()]
+        used_storage_ips = [node.network_interfaces['storage'][0] for node in self.cluster.nodelist()]
+
+        if self.binary[0] in used_binary_ips or self.thrift[0] in used_thrift_ips or self.storage[0] in used_storage_ips:
+            print_("One of the ips is already in use choose another.", file=sys.stderr)
+            parser.print_help()
+            sys.exit(1)
+
+        if options.jmx_port is None:
+            options.jmx_port = self.cluster.get_node_jmx_port(len(self.cluster.nodelist())+1)
+
+        used_jmx_ports = [node.jmx_port for node in self.cluster.nodelist()]
+        if options.jmx_port in used_jmx_ports:
+            print_("This JMX port is already in use. Choose another.", file=sys.stderr)
+            parser.print_help()
+            sys.exit(1)
+
+
         self.jmx_port = options.jmx_port
         self.remote_debug_port = options.remote_debug_port
         self.initial_token = options.initial_token
 
     def run(self):
         try:
-            if self.options.dse_node:
+            if self.options.scylla_node:
+                node = ScyllaNode(self.name, self.cluster, self.options.bootstrap, self.thrift, self.storage, self.jmx_port, self.remote_debug_port, self.initial_token, binary_interface=self.binary)
+            elif self.options.dse_node:
                 node = DseNode(self.name, self.cluster, self.options.bootstrap, self.thrift, self.storage, self.jmx_port, self.remote_debug_port, self.initial_token, binary_interface=self.binary)
             else:
                 node = Node(self.name, self.cluster, self.options.bootstrap, self.thrift, self.storage, self.jmx_port, self.remote_debug_port, self.initial_token, binary_interface=self.binary)
