@@ -1034,6 +1034,7 @@ class Node(object):
     def list_keyspaces(self):
         keyspaces = os.listdir(os.path.join(self.get_path(), 'data'))
         keyspaces.remove('system')
+        keyspaces.remove('system_schema')
         return keyspaces
 
     def get_sstables(self, keyspace, column_family):
