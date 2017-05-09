@@ -125,7 +125,7 @@ class ScyllaCluster(Cluster):
         # Return 2.2 as it changes some option values for tools. 
         # Our tools are actually at 3.x level (-ish), but otoh
         # the server is more or less 2.1-2.2
-        return '2.2'
+        return '3.0'
 
     def get_scylla_mode(self):
         return self.scylla_mode
