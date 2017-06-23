@@ -305,10 +305,11 @@ class ScyllaNode(Node):
         # Lets search for default overrides in SCYLLA_EXT_OPTS
         scylla_ext_opts = os.getenv('SCYLLA_EXT_OPTS', "").split()
         opts_i = 0
+        orig_args = list(args)
         while opts_i < len(scylla_ext_opts):
             if scylla_ext_opts[opts_i].startswith('-'):
                 add = False
-                if scylla_ext_opts[opts_i] not in args:
+                if scylla_ext_opts[opts_i] not in orig_args:
                     add = True
                     args.append(scylla_ext_opts[opts_i])
                 opts_i += 1
