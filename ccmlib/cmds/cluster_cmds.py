@@ -46,7 +46,8 @@ def cluster_cmds():
         "invalidatecache",
         "checklogerror",
         "showlastlog",
-        "jconsole"
+        "jconsole",
+        "sctool"
     ]
 
 
@@ -116,6 +117,8 @@ class ClusterCreateCmd(Cmd):
                           help="Path to keystore.jks and truststore.jks for internode encryption", default=None)
         parser.add_option("--scylla", action="store_true", dest="scylla",
                           help="Must specify --install-dir holding Scylla")
+        parser.add_option("--scylla-mgmt", type="string", dest="scyllamgmt",
+                          help="Must specify root directory for scylla management")
         parser.add_option("--snitch", type="string", dest="snitch",
                           help="Supports 'org.apache.cassandra.locator.PropertyFileSnitch','org.apache.cassandra.locator.GossipingPropertyFileSnitch' used only in multidc clusters")
         parser.add_option("--id", type="int", dest="id",
@@ -157,7 +160,7 @@ class ClusterCreateCmd(Cmd):
     def run(self):
         try:
             if self.options.scylla:
-                cluster = ScyllaCluster(self.path, self.name, install_dir=self.options.install_dir, version=self.options.version, verbose=True)
+                cluster = ScyllaCluster(self.path, self.name, install_dir=self.options.install_dir, version=self.options.version, verbose=True,mgmt=self.options.scyllamgmt)
             elif self.options.dse or (not self.options.version and common.isDse(self.options.install_dir)):
                 cluster = DseCluster(self.path, self.name, install_dir=self.options.install_dir, version=self.options.version, dse_username=self.options.dse_username, dse_password=self.options.dse_password, opscenter=self.options.opscenter, verbose=True)
             else:
@@ -982,3 +985,25 @@ class ClusterJconsoleCmd(Cmd):
         except OSError:
             print_("Could not start jconsole. Please make sure jconsole can be found in your $PATH.")
             sys.exit(1)
+
+class ClusterSctoolCmd(Cmd):
+    usage = "usage: ccm node_name nodetool [options]"
+    descr_text = "Run nodetool (connecting to node name)"
+
+
+    def description(self):
+        return "Run scylla sctool"
+
+    def get_parser(self):
+        usage = "usage: ccm sctool [options]"
+        parser = self._get_default_parser(usage, self.description(),ignore_unknown_options=True)
+        return parser
+
+    def validate(self, parser, options, args):
+        Cmd.validate(self, parser, options, args, load_cluster=True)
+        self.sctool_options = args +  parser.get_ignored()
+
+    def run(self):
+        stdout, stderr = self.cluster.sctool(self.sctool_options)
+        print_(stderr)
+        print_(stdout)
