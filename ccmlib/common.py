@@ -21,10 +21,12 @@ CASSANDRA_CONF_DIR = "conf"
 DSE_CASSANDRA_CONF_DIR = "resources/cassandra/conf"
 OPSCENTER_CONF_DIR = "conf"
 SCYLLA_CONF_DIR = "conf"
+SCYLLAMGMT_DIR = "scylla-mgmt"
 
 
 CASSANDRA_CONF = "cassandra.yaml"
 SCYLLA_CONF = "scylla.yaml"
+SCYLLAMGMT_CONF = "scylla-mgmt.yaml"
 LOG4J_CONF = "log4j-server.properties"
 LOG4J_TOOL_CONF = "log4j-tools.properties"
 LOGBACK_CONF = "logback.xml"

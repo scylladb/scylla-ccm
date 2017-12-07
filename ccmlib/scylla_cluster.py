@@ -2,6 +2,11 @@
 import os
 import shutil
 import time
+import subprocess
+import threading
+import signal
+import yaml
+import errno
 
 from ccmlib import common
 from ccmlib.cluster import Cluster
@@ -15,7 +20,7 @@ class ScyllaCluster(Cluster):
 
     def __init__(self, path, name, partitioner=None, install_dir=None,
                  create_directory=True, version=None, verbose=False,
-                 force_wait_for_cluster_start=False, **kwargs):
+                 force_wait_for_cluster_start=False, mgmt=None, **kwargs):
         install_func = common.scylla_extract_install_dir_and_mode
         install_dir, self.scylla_mode = install_func(install_dir)
         self.started = False
@@ -24,6 +29,11 @@ class ScyllaCluster(Cluster):
                                             install_dir, create_directory,
                                             version, verbose,
                                             snitch=SNITCH)
+        self._scylla_mgmt=None
+        if mgmt:
+            self._scylla_mgmt = ScyllaMgmt(self,mgmt)
+        elif os.path.exists(os.path.join(self.get_path(), common.SCYLLAMGMT_DIR)):
+            self._scylla_mgmt = ScyllaMgmt(self)
 
     def load_from_repository(self, version, verbose):
         raise NotImplementedError('ScyllaCluster.load_from_repository')
@@ -115,7 +125,15 @@ class ScyllaCluster(Cluster):
                                    verbose=verbose, from_mark=mark)
             time.sleep(0.2)
 
+        if self._scylla_mgmt:
+            self._scylla_mgmt.start()
+
         return started
+
+    def stop(self, wait=True, gently=True):
+        if self._scylla_mgmt:
+            self._scylla_mgmt.stop(gently)
+        Cluster.stop(self,wait,gently)
 
     def version(self):
         return self.cassandra_version()
@@ -143,3 +161,141 @@ class ScyllaCluster(Cluster):
 
         self._config_options['server_encryption_options'] = node_ssl_options
         self._update_config()
+
+    def sctool(self, cmd):
+        if self._scylla_mgmt == None:
+            raise Exception("scylla mgmt not enabled - sctool command cannot be executed")
+        return self._scylla_mgmt.sctool(cmd)
+
+class ScyllaMgmt:
+    def __init__(self,scylla_cluster,install_dir=None):
+        self.scylla_cluster = scylla_cluster
+        self._process_scylla_mgmt = None
+        self._pid = None
+        if install_dir:
+            if not os.path.exists(self._get_path()):
+                os.mkdir(self._get_path())
+            self._install(install_dir)
+        else:
+            self._update_pid()
+
+    def _install(self,dir):
+        self._copy_config_files(dir)
+        self._copy_bin_files(dir)
+        self._update_config(dir)
+
+    def _get_api_address(self):
+        return "%s:9090" % self.scylla_cluster.get_node_ip(1)
+
+    def _update_config(self,dir):
+        conf_file = os.path.join(self._get_path(), common.SCYLLAMGMT_CONF)
+        with open(conf_file, 'r') as f:
+            data = yaml.load(f)
+        data['http'] = self._get_api_address() 
+        data['database']['hosts'] = [self.scylla_cluster.get_node_ip(1)]
+        data['database']['keyspace_tpl_file'] = os.path.join(dir,'dist','etc','create_keyspace.cql.tpl')
+        data['database']['migrate_dir'] = os.path.join(dir,'schema','cql')
+        with open(conf_file, 'w') as f:
+            yaml.safe_dump(data, f, default_flow_style=False)
+
+    def _copy_config_files(self,dir):
+        conf_dir = os.path.join(dir, 'dist','etc')
+        if not os.path.exists(conf_dir):
+            raise Exception("%s is not a valid scylla-mgmt install dir" % dir)
+        for name in os.listdir(conf_dir):
+            filename = os.path.join(conf_dir, name)
+            if os.path.isfile(filename):
+                shutil.copy(filename, self._get_path())
+
+    def _copy_bin_files(self,dir):
+        os.mkdir(os.path.join(self._get_path(),'bin'))
+        files = ['scylla-mgmt', 'sctool']
+        for name in files:
+            src = os.path.join(dir, name)
+            if not os.path.exists(src):
+               raise Exception("%s not found in scylla-mgmt install dir" % src)
+            shutil.copy(src,
+                        os.path.join(self._get_path(), 'bin', name))
+
+    def _get_path(self):
+        return os.path.join(self.scylla_cluster.get_path(), common.SCYLLAMGMT_DIR)
+
+    def _get_pid_file(self):
+        return os.path.join(self._get_path(),"scylla-mgmt.pid")
+
+    def _update_pid(self):
+        if not os.path.isfile(self._get_pid_file()):
+            return
+
+        start = time.time()
+        while not (os.path.isfile(self._get_pid_file()) and os.stat(self._get_pid_file()).st_size > 0):
+            if time.time() - start > 30.0:
+                print_("Timed out waiting for pidfile to be filled "
+                       "(current time is %s)" % (datetime.datetime.now()))
+                break
+            else:
+                time.sleep(0.1)
+
+        try:
+            with open(self._get_pid_file(), 'r') as f:
+                self._pid = int(f.readline().strip())
+        except IOError as e:
+            raise NodeError('Problem starting scylla-mgmt due to %s' %
+                            (e))
+
+    def start(self):
+        # check process is not running
+        if self._pid:
+            try:
+                os.kill(self._pid, 0)
+                return
+            except OSError as err:
+                pass
+
+        log_file = os.path.join(self._get_path(),'scylla-mgmt.log')
+        scylla_log = open(log_file, 'a')
+
+        if os.path.isfile(self._get_pid_file()):
+            os.remove(self._get_pid_file())
+
+        args=[os.path.join(self._get_path(),'bin','scylla-mgmt'),
+              '--config-file',os.path.join(self._get_path(),'scylla-mgmt.yaml'),
+              '--developer-mode']
+        self._process_scylla_mgmt = subprocess.Popen(args, stdout=scylla_log,
+                                                stderr=scylla_log,
+                                                close_fds=True)
+        self._process_scylla_mgmt.poll()
+        with open(self._get_pid_file(), 'w') as pid_file:
+            pid_file.write(str(self._process_scylla_mgmt.pid))
+
+        return self._process_scylla_mgmt
+
+    def stop(self,gently):
+        if self._process_scylla_mgmt:
+            if gently:
+                try:
+                    self._process_scylla_mgmt.terminate()
+                except OSError as e:
+                    pass
+            else:
+                try:
+                    self._process_scylla_mgmt.kill()
+                except OSError as e:
+                    pass
+        else:
+            signal_mapping = {True: signal.SIGTERM, False: signal.SIGKILL}
+            try:
+                os.kill(self._pid, signal_mapping[gently])
+            except OSError:
+                pass
+
+    def sctool(self, cmd):
+        sctool = os.path.join(self._get_path(),'bin','sctool')
+        args = [sctool, '--api-url', "http://%s/api/v1" % self._get_api_address()]
+        args += cmd
+        p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stdout, stderr = p.communicate()
+        exit_status = p.wait()
+        if exit_status != 0:
+            raise Exception(" ".join(args), exit_status, stdout, stderr)
+        return stdout, stderr
