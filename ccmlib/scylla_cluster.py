@@ -29,11 +29,20 @@ class ScyllaCluster(Cluster):
                                             install_dir, create_directory,
                                             version, verbose,
                                             snitch=SNITCH)
+
         self._scylla_mgmt=None
-        if mgmt:
-            self._scylla_mgmt = ScyllaMgmt(self,mgmt)
-        elif os.path.exists(os.path.join(self.get_path(), common.SCYLLAMGMT_DIR)):
+        if not mgmt:
+            scylla_ext_opts = os.getenv('SCYLLA_EXT_OPTS', "").split()
+            opts_i = 0
+            while opts_i < len(scylla_ext_opts):
+                if scylla_ext_opts[opts_i].startswith("--scylla-mgmt="):
+                   mgmt = scylla_ext_opts[opts_i].split('=')[1]
+                opts_i += 1
+
+        if os.path.exists(os.path.join(self.get_path(), common.SCYLLAMGMT_DIR)):
             self._scylla_mgmt = ScyllaMgmt(self)
+        elif mgmt:
+            self._scylla_mgmt = ScyllaMgmt(self,mgmt)
 
     def load_from_repository(self, version, verbose):
         raise NotImplementedError('ScyllaCluster.load_from_repository')
@@ -194,7 +203,9 @@ class ScyllaMgmt:
         data['http'] = self._get_api_address() 
         data['database']['hosts'] = [self.scylla_cluster.get_node_ip(1)]
         data['database']['keyspace_tpl_file'] = os.path.join(dir,'dist','etc','create_keyspace.cql.tpl')
+        data['database']['replication_factor'] = 3
         data['database']['migrate_dir'] = os.path.join(dir,'schema','cql')
+        del data['ssh']
         with open(conf_file, 'w') as f:
             yaml.safe_dump(data, f, default_flow_style=False)
 
@@ -283,11 +294,12 @@ class ScyllaMgmt:
                 except OSError as e:
                     pass
         else:
-            signal_mapping = {True: signal.SIGTERM, False: signal.SIGKILL}
-            try:
-                os.kill(self._pid, signal_mapping[gently])
-            except OSError:
-                pass
+            if self._pid:
+                signal_mapping = {True: signal.SIGTERM, False: signal.SIGKILL}
+                try:
+                    os.kill(self._pid, signal_mapping[gently])
+                except OSError:
+                    pass
 
     def sctool(self, cmd):
         sctool = os.path.join(self._get_path(),'bin','sctool')
