@@ -176,6 +176,16 @@ class ScyllaCluster(Cluster):
             raise Exception("scylla mgmt not enabled - sctool command cannot be executed")
         return self._scylla_mgmt.sctool(cmd)
 
+    def start_scylla_mgmt(self):
+        if not self._scylla_mgmt:
+            return
+        self._scylla_mgmt.start()
+
+    def stop_scylla_mgmt(self,gently=True):
+        if not self._scylla_mgmt:
+            return
+        self._scylla_mgmt.stop(gently)
+
 class ScyllaMgmt:
     def __init__(self,scylla_cluster,install_dir=None):
         self.scylla_cluster = scylla_cluster
@@ -278,6 +288,11 @@ class ScyllaMgmt:
         self._process_scylla_mgmt.poll()
         with open(self._get_pid_file(), 'w') as pid_file:
             pid_file.write(str(self._process_scylla_mgmt.pid))
+
+        api_interface = common.parse_interface(self._get_api_address(),9090)
+        if not common.check_socket_listening(api_interface,timeout=180):
+            raise Exception("scylla mgmt interface %s:%s is not listening after 10 seconds, scylla mgmt may have failed to start."
+                          % (api_interface[0], api_interface[1]))
 
         return self._process_scylla_mgmt
 
