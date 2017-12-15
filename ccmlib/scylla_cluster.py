@@ -206,16 +206,18 @@ class ScyllaMgmt:
     def _get_api_address(self):
         return "%s:9090" % self.scylla_cluster.get_node_ip(1)
 
-    def _update_config(self,dir):
+    def _update_config(self,dir=None):
         conf_file = os.path.join(self._get_path(), common.SCYLLAMGMT_CONF)
         with open(conf_file, 'r') as f:
             data = yaml.load(f)
         data['http'] = self._get_api_address() 
         data['database']['hosts'] = [self.scylla_cluster.get_node_ip(1)]
-        data['database']['keyspace_tpl_file'] = os.path.join(dir,'dist','etc','create_keyspace.cql.tpl')
         data['database']['replication_factor'] = 3
-        data['database']['migrate_dir'] = os.path.join(dir,'schema','cql')
-        del data['ssh']
+        if dir:
+            data['database']['keyspace_tpl_file'] = os.path.join(dir,'dist','etc','create_keyspace.cql.tpl')
+            data['database']['migrate_dir'] = os.path.join(dir,'schema','cql')
+        if 'ssh' in data:
+            del data['ssh']
         with open(conf_file, 'w') as f:
             yaml.safe_dump(data, f, default_flow_style=False)
 
@@ -265,6 +267,9 @@ class ScyllaMgmt:
                             (e))
 
     def start(self):
+        # some configurations are set post initalization (cluster id) so
+        # we are forced to update the config prior to calling start
+        self._update_config()
         # check process is not running
         if self._pid:
             try:
@@ -291,7 +296,7 @@ class ScyllaMgmt:
 
         api_interface = common.parse_interface(self._get_api_address(),9090)
         if not common.check_socket_listening(api_interface,timeout=180):
-            raise Exception("scylla mgmt interface %s:%s is not listening after 10 seconds, scylla mgmt may have failed to start."
+            raise Exception("scylla mgmt interface %s:%s is not listening after 180 seconds, scylla mgmt may have failed to start."
                           % (api_interface[0], api_interface[1]))
 
         return self._process_scylla_mgmt
