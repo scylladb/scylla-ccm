@@ -40,9 +40,9 @@ class ScyllaCluster(Cluster):
                 opts_i += 1
 
         if os.path.exists(os.path.join(self.get_path(), common.SCYLLAMANAGER_DIR)):
-            self._scylla_manager = ScyllaMgmt(self)
+            self._scylla_manager = ScyllaManager(self)
         elif manager:
-            self._scylla_manager = ScyllaMgmt(self,manager)
+            self._scylla_manager = ScyllaManager(self,manager)
 
     def load_from_repository(self, version, verbose):
         raise NotImplementedError('ScyllaCluster.load_from_repository')
@@ -186,7 +186,7 @@ class ScyllaCluster(Cluster):
             return
         self._scylla_manager.stop(gently)
 
-class ScyllaMgmt:
+class ScyllaManager:
     def __init__(self,scylla_cluster,install_dir=None):
         self.scylla_cluster = scylla_cluster
         self._process_scylla_manager = None
