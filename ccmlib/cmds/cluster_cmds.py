@@ -117,7 +117,7 @@ class ClusterCreateCmd(Cmd):
                           help="Path to keystore.jks and truststore.jks for internode encryption", default=None)
         parser.add_option("--scylla", action="store_true", dest="scylla",
                           help="Must specify --install-dir holding Scylla")
-        parser.add_option("--scylla-mgmt", type="string", dest="scyllamgmt",
+        parser.add_option("--scylla-manager", type="string", dest="scyllamanager",
                           help="Must specify root directory for scylla management")
         parser.add_option("--snitch", type="string", dest="snitch",
                           help="Supports 'org.apache.cassandra.locator.PropertyFileSnitch','org.apache.cassandra.locator.GossipingPropertyFileSnitch' used only in multidc clusters")
@@ -160,7 +160,7 @@ class ClusterCreateCmd(Cmd):
     def run(self):
         try:
             if self.options.scylla:
-                cluster = ScyllaCluster(self.path, self.name, install_dir=self.options.install_dir, version=self.options.version, verbose=True,mgmt=self.options.scyllamgmt)
+                cluster = ScyllaCluster(self.path, self.name, install_dir=self.options.install_dir, version=self.options.version, verbose=True,manager=self.options.scyllamanager)
             elif self.options.dse or (not self.options.version and common.isDse(self.options.install_dir)):
                 cluster = DseCluster(self.path, self.name, install_dir=self.options.install_dir, version=self.options.version, dse_username=self.options.dse_username, dse_password=self.options.dse_password, opscenter=self.options.opscenter, verbose=True)
             else:
