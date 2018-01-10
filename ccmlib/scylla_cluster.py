@@ -20,7 +20,7 @@ class ScyllaCluster(Cluster):
 
     def __init__(self, path, name, partitioner=None, install_dir=None,
                  create_directory=True, version=None, verbose=False,
-                 force_wait_for_cluster_start=False, mgmt=None, **kwargs):
+                 force_wait_for_cluster_start=False, manager=None, **kwargs):
         install_func = common.scylla_extract_install_dir_and_mode
         install_dir, self.scylla_mode = install_func(install_dir)
         self.started = False
@@ -30,19 +30,19 @@ class ScyllaCluster(Cluster):
                                             version, verbose,
                                             snitch=SNITCH)
 
-        self._scylla_mgmt=None
-        if not mgmt:
+        self._scylla_manager=None
+        if not manager:
             scylla_ext_opts = os.getenv('SCYLLA_EXT_OPTS', "").split()
             opts_i = 0
             while opts_i < len(scylla_ext_opts):
-                if scylla_ext_opts[opts_i].startswith("--scylla-mgmt="):
-                   mgmt = scylla_ext_opts[opts_i].split('=')[1]
+                if scylla_ext_opts[opts_i].startswith("--scylla-manager="):
+                   manager = scylla_ext_opts[opts_i].split('=')[1]
                 opts_i += 1
 
-        if os.path.exists(os.path.join(self.get_path(), common.SCYLLAMGMT_DIR)):
-            self._scylla_mgmt = ScyllaMgmt(self)
-        elif mgmt:
-            self._scylla_mgmt = ScyllaMgmt(self,mgmt)
+        if os.path.exists(os.path.join(self.get_path(), common.SCYLLAMANAGER_DIR)):
+            self._scylla_manager = ScyllaManager(self)
+        elif manager:
+            self._scylla_manager = ScyllaManager(self,manager)
 
     def load_from_repository(self, version, verbose):
         raise NotImplementedError('ScyllaCluster.load_from_repository')
@@ -134,14 +134,14 @@ class ScyllaCluster(Cluster):
                                    verbose=verbose, from_mark=mark)
             time.sleep(0.2)
 
-        if self._scylla_mgmt:
-            self._scylla_mgmt.start()
+        if self._scylla_manager:
+            self._scylla_manager.start()
 
         return started
 
     def stop(self, wait=True, gently=True):
-        if self._scylla_mgmt:
-            self._scylla_mgmt.stop(gently)
+        if self._scylla_manager:
+            self._scylla_manager.stop(gently)
         Cluster.stop(self,wait,gently)
 
     def version(self):
@@ -172,24 +172,24 @@ class ScyllaCluster(Cluster):
         self._update_config()
 
     def sctool(self, cmd):
-        if self._scylla_mgmt == None:
-            raise Exception("scylla mgmt not enabled - sctool command cannot be executed")
-        return self._scylla_mgmt.sctool(cmd)
+        if self._scylla_manager == None:
+            raise Exception("scylla manager not enabled - sctool command cannot be executed")
+        return self._scylla_manager.sctool(cmd)
 
-    def start_scylla_mgmt(self):
-        if not self._scylla_mgmt:
+    def start_scylla_manager(self):
+        if not self._scylla_manager:
             return
-        self._scylla_mgmt.start()
+        self._scylla_manager.start()
 
-    def stop_scylla_mgmt(self,gently=True):
-        if not self._scylla_mgmt:
+    def stop_scylla_manager(self,gently=True):
+        if not self._scylla_manager:
             return
-        self._scylla_mgmt.stop(gently)
+        self._scylla_manager.stop(gently)
 
-class ScyllaMgmt:
+class ScyllaManager:
     def __init__(self,scylla_cluster,install_dir=None):
         self.scylla_cluster = scylla_cluster
-        self._process_scylla_mgmt = None
+        self._process_scylla_manager = None
         self._pid = None
         if install_dir:
             if not os.path.exists(self._get_path()):
@@ -207,7 +207,7 @@ class ScyllaMgmt:
         return "%s:9090" % self.scylla_cluster.get_node_ip(1)
 
     def _update_config(self,dir=None):
-        conf_file = os.path.join(self._get_path(), common.SCYLLAMGMT_CONF)
+        conf_file = os.path.join(self._get_path(), common.SCYLLAMANAGER_CONF)
         with open(conf_file, 'r') as f:
             data = yaml.load(f)
         data['http'] = self._get_api_address() 
@@ -224,7 +224,7 @@ class ScyllaMgmt:
     def _copy_config_files(self,dir):
         conf_dir = os.path.join(dir, 'dist','etc')
         if not os.path.exists(conf_dir):
-            raise Exception("%s is not a valid scylla-mgmt install dir" % dir)
+            raise Exception("%s is not a valid scylla-manager install dir" % dir)
         for name in os.listdir(conf_dir):
             filename = os.path.join(conf_dir, name)
             if os.path.isfile(filename):
@@ -232,19 +232,19 @@ class ScyllaMgmt:
 
     def _copy_bin_files(self,dir):
         os.mkdir(os.path.join(self._get_path(),'bin'))
-        files = ['scylla-mgmt', 'sctool']
+        files = ['scylla-manager', 'sctool']
         for name in files:
             src = os.path.join(dir, name)
             if not os.path.exists(src):
-               raise Exception("%s not found in scylla-mgmt install dir" % src)
+               raise Exception("%s not found in scylla-manager install dir" % src)
             shutil.copy(src,
                         os.path.join(self._get_path(), 'bin', name))
 
     def _get_path(self):
-        return os.path.join(self.scylla_cluster.get_path(), common.SCYLLAMGMT_DIR)
+        return os.path.join(self.scylla_cluster.get_path(), common.SCYLLAMANAGER_DIR)
 
     def _get_pid_file(self):
-        return os.path.join(self._get_path(),"scylla-mgmt.pid")
+        return os.path.join(self._get_path(),"scylla-manager.pid")
 
     def _update_pid(self):
         if not os.path.isfile(self._get_pid_file()):
@@ -263,7 +263,7 @@ class ScyllaMgmt:
             with open(self._get_pid_file(), 'r') as f:
                 self._pid = int(f.readline().strip())
         except IOError as e:
-            raise NodeError('Problem starting scylla-mgmt due to %s' %
+            raise NodeError('Problem starting scylla-manager due to %s' %
                             (e))
 
     def start(self):
@@ -278,39 +278,39 @@ class ScyllaMgmt:
             except OSError as err:
                 pass
 
-        log_file = os.path.join(self._get_path(),'scylla-mgmt.log')
+        log_file = os.path.join(self._get_path(),'scylla-manager.log')
         scylla_log = open(log_file, 'a')
 
         if os.path.isfile(self._get_pid_file()):
             os.remove(self._get_pid_file())
 
-        args=[os.path.join(self._get_path(),'bin','scylla-mgmt'),
-              '--config-file',os.path.join(self._get_path(),'scylla-mgmt.yaml'),
+        args=[os.path.join(self._get_path(),'bin','scylla-manager'),
+              '--config-file',os.path.join(self._get_path(),'scylla-manager.yaml'),
               '--developer-mode']
-        self._process_scylla_mgmt = subprocess.Popen(args, stdout=scylla_log,
+        self._process_scylla_manager = subprocess.Popen(args, stdout=scylla_log,
                                                 stderr=scylla_log,
                                                 close_fds=True)
-        self._process_scylla_mgmt.poll()
+        self._process_scylla_manager.poll()
         with open(self._get_pid_file(), 'w') as pid_file:
-            pid_file.write(str(self._process_scylla_mgmt.pid))
+            pid_file.write(str(self._process_scylla_manager.pid))
 
         api_interface = common.parse_interface(self._get_api_address(),9090)
         if not common.check_socket_listening(api_interface,timeout=180):
-            raise Exception("scylla mgmt interface %s:%s is not listening after 180 seconds, scylla mgmt may have failed to start."
+            raise Exception("scylla manager interface %s:%s is not listening after 180 seconds, scylla manager may have failed to start."
                           % (api_interface[0], api_interface[1]))
 
-        return self._process_scylla_mgmt
+        return self._process_scylla_manager
 
     def stop(self,gently):
-        if self._process_scylla_mgmt:
+        if self._process_scylla_manager:
             if gently:
                 try:
-                    self._process_scylla_mgmt.terminate()
+                    self._process_scylla_manager.terminate()
                 except OSError as e:
                     pass
             else:
                 try:
-                    self._process_scylla_mgmt.kill()
+                    self._process_scylla_manager.kill()
                 except OSError as e:
                     pass
         else:

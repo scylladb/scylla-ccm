@@ -307,7 +307,7 @@ class ScyllaNode(Node):
         opts_i = 0
         orig_args = list(args)
         while opts_i < len(scylla_ext_opts):
-            if scylla_ext_opts[opts_i].startswith("--scylla-mgmt="):
+            if scylla_ext_opts[opts_i].startswith("--scylla-manager="):
                opts_i += 1
             elif scylla_ext_opts[opts_i].startswith('-'):
                 add = False
