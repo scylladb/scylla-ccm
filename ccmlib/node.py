@@ -320,15 +320,18 @@ class Node(object):
                     matchings.append((line, m))
         return matchings
 
-    def grep_log_for_errors(self, filename='system.log'):
+    def grep_log_for_errors(self, filename='system.log', distinct_errors=False, search_str=None, case_sensitive=True):
         """
         Returns a list of errors with stack traces
         in the Cassandra log of this node
         """
+        if search_str:
+            search_str = search_str if case_sensitive else search_str.lower()
+
         with open(os.path.join(self.get_path(), 'logs', filename)) as f:
             if hasattr(self, 'error_mark'):
                 f.seek(self.error_mark)
-            return _grep_log_for_errors(f.read())
+            return _grep_log_for_errors(f.read(), distinct_errors=distinct_errors, search_str=search_str, case_sensitive=case_sensitive)
 
     def mark_log_for_errors(self, filename='system.log'):
         """
@@ -1754,18 +1757,25 @@ def _get_row_cache_entries_from_info_output(info):
     return int(row_cache_line[4])
 
 
-def _grep_log_for_errors(log):
+def _grep_log_for_errors(log, distinct_errors=False, search_str=None, case_sensitive=True):
     matchings = []
     it = iter(log.splitlines())
     for line in it:
-        is_error_line = ('ERROR' in line and
-                         'DEBUG' not in line.split('ERROR')[0])
+        l = line if case_sensitive else line.lower()
+        is_error_line = ('ERROR' in l and
+                         'DEBUG' not in l.split('ERROR')[0]) if not search_str else search_str in l
         if is_error_line:
-            matchings.append([line])
-            try:
-                it, peeker = itertools.tee(it)
-                while 'INFO' not in next(peeker):
-                    matchings[-1].append(next(it))
-            except StopIteration:
-                break
+            append_line = line if not search_str else l[l.rfind(search_str):]
+            if not distinct_errors:
+                append_line = [append_line]
+            matchings.append(append_line)
+            if not distinct_errors:
+                try:
+                    it, peeker = itertools.tee(it)
+                    while 'INFO' not in next(peeker):
+                        matchings[-1].append(next(it))
+                except StopIteration:
+                    break
+    if distinct_errors:
+        matchings = list(set(matchings))
     return matchings
