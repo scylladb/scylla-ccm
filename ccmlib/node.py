@@ -836,12 +836,14 @@ class Node(object):
                                           'logback.xml')
         common.copy_file(new_logback_config, cassandra_conf_dir)
 
-    def clear(self, clear_all=False, only_data=False):
+    def clear(self, clear_all=False, only_data=False, saved_caches=False):
         data_dirs = ['data']
         if not only_data:
             data_dirs.append("commitlogs")
             if clear_all:
-                data_dirs.extend(['saved_caches', 'logs'])
+                data_dirs.append('logs')
+                if saved_caches:
+                    data_dirs.append('saved_caches')
         for d in data_dirs:
             full_dir = os.path.join(self.get_path(), d)
             if only_data:
