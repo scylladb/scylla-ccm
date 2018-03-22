@@ -565,7 +565,7 @@ def get_version_from_build(install_dir=None, node_path=None):
 def get_scylla_version(install_dir):
     # FIXME
     if isScylla(install_dir):
-        return '2.1'
+        return '2.2'
     else:
         return None
 

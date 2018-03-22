@@ -97,7 +97,7 @@ class ScyllaNode(Node):
 
     def get_cassandra_version(self):
         # TODO: Handle versioning
-        return '2.1'
+        return '2.2'
 
     def set_log_level(self, new_level, class_name=None):
         # TODO: overwritting node.py

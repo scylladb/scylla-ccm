@@ -176,6 +176,9 @@ class Node(object):
     def get_install_cassandra_root(self):
         return self.get_install_dir()
 
+    def is_scylla(self):
+        return common.isScylla(self.get_install_dir())
+
     def get_node_cassandra_root(self):
         return self.get_path()
 
