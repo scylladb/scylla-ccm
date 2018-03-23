@@ -336,6 +336,7 @@ class ScyllaNode(Node):
             args += ['--prometheus-address', data['api_address']]
         if replace_address:
             args += ['--replace-address', replace_address]
+        args += ['--unsafe-bypass-fsync', '1']
 
         scylla_process = self._start_scylla(args, marks, update_pid,
                                             wait_other_notice,
