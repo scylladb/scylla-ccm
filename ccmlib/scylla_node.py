@@ -583,6 +583,7 @@ class ScyllaNode(Node):
         data['data_file_directories'] = [os.path.join(self.get_path(), 'data')]
         data['commitlog_directory'] = os.path.join(self.get_path(),
                                                    'commitlogs')
+        data['hints_directory'] = os.path.join(self.get_path(), 'hints')
         data['saved_caches_directory'] = os.path.join(self.get_path(),
                                                       'saved_caches')
 
