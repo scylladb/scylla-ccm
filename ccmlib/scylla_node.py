@@ -331,14 +331,12 @@ class ScyllaNode(Node):
         if '--collectd' not in args:
             args += ['--collectd', '0']
         if '--cpuset' not in args:
-            smp = int(args[args.index('--smp') + 1])
-            id = int(data['listen_address'].split('.')[3]) - 1
-            cpuset = self.cpuset(id, smp, self.cluster.id)
-            args += ['--cpuset', ','.join(cpuset)]
+            args += ['--overprovisioned']
         if '--prometheus-address' not in args:
             args += ['--prometheus-address', data['api_address']]
         if replace_address:
             args += ['--replace-address', replace_address]
+        args += ['--unsafe-bypass-fsync', '1']
 
         scylla_process = self._start_scylla(args, marks, update_pid,
                                             wait_other_notice,
