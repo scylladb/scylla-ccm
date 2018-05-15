@@ -1207,6 +1207,9 @@ class Node(object):
     def removeToken(self, token):
         self.nodetool("removeToken " + str(token))
 
+    def removenode(self, hid):
+        self.nodetool("removenode " + str(hid))
+
     def import_config_files(self):
         self._update_config()
         self.copy_config_files()
