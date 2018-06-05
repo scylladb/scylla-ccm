@@ -742,7 +742,7 @@ class ScyllaNode(Node):
 
     def _get_directories(self):
         dirs = {}
-        for i in ['data', 'commitlogs', 'bin', 'conf', 'logs']:
+        for i in ['data', 'commitlogs', 'bin', 'conf', 'logs','hints']:
             dirs[i] = os.path.join(self.get_path(), i)
         return dirs
 
