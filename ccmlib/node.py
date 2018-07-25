@@ -22,7 +22,6 @@ from six.moves import xrange
 from ccmlib import common
 from ccmlib.cli_session import CliSession
 from ccmlib.repository import setup
-from ccmlib.prometheus import Prometheus
 
 
 class Status():
@@ -1724,16 +1723,6 @@ class Node(object):
                                                        'jstack'))
         jstack_cmd = [jstack_location, '-J-d64'] + opts + [str(self.pid)]
         return subprocess.Popen(jstack_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-    def prometheus(self):
-        ip = self.network_interfaces['storage'][0]
-        return Prometheus(ip)
-
-    def metrics(self, select = []):
-        met = self.prometheus().metrics()
-        if select == []:
-            return met
-        return {k:v for k,v in met.iteritems() if k in select}
 
 def _get_load_from_info_output(info):
     load_lines = [s for s in info.split('\n')
