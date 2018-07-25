@@ -787,7 +787,7 @@ class ScyllaNode(Node):
         self._wait_no_pending_flushes()
 
     def prometheus(self):
-        ip = self.network_interfaces['storage'][0]
+        ip = self.network_interfaces['binary'][0]
         return Prometheus(ip)
 
     def metrics(self, select = []):
