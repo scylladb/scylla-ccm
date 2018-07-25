@@ -1726,7 +1726,7 @@ class Node(object):
         return subprocess.Popen(jstack_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     def prometheus(self):
-        ip = self.network_interfaces['storage'][0]
+        ip = self.network_interfaces['binary'][0]
         return Prometheus(ip)
 
     def metrics(self, select = []):
