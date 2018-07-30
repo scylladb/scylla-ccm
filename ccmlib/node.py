@@ -1724,6 +1724,7 @@ class Node(object):
         jstack_cmd = [jstack_location, '-J-d64'] + opts + [str(self.pid)]
         return subprocess.Popen(jstack_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
+
 def _get_load_from_info_output(info):
     load_lines = [s for s in info.split('\n')
                   if s.startswith('Load')]
