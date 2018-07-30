@@ -790,5 +790,5 @@ class ScyllaNode(Node):
         ip = self.network_interfaces['binary'][0]
         return Prometheus(ip)
 
-    def metrics(self, select = []):
+    def metrics(self, select=[]):
         return self.prometheus().metrics(select=select)
