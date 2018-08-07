@@ -139,7 +139,7 @@ class ScyllaCluster(Cluster):
 
         return started
 
-    def stop(self, wait=True, gently=True):
+    def stop(self, wait=True, gently=True, wait_other_notice=False):
         if self._scylla_manager:
             self._scylla_manager.stop(gently)
         Cluster.stop(self,wait,gently)
