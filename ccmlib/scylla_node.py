@@ -65,6 +65,8 @@ class ScyllaNode(Node):
                                          thrift_interface, storage_interface,
                                          jmx_port, remote_debug_port,
                                          initial_token, save, binary_interface)
+        self.__global_log_level = 'info'
+        self.__classes_log_level = {}
         self.get_cassandra_version()
         self._process_jmx = None
         self._process_jmx_waiter = None
@@ -100,7 +102,16 @@ class ScyllaNode(Node):
         return '2.2'
 
     def set_log_level(self, new_level, class_name=None):
-        # TODO: overwritting node.py
+        known_level = {'TRACE' : 'trace', 'DEBUG' : 'debug', 'INFO' : 'info', 'WARN' : 'warn', 'ERROR' : 'error', 'OFF' : 'info'}
+        if not known_level.has_key(new_level):
+            raise common.ArgumentError("Unknown log level %s (use one of %s)" % (new_level, " ".join(known_level)))
+
+        new_log_level = known_level[new_level]
+        # TODO class_name can be validated against help-loggers
+        if class_name:
+            self.__classes_log_level[class_name] = new_log_level
+        else:
+            self.__global_log_level = new_log_level
         return self
 
     def set_workload(self, workload):
@@ -327,7 +338,8 @@ class ScyllaNode(Node):
         if '--memory' not in args:
             args += ['--memory', '512M']
         if '--default-log-level' not in args:
-            args += ['--default-log-level', 'info']
+            args += ['--default-log-level', self.__global_log_level]
+        # TODO add support for classes_log_level
         if '--collectd' not in args:
             args += ['--collectd', '0']
         if '--cpuset' not in args:
