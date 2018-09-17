@@ -1108,11 +1108,11 @@ class Node(object):
             m = p.match(val)
             if m:
                 res[key] = float(m.group(1))
-            p = re.compile('^.*READ:([\d\.]+)[^\d].*')
+            p = re.compile('^.*READ:\s*([\d\.]+)[^\d].*')
             m = p.match(val)
             if m:
                 res[key + ":read"] = float(m.group(1))
-            p = re.compile('.*WRITE:([\d\.]+)[^\d].*')
+            p = re.compile('.*WRITE:\s*([\d\.]+)[^\d].*')
             m = p.match(val)
             if m:
                 res[key + ":write"] = float(m.group(1))
@@ -1133,7 +1133,7 @@ class Node(object):
             if start:
                 m = p.match(line)
                 if m:
-                    Node._set_stress_val(m.group(1).strip(), m.group(2).strip(), res)
+                    Node._set_stress_val(m.group(1).strip().lower(), m.group(2).strip(), res)
             else:
                 if line == 'Results:':
                     start = True
