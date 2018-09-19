@@ -14,6 +14,7 @@ import sys
 import time
 import warnings
 from datetime import datetime
+import locale
 
 import yaml
 from six import iteritems, print_, string_types
@@ -1103,28 +1104,30 @@ class Node(object):
 
     @staticmethod
     def _set_stress_val(key, val, res):
+        # Set locale to the user's default value (usually specified in the LANG)
+        locale.setlocale(locale.LC_NUMERIC, '')
         if "[" in val:
-            p = re.compile('^\s*([\d\.]+)\s*\[.*')
+            p = re.compile('^\s*([\d\.\,]+\d)\s*\[.*')
             m = p.match(val)
             if m:
-                res[key] = float(m.group(1))
-            p = re.compile('^.*READ:\s*([\d\.]+)[^\d].*')
+                res[key] = locale.atof(m.group(1))
+            p = re.compile('^.*READ:\s*([\d\.\,]+\d)[^\d].*')
             m = p.match(val)
             if m:
-                res[key + ":read"] = float(m.group(1))
-            p = re.compile('.*WRITE:\s*([\d\.]+)[^\d].*')
+                res[key + ":read"] = locale.atof(m.group(1))
+            p = re.compile('.*WRITE:\s*([\d\.\,]+\d)[^\d].*')
             m = p.match(val)
             if m:
-                res[key + ":write"] = float(m.group(1))
+                res[key + ":write"] = locale.atof(m.group(1))
         else:
             try:
-                res[key] = float(val)
+                res[key] = locale.atof(val)
             except ValueError:
                 res[key] = val
 
-    def stress_object(self, stress_options=[], **kwargs):
+    def stress_object(self, stress_options=[], ignore_errors = False, **kwargs):
         out, err = self.stress(stress_options, True, **kwargs)
-        if err != "" and not err.startswith("Failed to connect over JMX; not collecting these stats") and not err.startswith("Picked up JAVA_TOOL_OPTIONS"):
+        if not ignore_errors and err != "" and not err.startswith("Failed to connect over JMX; not collecting these stats") and not err.startswith("Picked up JAVA_TOOL_OPTIONS"):
             return err
         p = re.compile('^\s*([^:]+)\s*:\s*(\S.*)\s*$')
         res = {}
