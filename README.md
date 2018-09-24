@@ -8,6 +8,11 @@ The goal of ccm and ccmlib is to make it easy to create, manage and destroy a
 small Cassandra cluster on a local box. It is meant for testing a Cassandra cluster.
 
 
+Pointer to the Scylla CCM instructions (should really be merged here)
+---------------------------------------------------------------------
+https://github.com/scylladb/scylla/wiki/Using-CCM
+
+
 Requirements
 ------------
 
