@@ -1107,15 +1107,15 @@ class Node(object):
         # Set locale to the user's default value (usually specified in the LANG)
         locale.setlocale(locale.LC_NUMERIC, '')
         if "[" in val:
-            p = re.compile('^\s*([\d\.\,]+\d)\s*\[.*')
+            p = re.compile('^\s*([\d\.\,]+\d?)\s*\[.*')
             m = p.match(val)
             if m:
                 res[key] = locale.atof(m.group(1))
-            p = re.compile('^.*READ:\s*([\d\.\,]+\d)[^\d].*')
+            p = re.compile('^.*READ:\s*([\d\.\,]+\d?)[^\d].*')
             m = p.match(val)
             if m:
                 res[key + ":read"] = locale.atof(m.group(1))
-            p = re.compile('.*WRITE:\s*([\d\.\,]+\d)[^\d].*')
+            p = re.compile('.*WRITE:\s*([\d\.\,]+\d?)[^\d].*')
             m = p.match(val)
             if m:
                 res[key + ":write"] = locale.atof(m.group(1))
