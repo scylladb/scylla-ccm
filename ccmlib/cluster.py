@@ -431,7 +431,9 @@ class Cluster(object):
             else:
                 self._config_options["commitlog_sync"] = "periodic"
                 self._config_options["commitlog_sync_period_in_ms"] = 10000
-                self._config_options["commitlog_sync_batch_window_in_ms"] = None
+                # Commented because of Cassandra fails on None value. It expects "NaN".
+                # self._config_options["commitlog_sync_batch_window_in_ms"] = None
+
 
         self._update_config()
         for node in list(self.nodes.values()):
