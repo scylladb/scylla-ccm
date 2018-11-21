@@ -19,6 +19,7 @@ from six import print_
 from ccmlib import common
 from ccmlib.node import Node
 from ccmlib.node import NodeError
+from ccmlib.scylla_rest import ScyllaREST
 
 
 def wait_for(func, timeout, first=0.0, step=1.0, text=None):
@@ -796,3 +797,7 @@ class ScyllaNode(Node):
     def flush(self):
         self.nodetool("flush")
         self._wait_no_pending_flushes()
+
+    def api(self):
+        ip = self.network_interfaces['binary'][0]
+        return ScyllaREST(ip)
