@@ -73,6 +73,7 @@ class ScyllaNode(Node):
         self._process_jmx_waiter = None
         self._process_scylla = None
         self._process_scylla_waiter = None
+        self._rest_api = ScyllaREST(self.network_interfaces['binary'][0])
 
     def get_install_cassandra_root(self):
         return os.path.join(self.get_install_dir(), 'resources', 'cassandra')
@@ -798,6 +799,6 @@ class ScyllaNode(Node):
         self.nodetool("flush")
         self._wait_no_pending_flushes()
 
-    def api(self):
-        ip = self.network_interfaces['binary'][0]
-        return ScyllaREST(ip)
+    @property
+    def rest_api(self):
+        return self._rest_api
