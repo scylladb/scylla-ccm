@@ -347,10 +347,10 @@ class Cluster(object):
 
         return started
 
-    def stop(self, wait=True, gently=True, wait_other_notice=False):
+    def stop(self, wait=True, gently=True, wait_other_notice=False, wait_seconds=127):
         not_running = []
         for node in list(self.nodes.values()):
-            if not node.stop(wait, gently=gently, wait_other_notice=wait_other_notice):
+            if not node.stop(wait, gently=gently, wait_other_notice=wait_other_notice, wait_seconds=wait_seconds):
                 not_running.append(node)
         return not_running
 
