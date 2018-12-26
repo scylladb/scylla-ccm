@@ -415,11 +415,14 @@ class ScyllaNode(Node):
             raise NodeError('Problem starting node %s scylla-jmx due to %s' %
                             (self.name, e))
 
-    def stop(self, wait=True, wait_other_notice=False, gently=True):
+    def stop(self, wait=True, wait_other_notice=False, gently=True, wait_iterations=7):
         """
         Stop the node.
           - wait: if True (the default), wait for the Scylla process to be
             really dead. Otherwise return after having sent the kill signal.
+            stop() will wait up to 2^wait_iterations-1 seconds, by default
+            127 seconds, for the Cassandra process to die. After this wait,
+            it will throw an exception stating it couldn't stop the node.
           - wait_other_notice: return only when the other live nodes of the
             cluster have marked this node has dead.
           - gently: Let Scylla and Scylla JMX clean up and shut down properly.
@@ -469,7 +472,7 @@ class ScyllaNode(Node):
             still_running = self.is_running()
             if still_running and wait:
                 wait_time_sec = 1
-                for i in xrange(0, 7):
+                for i in xrange(0, wait_iterations):
                     time.sleep(wait_time_sec)
                     if not self.is_running():
                         return True

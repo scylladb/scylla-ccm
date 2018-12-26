@@ -139,10 +139,10 @@ class ScyllaCluster(Cluster):
 
         return started
 
-    def stop(self, wait=True, gently=True, wait_other_notice=False):
+    def stop(self, wait=True, gently=True, wait_other_notice=False, wait_iterations=7):
         if self._scylla_manager:
             self._scylla_manager.stop(gently)
-        Cluster.stop(self,wait,gently)
+        Cluster.stop(self,wait,gently,wait_iterations=wait_iterations)
 
     def version(self):
         return self.cassandra_version()
