@@ -605,6 +605,7 @@ class ScyllaNode(Node):
         data['hints_directory'] = os.path.join(self.get_path(), 'hints')
         data['saved_caches_directory'] = os.path.join(self.get_path(),
                                                       'saved_caches')
+        data['view_hints_directory'] = os.path.join(self.get_path(), 'view_hints')
 
         if self.cluster.partitioner:
             data['partitioner'] = self.cluster.partitioner
@@ -763,7 +764,7 @@ class ScyllaNode(Node):
 
     def _get_directories(self):
         dirs = {}
-        for i in ['data', 'commitlogs', 'bin', 'conf', 'logs','hints']:
+        for i in ['data', 'commitlogs', 'bin', 'conf', 'logs', 'hints', 'view_hints']:
             dirs[i] = os.path.join(self.get_path(), i)
         return dirs
 
