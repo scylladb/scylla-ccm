@@ -257,15 +257,16 @@ class Cluster(object):
     def remove_dir_with_retry(self, path):
         tries = 0
         removed = False
-        while removed is False:
-            try:
-                common.rmdirs(path)
-                removed = True
-            except Exception as e:
-                tries = tries + 1
-                time.sleep(.1)
-                if tries == 5:
-                    raise e
+        if os.path.exists(path):
+            while not removed:
+                try:
+                    common.rmdirs(path)
+                    removed = True
+                except:
+                    tries = tries + 1
+                    time.sleep(.1)
+                    if tries == 5:
+                        raise
 
     def clear(self):
         self.stop()

@@ -332,7 +332,11 @@ class Node(object):
         if search_str:
             search_str = search_str if case_sensitive else search_str.lower()
 
-        with open(os.path.join(self.get_path(), 'logs', filename)) as f:
+        log_file = os.path.join(self.get_path(), 'logs', filename)
+        if not os.path.exists(log_file):
+            return []
+
+        with open(log_file) as f:
             if hasattr(self, 'error_mark'):
                 f.seek(self.error_mark)
             return _grep_log_for_errors(f.read(), distinct_errors=distinct_errors, search_str=search_str, case_sensitive=case_sensitive)
