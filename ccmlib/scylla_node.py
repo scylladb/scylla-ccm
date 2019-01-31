@@ -354,11 +354,7 @@ class ScyllaNode(Node):
         if '--collectd' not in args:
             args += ['--collectd', '0']
         if '--cpuset' not in args:
-            # Code above guarantees --smp is always in the args list
-            smp = int(args[args.index('--smp') + 1])
-            id = int(data['listen_address'].split('.')[3]) - 1
-            cpuset = self.cpuset(id, smp, self.cluster.id)
-            args += ['--cpuset', ','.join(cpuset)]
+            args += ['--overprovisioned']
         if '--prometheus-address' not in args:
             args += ['--prometheus-address', data['api_address']]
         if replace_address:
