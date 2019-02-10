@@ -1083,6 +1083,24 @@ class Node(object):
             stress_options = stress_options[:]
 
         stress = common.get_stress_bin(self.get_install_dir())
+
+        # handle cassandra-stress >= 3.11 parameters
+        has_limit = any(['limit=' in o for o in stress_options])
+        has_throttle = any(['throttle=' in o for o in stress_options])
+        if has_limit or has_throttle:
+            args = [stress, 'version']
+            p = subprocess.Popen(args, cwd=common.parse_path(stress),
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 **kwargs)
+            stdout, stderr = p.communicate()
+
+            if p.returncode == 1 and has_throttle:
+                # cassandra-stress doesn't version command
+                stress_options = [o.replace('throttle=', 'limit=') for o in stress_options]
+            elif p.returncode == 0 and has_limit:
+                # cassandra-stress has version command
+                stress_options = [o.replace('limit=', 'throttle=') for o in stress_options]
+
         if self.cluster.cassandra_version() < '2.1':
             stress_options.append('-d')
             stress_options.append(self.address())
