@@ -370,6 +370,7 @@ def isScylla(install_dir):
 
     return (os.path.exists(os.path.join(install_dir, 'scylla')) or
             os.path.exists(os.path.join(install_dir, 'build', 'debug', 'scylla')) or
+            os.path.exists(os.path.join(install_dir, 'build', 'dev', 'scylla')) or
             os.path.exists(os.path.join(install_dir, 'build', 'release', 'scylla')))
 
 
@@ -391,7 +392,10 @@ def scylla_extract_install_dir_and_mode(install_dir):
     if install_dir.endswith('build/debug') or install_dir.endswith('build/debug/'):
         scylla_mode = 'debug'
         install_dir = str(os.path.join(install_dir, os.pardir, os.pardir))
-    if install_dir.endswith('build/release') or install_dir.endswith('build/release/'):
+    elif install_dir.endswith('build/dev') or install_dir.endswith('build/dev/'):
+        scylla_mode = 'dev'
+        install_dir = str(os.path.join(install_dir, os.pardir, os.pardir))
+    elif install_dir.endswith('build/release') or install_dir.endswith('build/release/'):
         scylla_mode = 'release'
         install_dir = str(os.path.join(install_dir, os.pardir, os.pardir))
     return install_dir, scylla_mode
