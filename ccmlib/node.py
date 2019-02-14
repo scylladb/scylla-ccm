@@ -1121,7 +1121,10 @@ class Node(object):
                 p = subprocess.Popen(args, cwd=common.parse_path(stress),
                                      **kwargs)
                 stdout, stderr = None, None
-            p.wait()
+            return_code = p.wait()
+            assert return_code == 0, "Stress command exited with error code: {return_code}\n" \
+                                     "stdout: {stdout}\n" \
+                                     "stderr: {stderr}\n".format(**locals())
             return stdout, stderr
         except KeyboardInterrupt:
             pass
