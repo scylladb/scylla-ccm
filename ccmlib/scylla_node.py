@@ -323,7 +323,11 @@ class ScyllaNode(Node):
                                '%s.%s' % (socket.gethostname(), self.name)]
 
         # Let's add jvm_args and the translated args
+
         args = [launch_bin, '--options-file', options_file, '--log-to-stdout', '1'] + jvm_args + translated_args
+        dbuild_so_dir = os.environ.get('SCYLLA_DBUILD_SO_DIR')
+        if dbuild_so_dir:
+            args = [os.path.join(dbuild_so_dir, 'ld-linux-x86-64.so.2'), '--library-path', dbuild_so_dir] + args
 
         # Lets search for default overrides in SCYLLA_EXT_OPTS
         scylla_ext_opts = os.getenv('SCYLLA_EXT_OPTS', "").split()
