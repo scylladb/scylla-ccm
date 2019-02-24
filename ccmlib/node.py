@@ -1116,20 +1116,19 @@ class Node(object):
                 stress_options.extend(['-port', 'jmx=' + self.jmx_port])
         args = [stress] + stress_options
         try:
-            if capture_output:
-                p = subprocess.Popen(args, cwd=common.parse_path(stress),
-                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                     **kwargs)
-                stdout, stderr = p.communicate()
-            else:
-                p = subprocess.Popen(args, cwd=common.parse_path(stress),
-                                     **kwargs)
-                stdout, stderr = None, None
+            p = subprocess.Popen(args, cwd=common.parse_path(stress),
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 **kwargs)
+            stdout, stderr = p.communicate()
             return_code = p.wait()
             assert return_code == 0, "Stress command exited with error code: {return_code}\n" \
                                      "stdout: {stdout}\n" \
                                      "stderr: {stderr}\n".format(**locals())
-            return stdout, stderr
+            if capture_output:
+                return stdout, stderr
+            else:
+                return None, None
+
         except KeyboardInterrupt:
             pass
 
