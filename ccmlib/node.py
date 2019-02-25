@@ -1116,8 +1116,10 @@ class Node(object):
                 stress_options.extend(['-port', 'jmx=' + self.jmx_port])
         args = [stress] + stress_options
         try:
+            stdout_handle = kwargs.pop("stdout", subprocess.PIPE)
+            stderr_handle = kwargs.pop("stderr", subprocess.PIPE)
             p = subprocess.Popen(args, cwd=common.parse_path(stress),
-                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 stdout=stdout_handle, stderr=stderr_handle,
                                  **kwargs)
             stdout, stderr = p.communicate()
             return_code = p.wait()
