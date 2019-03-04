@@ -23,7 +23,9 @@ setup(
     author_email='sylvain@datastax.com',
     url='https://github.com/pcmanus/ccm',
     packages=['ccmlib', 'ccmlib.cmds'],
+    package_data={'ccmlib': ['../resources/bin/*.sh']},
     scripts=[ccmscript],
+    include_package_data=True,
     install_requires=['pyYaml', 'six >=1.4.1'],
     classifiers=[
         "License :: OSI Approved :: Apache Software License",
