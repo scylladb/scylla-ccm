@@ -74,6 +74,7 @@ class ScyllaNode(Node):
         self._process_scylla_waiter = None
         self._smp = 1
         self._smp_set_during_test = False
+        self.__conf_updated = False
 
     def set_smp(self, smp):
         self._smp =  smp
