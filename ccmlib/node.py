@@ -38,7 +38,6 @@ class NodeError(Exception):
         Exception.__init__(self, msg)
         self.process = process
 
-
 class TimeoutError(Exception):
 
     def __init__(self, data):
@@ -99,6 +98,7 @@ class Node(object):
         self.remote_debug_port = remote_debug_port
         self.initial_token = initial_token
         self.pid = None
+        self.all_pids = []
         self.data_center = None
         self.workload = None
         self.__config_options = {}
@@ -1664,6 +1664,7 @@ class Node(object):
                     self.pid = int(f.readline().strip().decode('utf-16'))
                 else:
                     self.pid = int(f.readline().strip())
+                self.all_pids.append(self.pid)
         except IOError as e:
             raise NodeError('Problem starting node %s due to %s' % (self.name, e), process)
         self.__update_status()
