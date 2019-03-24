@@ -218,7 +218,7 @@ class ScyllaNode(Node):
                 node.watch_log_for_alive(self, from_mark=mark)
 
         if wait_for_binary_proto:
-            self.wait_for_binary_interface(from_mark=self.mark)
+            self.wait_for_binary_interface(from_mark=self.mark, process=self._process_scylla)
         else:
             time.sleep(2)
 

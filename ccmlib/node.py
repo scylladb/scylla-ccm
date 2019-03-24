@@ -366,7 +366,7 @@ class Node(object):
             stderr = proc.communicate()[1]
         except ValueError:
             [stdout, stderr] = ['', '']
-        if stderr and len(stderr) > 1:
+        if stderr is None:
             stderr = ''
         if len(stderr) > 1:
             print_("[%s ERROR] %s" % (name, stderr.strip()))
@@ -436,8 +436,11 @@ class Node(object):
                             return None
                     else:
                         process.poll()
-                        if process.returncode == 0:
-                            return None
+                        if process.returncode is not None:
+                            if process.returncode == 0:
+                                return None
+                            else:
+                                raise RuntimeError("The process is dead, returncode={}".format(process.returncode))
 
     def watch_log_for_death(self, nodes, from_mark=None, timeout=600, filename='system.log'):
         """
