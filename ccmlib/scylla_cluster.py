@@ -211,11 +211,22 @@ class ScyllaManager:
         with open(conf_file, 'r') as f:
             data = yaml.load(f)
         data['http'] = self._get_api_address() 
+        if not 'database' in data:
+            data['database'] = {}
         data['database']['hosts'] = [self.scylla_cluster.get_node_ip(1)]
         data['database']['replication_factor'] = 3
         if dir:
             data['database']['keyspace_tpl_file'] = os.path.join(dir,'dist','etc','create_keyspace.cql.tpl')
             data['database']['migrate_dir'] = os.path.join(dir,'schema','cql')
+        if 'https' in data:
+            del data['https']
+        if 'tls_cert_file' in data:
+            del data['tls_cert_file']
+        if 'tls_key_file' in data:
+            del data['tls_key_file']
+        if not 'logger' in data:
+            data['logger'] = {}
+        data['logger']['mode'] = 'stderr'
         if 'ssh' in data:
             del data['ssh']
         with open(conf_file, 'w') as f:
@@ -285,8 +296,7 @@ class ScyllaManager:
             os.remove(self._get_pid_file())
 
         args=[os.path.join(self._get_path(),'bin','scylla-manager'),
-              '--config-file',os.path.join(self._get_path(),'scylla-manager.yaml'),
-              '--developer-mode']
+              '--config-file',os.path.join(self._get_path(),'scylla-manager.yaml')]
         self._process_scylla_manager = subprocess.Popen(args, stdout=scylla_log,
                                                 stderr=scylla_log,
                                                 close_fds=True)
