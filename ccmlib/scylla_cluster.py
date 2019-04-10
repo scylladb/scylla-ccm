@@ -211,20 +211,20 @@ class ScyllaManager:
         with open(conf_file, 'r') as f:
             data = yaml.load(f)
         data['http'] = self._get_api_address() 
-        if not 'database' in data: 
+        if not 'database' in data:
             data['database'] = {}
         data['database']['hosts'] = [self.scylla_cluster.get_node_ip(1)]
         data['database']['replication_factor'] = 3
         if dir:
             data['database']['keyspace_tpl_file'] = os.path.join(dir,'dist','etc','create_keyspace.cql.tpl')
             data['database']['migrate_dir'] = os.path.join(dir,'schema','cql')
-        if 'https' in data: 
+        if 'https' in data:
             del data['https']
-        if 'tls_cert_file' in data: 
+        if 'tls_cert_file' in data:
             del data['tls_cert_file']
-        if 'tls_key_file' in data: 
+        if 'tls_key_file' in data:
             del data['tls_key_file']
-        if not 'logger' in data: 
+        if not 'logger' in data:
             data['logger'] = {}
         data['logger']['mode'] = 'stderr'
         if 'ssh' in data:
