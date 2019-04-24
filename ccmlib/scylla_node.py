@@ -191,6 +191,15 @@ class ScyllaNode(Node):
         scylla_log = open(log_file, 'a')
         env_copy = os.environ
         env_copy['SCYLLA_HOME'] = self.get_path()
+        dbuild_so_dir = os.environ.get('SCYLLA_DBUILD_SO_DIR')
+        if dbuild_so_dir:
+            # FIXME: this should be removed once we'll support running scylla relocatable package
+            executable = os.path.join(dbuild_so_dir, 'scylla.sh')
+            if not os.path.isfile(executable):
+                with open(executable, 'w+') as f:
+                    f.write('#!/bin/bash\nexec -a scylla ' + ' '.join([os.path.join(dbuild_so_dir, 'ld-linux-x86-64.so.2'), '--library-path', dbuild_so_dir]) + ' "$@" ')
+                os.chmod(executable, 0777)
+            args = [executable] + args
         self._process_scylla = subprocess.Popen(args, stdout=scylla_log,
                                                 stderr=scylla_log,
                                                 close_fds=True,
@@ -329,9 +338,6 @@ class ScyllaNode(Node):
         # Let's add jvm_args and the translated args
 
         args = [launch_bin, '--options-file', options_file, '--log-to-stdout', '1'] + jvm_args + translated_args
-        dbuild_so_dir = os.environ.get('SCYLLA_DBUILD_SO_DIR')
-        if dbuild_so_dir:
-            args = [os.path.join(dbuild_so_dir, 'ld-linux-x86-64.so.2'), '--library-path', dbuild_so_dir] + args
 
         # Lets search for default overrides in SCYLLA_EXT_OPTS
         scylla_ext_opts = os.getenv('SCYLLA_EXT_OPTS', "").split()
