@@ -88,7 +88,7 @@ class ScyllaNode(Node):
         self._mem_set_during_test = True
 
     def get_install_cassandra_root(self):
-        return os.path.join(self.get_install_dir(), 'resources', 'cassandra')
+        return self.get_tool_java_dir()
 
     def get_node_cassandra_root(self):
         return os.path.join(self.get_path())
@@ -100,9 +100,7 @@ class ScyllaNode(Node):
         return os.path.join(self.get_path(), 'conf')
 
     def get_tool(self, toolname):
-        return common.join_bin(os.path.join(self.get_install_dir(),
-                                            'resources', 'cassandra'),
-                               'bin', toolname)
+        return common.join_bin(self.get_tool_java_dir(), 'bin', toolname)
 
     def get_tool_args(self, toolname):
         raise NotImplementedError('ScyllaNode.get_tool_args')
@@ -546,8 +544,17 @@ class ScyllaNode(Node):
         self.__update_yaml()
         self.__copy_logback_files()
 
+    def get_tool_java_dir(self):
+        if 'scylla-repository' in self.get_install_dir():
+            return os.path.join(self.get_install_dir(), 'scylla-java-tools')
+        else:
+            return os.environ.get('TOOLS_JAVA_DIR', os.path.join(self.get_install_dir(), 'resources', 'cassandra'))
+
+    def get_jmx_dir(self, relative_repos_root):
+        return os.environ.get('SCYLLA_JMX_DIR', os.path.join(self.get_install_dir(), relative_repos_root, 'scylla-jmx'))
+
     def __copy_logback_files(self):
-        shutil.copy(os.path.join(self.get_install_dir(), common.DSE_CASSANDRA_CONF_DIR, 'logback-tools.xml'),
+        shutil.copy(os.path.join(self.get_tool_java_dir(), 'conf', 'logback-tools.xml'),
                     os.path.join(self.get_conf_dir(), 'logback-tools.xml'))
 
     def import_dse_config_files(self):
@@ -568,11 +575,10 @@ class ScyllaNode(Node):
     def import_bin_files(self):
         # selectively copying files to reduce risk of using unintended items
         files = ['cassandra.in.sh', 'nodetool']
-        os.makedirs(os.path.join(self.get_path(), 'resources', 'cassandra',
-                                 'bin'))
+        os.makedirs(os.path.join(self.get_path(), 'resources', 'cassandra', 'bin'))
+
         for name in files:
-            self.hard_link_or_copy(os.path.join(self.get_install_dir(),
-                                                'resources', 'cassandra',
+            self.hard_link_or_copy(os.path.join(self.get_tool_java_dir(),
                                                 'bin', name),
                                    os.path.join(self.get_path(),
                                                 'resources', 'cassandra',
@@ -584,8 +590,7 @@ class ScyllaNode(Node):
         os.makedirs(os.path.join(self.get_path(), 'resources', 'cassandra',
                                  'tools', 'bin'))
         for name in files:
-            self.hard_link_or_copy(os.path.join(self.get_install_dir(),
-                                                'resources', 'cassandra',
+            self.hard_link_or_copy(os.path.join(self.get_tool_java_dir(),
                                                 'tools', 'bin', name),
                                    os.path.join(self.get_path(),
                                                 'resources', 'cassandra',
@@ -593,19 +598,33 @@ class ScyllaNode(Node):
 
         # TODO: - currently no scripts only executable - copying exec
         scylla_mode = self.cluster.get_scylla_mode()
-        self.hard_link_or_copy(os.path.join(self.get_install_dir(),
-                                            'build', scylla_mode, 'scylla'),
-                               os.path.join(self.get_bin_dir(), 'scylla'))
-        self.hard_link_or_copy(os.path.join(self.get_install_dir(),
-                                            '..', 'scylla-jmx', 'target',
-                                            'scylla-jmx-1.0.jar'),
-                               os.path.join(self.get_bin_dir(),
-                                            'scylla-jmx-1.0.jar'))
-        self.hard_link_or_copy(os.path.join(self.get_install_dir(),
-                                            '..', 'scylla-jmx', 'scripts',
-                                            'scylla-jmx'),
-                               os.path.join(self.get_bin_dir(),
-                                            'scylla-jmx'))
+        if scylla_mode == 'reloc':
+            relative_repos_root = '../..'
+            self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'bin', 'scylla'),
+                                   os.path.join(self.get_bin_dir(), 'scylla'))
+
+            os.symlink(os.path.join(self.get_install_dir(), 'libexec'),
+                       os.path.join(self.get_path(), 'libexec'))
+
+            os.symlink(os.path.join(self.get_install_dir(), 'libreloc'),
+                       os.path.join(self.get_path(), 'libreloc'))
+
+        else:
+            relative_repos_root = '..'
+            self.hard_link_or_copy(os.path.join(self.get_install_dir(),
+                                                'build', scylla_mode, 'scylla'),
+                                   os.path.join(self.get_bin_dir(), 'scylla'))
+
+        if 'scylla-repository' in self.get_install_dir():
+            self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'jmx', 'scylla-jmx-1.0.jar'),
+                                   os.path.join(self.get_bin_dir(), 'scylla-jmx-1.0.jar'))
+            self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'jmx', 'scylla-jmx'),
+                                   os.path.join(self.get_bin_dir(), 'scylla-jmx'))
+        else:
+            self.hard_link_or_copy(os.path.join(self.get_jmx_dir(relative_repos_root), 'target', 'scylla-jmx-1.0.jar'),
+                                   os.path.join(self.get_bin_dir(), 'scylla-jmx-1.0.jar'))
+            self.hard_link_or_copy(os.path.join(self.get_jmx_dir(relative_repos_root), 'scripts', 'scylla-jmx'),
+                                   os.path.join(self.get_bin_dir(), 'scylla-jmx'))
 
         os.makedirs(os.path.join(self.get_bin_dir(), 'symlinks'))
         os.symlink('/usr/bin/java', os.path.join(self.get_bin_dir(),

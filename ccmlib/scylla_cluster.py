@@ -12,6 +12,7 @@ from ccmlib import common
 from ccmlib.cluster import Cluster
 from ccmlib.scylla_node import ScyllaNode
 from ccmlib.node import NodeError
+from ccmlib import scylla_repository
 
 SNITCH = 'org.apache.cassandra.locator.GossipingPropertyFileSnitch'
 
@@ -22,13 +23,19 @@ class ScyllaCluster(Cluster):
                  create_directory=True, version=None, verbose=False,
                  force_wait_for_cluster_start=False, manager=None, **kwargs):
         install_func = common.scylla_extract_install_dir_and_mode
-        install_dir, self.scylla_mode = install_func(install_dir)
+
+        cassandra_version = kwargs.get('cassandra_version', version)
+        if kwargs.get('cassandra_version', version):
+            self.scylla_mode = 'reloc'
+        else:
+            install_dir, self.scylla_mode = install_func(install_dir)
+            
         self.started = False
         self.force_wait_for_cluster_start = force_wait_for_cluster_start
         super(ScyllaCluster, self).__init__(path, name, partitioner,
                                             install_dir, create_directory,
                                             version, verbose,
-                                            snitch=SNITCH)
+                                            snitch=SNITCH, cassandra_version=cassandra_version)
 
         self._scylla_manager=None
         if not manager:
@@ -45,7 +52,7 @@ class ScyllaCluster(Cluster):
             self._scylla_manager = ScyllaManager(self,manager)
 
     def load_from_repository(self, version, verbose):
-        raise NotImplementedError('ScyllaCluster.load_from_repository')
+        return scylla_repository.setup(version, verbose)
 
     def create_node(self, name, auto_bootstrap, thrift_interface,
                     storage_interface, jmx_port, remote_debug_port,
@@ -143,16 +150,6 @@ class ScyllaCluster(Cluster):
         if self._scylla_manager:
             self._scylla_manager.stop(gently)
         Cluster.stop(self,wait,gently,wait_seconds=wait_seconds, wait_other_notice=wait_other_notice, other_nodes=other_nodes)
-
-    def version(self):
-        return self.cassandra_version()
-
-    def cassandra_version(self):
-        # TODO: Handle versioning
-        # Return 2.2 as it changes some option values for tools. 
-        # Our tools are actually at 3.x level (-ish), but otoh
-        # the server is more or less 2.1-2.2
-        return '3.0'
 
     def get_scylla_mode(self):
         return self.scylla_mode
