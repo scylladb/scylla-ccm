@@ -310,17 +310,21 @@ class Node(object):
     def debuglogfilename(self):
         return os.path.join(self.get_path(), 'logs', 'debug.log')
 
-    def grep_log(self, expr, filename='system.log'):
+    def grep_log(self, expr, filter_expr=None, filename='system.log'):
         """
         Returns a list of lines matching the regular expression in parameter
         in the Cassandra log of this node
         """
         matchings = []
         pattern = re.compile(expr)
+        if filter_expr:
+            filter_pattern = re.compile(filter_expr)
+        else:
+            filter_pattern = None
         with open(os.path.join(self.get_path(), 'logs', filename)) as f:
             for line in f:
                 m = pattern.search(line)
-                if m:
+                if m and not (filter_pattern and re.search(filter_pattern, line)):
                     matchings.append((line, m))
         return matchings
 
