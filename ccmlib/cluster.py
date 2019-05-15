@@ -237,7 +237,7 @@ class Cluster(object):
         tokens.extend(new_tokens)
         return tokens
 
-    def remove(self, node=None, wait_other_notice=False):
+    def remove(self, node=None, wait_other_notice=False, other_nodes=None):
         if node is not None:
             if node.name not in self.nodes:
                 return
@@ -246,10 +246,10 @@ class Cluster(object):
             if node in self.seeds:
                 self.seeds.remove(node)
             self._update_config()
-            node.stop(gently=False, wait_other_notice=wait_other_notice)
+            node.stop(gently=False, wait_other_notice=wait_other_notice, other_nodes=other_nodes)
             self.remove_dir_with_retry(node.get_path())
         else:
-            self.stop(gently=False, wait_other_notice=wait_other_notice)
+            self.stop(gently=False, wait_other_notice=wait_other_notice, other_nodes=other_nodes)
             self.remove_dir_with_retry(self.get_path())
 
     # We can race w/shutdown on Windows and get Access is denied attempting to delete node logs.
@@ -348,10 +348,10 @@ class Cluster(object):
 
         return started
 
-    def stop(self, wait=True, gently=True, wait_other_notice=False, wait_seconds=127):
+    def stop(self, wait=True, gently=True, wait_other_notice=False, other_nodes=None, wait_seconds=127):
         not_running = []
         for node in list(self.nodes.values()):
-            if not node.stop(wait, gently=gently, wait_other_notice=wait_other_notice, wait_seconds=wait_seconds):
+            if not node.stop(wait, gently=gently, wait_other_notice=wait_other_notice, other_nodes=other_nodes, wait_seconds=wait_seconds):
                 not_running.append(node)
         return not_running
 
