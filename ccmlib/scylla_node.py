@@ -450,7 +450,7 @@ class ScyllaNode(Node):
             raise NodeError('Problem starting node %s scylla-jmx due to %s' %
                             (self.name, e))
 
-    def stop(self, wait=True, wait_other_notice=False, gently=True, wait_seconds=127):
+    def stop(self, wait=True, wait_other_notice=False, other_nodes=None, gently=True, wait_seconds=127):
         """
         Stop the node.
           - wait: if True (the default), wait for the Scylla process to be
@@ -466,8 +466,10 @@ class ScyllaNode(Node):
         marks = []
         if self.is_running():
             if wait_other_notice:
+                if not other_nodes:
+                    other_nodes = list(self.cluster.nodes.values())
                 marks = [(node, node.mark_log()) for node in
-                         list(self.cluster.nodes.values()) if
+                         other_nodes if
                          node.is_live() and node is not self]
             self._update_jmx_pid()
 

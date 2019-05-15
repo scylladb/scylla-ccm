@@ -614,7 +614,7 @@ class Node(object):
 
         return process
 
-    def stop(self, wait=True, wait_other_notice=False, gently=True, wait_seconds=127):
+    def stop(self, wait=True, wait_other_notice=False, other_nodes=None, gently=True, wait_seconds=127):
         """
         Stop the node.
           - wait: if True (the default), wait for the Cassandra process to be
@@ -629,7 +629,9 @@ class Node(object):
         """
         if self.is_running():
             if wait_other_notice:
-                marks = [(node, node.mark_log()) for node in list(self.cluster.nodes.values()) if node.is_live() and node is not self]
+                if not other_nodes:
+                    other_nodes = list(self.cluster.nodes.values())
+                marks = [(node, node.mark_log()) for node in other_nodes if node.is_live() and node is not self]
 
             if common.is_win():
                 # Just taskkill the instance, don't bother trying to shut it down gracefully.
