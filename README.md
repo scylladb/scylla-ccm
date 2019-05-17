@@ -23,10 +23,9 @@ Requirements
 - psutil (https://pypi.python.org/pypi/psutil)
 - Java (which version depends on the version of Cassandra you plan to use. If
   unsure, use Java 7 as it is known to work with current versions of Cassandra).
-- ccm only works on localhost for now. If you want to create multiple
-  node clusters, the simplest way is to use multiple loopback aliases. On
-  modern linux distributions you probably don't need to do anything, but
-  on Mac OS X, you will need to create the aliases with
+- If you want to create multiple node clusters, the simplest way is to use
+  multiple loopback aliases. On modern linux distributions you probably don't
+  need to do anything, but on Mac OS X, you will need to create the aliases with
 
       sudo ifconfig lo0 alias 127.0.0.2 up
       sudo ifconfig lo0 alias 127.0.0.3 up
@@ -35,19 +34,41 @@ Requirements
   Note that the usage section assumes that at least 127.0.0.1, 127.0.0.2 and
   127.0.0.3 are available.
 
+### Optional Requirements
+
+- Paramiko (http://www.paramiko.org/): Paramiko adds the ability to execute CCM
+                                       remotely; `pip install paramiko`
+
+__Note__: The remote machine must be configured with an SSH server and a working
+          CCM. When working with multiple nodes each exposed IP address must be
+          in sequential order. For example, the last number in the 4th octet of
+          a IPv4 address must start with `1` (e.g. 192.168.33.11). See
+          [Vagrantfile](misc/Vagrantfile) for help with configuration of remote
+          CCM machine.
+
+
 Known issues
 ------------
 Windows only:
   - `node start` pops up a window, stealing focus.
-  - cli and cqlsh started from ccm show incorrect prompts on command-prompt
+  - cqlsh started from ccm show incorrect prompts on command-prompt
   - non nodetool-based command-line options fail (sstablesplit, scrub, etc)
-  - cli_session does not accept commands.
   - To install psutil, you must use the .msi from pypi. pip install psutil will not work
   - You will need ant.bat in your PATH in order to build C* from source
   - You must run with an Unrestricted Powershell Execution-Policy if using Cassandra 2.1.0+
   - Ant installed via [chocolatey](https://chocolatey.org/) will not be found by ccm, so you must create a symbolic
     link in order to fix the issue (as administrator):
     - cmd /c mklink C:\ProgramData\chocolatey\bin\ant.bat C:\ProgramData\chocolatey\bin\ant.exe
+
+Remote Execution only:
+  - Using `--config-dir` and `--install-dir` with `create` may not work as
+    expected; since the configuration directory and the installation directory
+    contain lots of files they will not be copied over to the remote machine
+    like most other options for cluster and node operations
+  - cqlsh started from ccm using remote execution will not start
+    properly (e.g.`ccm --ssh-host 192.168.33.11 node1 cqlsh`); however
+    `-x <CMDS>` or `--exec=CMDS` can still be used to execute a CQLSH command
+    on a remote node.
 
 Installation
 ------------
@@ -110,14 +131,12 @@ Once the cluster is created, you can populate it with 3 nodes with:
 
     ccm populate -n 3
 
-Note: If you’re running on Mac OSX, create a new interface for every node besides the first, for example if you populated your cluster with 3 nodes, create interfaces for 127.0.0.2 and 127.0.0.3 like so:
+For Mac OSX, create a new interface for every node besides the first, for example if you populated your cluster with 3 nodes, create interfaces for 127.0.0.2 and 127.0.0.3 like so:
 
     sudo ifconfig lo0 alias 127.0.0.2
     sudo ifconfig lo0 alias 127.0.0.3
 
-Otherwise you will get the following error message:
-
-    (...) Inet address 127.0.0.1:9042 is not available: [Errno 48] Address already in use
+Note these aliases will disappear on reboot. For permanent network aliases on Mac OSX see ![Network Aliases](./NETWORK_ALIASES.md).
 
 After that execute:
 
@@ -160,6 +179,39 @@ The list of other provided commands is available through
 Each command is then documented through the `-h` (or `--help`) flag. For
 instance `ccm add -h` describes the options for `ccm add`.
 
+### Remote Usage (SSH/Paramiko)
+
+All the usage examples above will work exactly the same for a remotely
+configured machine; however remote options are required in order to establish a
+connection to the remote machine before executing the CCM commands:
+
+| Argument | Value | Description |
+| :--- | :--- | :--- |
+| --ssh-host | string | Hostname or IP address to use for SSH connection |
+| --ssh-port | int | Port to use for SSH connection<br/>Default is 22 |
+| --ssh-username | string | Username to use for username/password or public key authentication |
+| --ssh-password | string | Password to use for username/password or private key passphrase using public key authentication |
+| --ssh-private-key | filename | Private key to use for SSH connection |
+
+#### Special Handling
+
+Some commands require files to be located on the remote server. Those commands
+are pre-processed, file transfers are initiated, and updates are made to the
+argument value for the remote execution of the CCM command:
+
+| Parameter | Description |
+| :--- | :--- |
+| `--dse-credentials` | Copy local DSE credentials file to remote server |
+| `--node-ssl` | Recursively copy node SSL directory to remote server |
+| `--ssl` | Recursively copy SSL directory to remote server |
+
+#### Short Version
+
+    ccm --ssh-host=192.168.33.11 --ssh-username=vagrant --ssh-password=vagrant create test -v 2.0.5 -n 3 -i 192.168.33.1 -s
+
+__Note__: `-i` is used to add an IP prefix during the create process to ensure
+          that the nodes communicate using the proper IP address for their node
+
 ### Source Distribution
 
 If you'd like to use a source distribution instead of the default binary each time (for example, for Continuous Integration), you can prefix cassandra version with `source:`, for example:
@@ -185,6 +237,34 @@ and to download a branch from a GitHub fork of Cassandra, you can prefix the rep
 ```
 ccm create patched -v github:jbellis/trunk -n 1
 ```
+
+### Bash command-line completion
+ccm has many sub-commands for both cluster commands as well as node commands, and sometimes you don't quite remember the name of the sub-command you want to invoke. Also, command lines may be long due to long cluster or node names.
+
+Leverage bash's *programmable completion* feature to make ccm use more pleasant. Copy `misc/ccm-completion.bash` to somewhere in your home directory (or /etc if you want to make it accessible to all users of your system) and source it in your `.bash_profile`:
+```
+. ~/scripts/ccm-completion.bash
+```
+
+Once set up, `ccm sw<tab>` expands to `ccm switch `, for example. The `switch` sub-command has extra completion logic to help complete the cluster name. So `ccm switch cl<tab>` would expand to `ccm switch cluster-58` if cluster-58 is the only cluster whose name starts with "cl". If there is ambiguity, hitting `<tab>` a second time shows the choices that match:
+```
+$ ccm switch cl<tab>
+    ... becomes ...
+$ ccm switch cluster-
+    ... then hit tab twice ...
+cluster-56  cluster-85  cluster-96
+$ ccm switch cluster-8<tab>
+    ... becomes ...
+$ ccm switch cluster-85
+```
+
+It dynamically determines available sub-commands based on the ccm being invoked. Thus, users running multiple ccm's (or a ccm that they are continuously updating with new commands) will automagically work.
+
+The completion script relies on ccm having two hidden subcommands:
+* show-cluster-cmds - emits the names of cluster sub-commands.
+* show-node-cmds - emits the names of node sub-commands.
+
+Thus, it will not work with sufficiently old versions of ccm.
 
 Remote debugging
 -----------------------
@@ -217,13 +297,13 @@ CCM Lib
 -------
 
 The ccm facilities are available programmatically through ccmlib. This could
-be used to implement automated tests again Cassandra. A simple example of
+be used to implement automated tests against Cassandra. A simple example of
 how to use ccmlib follows:
 
-    import ccmlib
+    import ccmlib.cluster
 
     CLUSTER_PATH="."
-    cluster = ccmlib.Cluster(CLUSTER_PATH, 'test', cassandra_version='2.0.5')
+    cluster = ccmlib.cluster.Cluster(CLUSTER_PATH, 'test', cassandra_version='2.1.14')
     cluster.populate(3).start()
     [node1, node2, node3] = cluster.nodelist()
 
@@ -239,7 +319,6 @@ how to use ccmlib follows:
     # after the test, you can leave the cluster running, you can stop all nodes
     # using cluster.stop() but keep the data around (in CLUSTER_PATH/test), or
     # you can remove everything with cluster.remove()
-
 
 --
 Sylvain Lebresne <sylvain@datastax.com>

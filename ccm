@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 
 import sys
-
+import pkg_resources
 from six import print_
 
 from ccmlib import common
 from ccmlib.cmds import command, cluster_cmds, node_cmds
+from ccmlib.remote import PARAMIKO_IS_AVAILABLE, get_remote_usage, get_remote_options, execute_ccm_remotely
 
 
 def get_command(kind, cmd):
@@ -19,27 +20,36 @@ def get_command(kind, cmd):
     return klass()
 
 
+def print_subcommand_usage(kind):
+    for cmd_name in (cluster_cmds if kind.lower() == 'cluster' else node_cmds).commands():
+        cmd = get_command(kind, cmd_name)
+        if not cmd:
+            print_("Internal error, unknown command {0}".format(cmd_name))
+            exit(1)
+        print_("  {0:14} {1}".format(cmd_name, cmd.description()))
+
+
 def print_global_usage():
     print_("Usage:")
-    print_("  ccm <cluster_cmd> [options]")
-    print_("  ccm <node_name> <node_cmd> [options]")
+    remote_options = ""
+    if PARAMIKO_IS_AVAILABLE:
+        remote_options = " [remote_options]"
+    print_("  ccm" + remote_options + " <cluster_cmd> [options]")
+    print_("  ccm" + remote_options + " <node_name> <node_cmd> [options]")
+    if PARAMIKO_IS_AVAILABLE:
+        print_("")
+        print_(get_remote_usage())
     print_("")
     print_("Where <cluster_cmd> is one of")
-    for cmd_name in cluster_cmds.cluster_cmds():
-        cmd = get_command("cluster", cmd_name)
-        if not cmd:
-            print_("Internal error, unknown command {0}".format(cmd_name))
-            exit(1)
-        print_("  {0:14} {1}".format(cmd_name, cmd.description()))
+    print_subcommand_usage('cluster')
+    print_("")
     print_("or <node_name> is the name of a node of the current cluster and <node_cmd> is one of")
-    for cmd_name in node_cmds.node_cmds():
-        cmd = get_command("node", cmd_name)
-        if not cmd:
-            print_("Internal error, unknown command {0}".format(cmd_name))
-            exit(1)
-        print_("  {0:14} {1}".format(cmd_name, cmd.description()))
+    print_subcommand_usage('node')
     exit(1)
 
+
+for entry_point in pkg_resources.iter_entry_points(group='ccm_extension'):
+    entry_point.load()()
 
 common.check_win_requirements()
 
@@ -49,7 +59,27 @@ if len(sys.argv) <= 1:
 
 arg1 = sys.argv[1].lower()
 
-if arg1 in cluster_cmds.cluster_cmds():
+# show-*-cmds are undocumented commands that emit a list of
+# the appropriate type of subcommand. This is used by the bash completion script.
+if arg1 == 'show-cluster-cmds':
+    for cmd_name in cluster_cmds.commands():
+        print_(cmd_name)
+    exit(1)
+
+if arg1 == 'show-node-cmds':
+    for cmd_name in node_cmds.commands():
+        print_(cmd_name)
+    exit(1)
+
+# Attempt a remote execution (only occurs if remote options are valid and ssh_host is set)
+# NOTE: An execption may be thrown if there are errors
+if PARAMIKO_IS_AVAILABLE:
+    remote_options, ccm_args = get_remote_options();
+    if not remote_options is None and not remote_options.ssh_host is None:
+        ouput, exit_status = execute_ccm_remotely(remote_options, ccm_args)
+        sys.exit(exit_status)
+
+if arg1 in cluster_cmds.commands():
     kind = 'cluster'
     cmd = arg1
     cmd_args = sys.argv[2:]

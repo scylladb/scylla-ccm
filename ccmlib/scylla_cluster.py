@@ -47,9 +47,10 @@ class ScyllaCluster(Cluster):
     def load_from_repository(self, version, verbose):
         raise NotImplementedError('ScyllaCluster.load_from_repository')
 
-    def create_node(self, name, auto_bootstrap, thrift_interface,
-                    storage_interface, jmx_port, remote_debug_port,
-                    initial_token, save=True, binary_interface=None):
+    def create_node(self, name, auto_bootstrap, thrift_interface, storage_interface, jmx_port, remote_debug_port,
+                    initial_token, save=True, binary_interface=None, byteman_port='0', environment_variables=None,
+                    derived_cassandra_version=None):
+
         return ScyllaNode(name, self, auto_bootstrap, thrift_interface,
                           storage_interface, jmx_port, remote_debug_port,
                           initial_token, save, binary_interface)
@@ -60,9 +61,21 @@ class ScyllaCluster(Cluster):
             node._update_pid(p)
 
     # override cluster
-    def start(self, no_wait=False, verbose=False, wait_for_binary_proto=False,
-              wait_other_notice=False, jvm_args=None, profile_options=None,
-              quiet_start=False):
+    def start(self,
+              join_ring=True,
+              no_wait=False,
+              verbose=False,
+              update_pid=True,
+              wait_other_notice=True,
+              replace_token=None,
+              replace_address=None,
+              jvm_args=None,
+              wait_for_binary_proto=False,
+              profile_options=None,
+              use_jna=False,
+              quiet_start=False,
+              allow_root=False,
+              set_migration_task=True):
         if not self.started and self.force_wait_for_cluster_start:
             wait_other_notice=True
             wait_for_binary_proto=True

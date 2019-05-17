@@ -1,5 +1,5 @@
 # ccm node
-from __future__ import with_statement
+from __future__ import absolute_import, with_statement
 
 import os
 import re
@@ -10,10 +10,11 @@ import subprocess
 import time
 
 import yaml
-from six import print_
+from six import iteritems, print_
 
-from ccmlib import common
-from ccmlib.node import Node, NodeError
+from ccmlib import common, extension, repository
+from ccmlib.node import (Node, NodeError, ToolError,
+                         handle_external_tool_process)
 
 
 class DseNode(Node):
@@ -22,9 +23,10 @@ class DseNode(Node):
     Provides interactions to a DSE node.
     """
 
-    def __init__(self, name, cluster, auto_bootstrap, thrift_interface, storage_interface, jmx_port, remote_debug_port, initial_token, save=True, binary_interface=None):
-        super(DseNode, self).__init__(name, cluster, auto_bootstrap, thrift_interface, storage_interface, jmx_port, remote_debug_port, initial_token, save, binary_interface)
-        self.get_cassandra_version()
+    def __init__(self, name, cluster, auto_bootstrap, thrift_interface, storage_interface, jmx_port, remote_debug_port, initial_token, save=True, binary_interface=None, byteman_port='0', environment_variables=None, derived_cassandra_version=None):
+        super(DseNode, self).__init__(name, cluster, auto_bootstrap, thrift_interface, storage_interface, jmx_port, remote_debug_port, initial_token, save, binary_interface, byteman_port, environment_variables=environment_variables, derived_cassandra_version=derived_cassandra_version)
+       
+        self._dse_config_options = {}
         if self.cluster.hasOpscenter():
             self._copy_agent()
 
@@ -47,220 +49,214 @@ class DseNode(Node):
         return [common.join_bin(os.path.join(self.get_install_dir(), 'resources', 'cassandra'), 'bin', 'dse'), toolname]
 
     def get_env(self):
-        return common.make_dse_env(self.get_install_dir(), self.get_path())
+        return common.make_dse_env(self.get_install_dir(), self.get_path(), self.ip_addr)
 
-    def get_cassandra_version(self):
-        return common.get_dse_cassandra_version(self.get_install_dir())
+    def node_setup(self, version, verbose):
+        dir, v = repository.setup_dse(version, self.cluster.dse_username, self.cluster.dse_password, verbose=verbose)
+        return dir
 
-    def set_workload(self, workload):
-        self.workload = workload
+    def set_workloads(self, workloads):
+        self.workloads = workloads
         self._update_config()
-        if workload == 'solr':
+        if 'solr' in self.workloads:
             self.__generate_server_xml()
+
+        if 'graph' in self.workloads:
+            self.__update_gremlin_config_yaml()
+        if 'dsefs' in self.workloads:
+            dsefs_options = {'dsefs_options': {'enabled': True,
+                                               'work_dir': os.path.join(self.get_path(), 'dsefs'),
+                                               'data_directories': [{'dir': os.path.join(self.get_path(), 'dsefs', 'data')}]}}
+            self.set_dse_configuration_options(dsefs_options)
+        if 'spark' in self.workloads:
+            dsefs_enabled = 'dsefs' in self.workloads
+            dse_options = {'dsefs_options': {'enabled': dsefs_enabled,
+                                             'work_dir': os.path.join(self.get_path(), 'dsefs'),
+                                             'data_directories': [{'dir': os.path.join(self.get_path(), 'dsefs', 'data')}]}}
+            if self.cluster.version() >= '6.0':
+                dse_options['resource_manager_options'] = {'worker_options' : {'memory_total': '1g', 'cores_total': 2}}
+
+            self.set_dse_configuration_options(dse_options)
+            self._update_spark_env()
+
+    def set_dse_configuration_options(self, values=None):
+        if values is not None:
+            self._dse_config_options = common.merge_configuration(self._dse_config_options, values)
+        self.import_dse_config_files()
+
+    def watch_log_for_alive(self, nodes, from_mark=None, timeout=720, filename='system.log'):
+        """
+        Watch the log of this node until it detects that the provided other
+        nodes are marked UP. This method works similarly to watch_log_for_death.
+
+        We want to provide a higher default timeout when this is called on DSE.
+        """
+        super(DseNode, self).watch_log_for_alive(nodes, from_mark=from_mark, timeout=timeout, filename=filename)
+
+    def get_launch_bin(self):
+        cdir = self.get_install_dir()
+        launch_bin = common.join_bin(cdir, 'bin', 'dse')
+        # Copy back the dse scripts since profiling may have modified it the previous time
+        shutil.copy(launch_bin, self.get_bin_dir())
+        return common.join_bin(self.get_path(), 'bin', 'dse')
+
+    def add_custom_launch_arguments(self, args):
+        args.append('cassandra')
+        for workload in self.workloads:
+            if 'hadoop' in workload:
+                args.append('-t')
+            if 'solr' in workload:
+                args.append('-s')
+            if 'spark' in workload:
+                args.append('-k')
+            if 'cfs' in workload:
+                args.append('-c')
+            if 'graph' in workload:
+                args.append('-g')
 
     def start(self,
               join_ring=True,
               no_wait=False,
               verbose=False,
               update_pid=True,
-              wait_other_notice=False,
+              wait_other_notice=True,
               replace_token=None,
               replace_address=None,
               jvm_args=None,
               wait_for_binary_proto=False,
               profile_options=None,
               use_jna=False,
-              quiet_start=False):
-        """
-        Start the node. Options includes:
-          - join_ring: if false, start the node with -Dcassandra.join_ring=False
-          - no_wait: by default, this method returns when the node is started and listening to clients.
-            If no_wait=True, the method returns sooner.
-          - wait_other_notice: if True, this method returns only when all other live node of the cluster
-            have marked this node UP.
-          - replace_token: start the node with the -Dcassandra.replace_token option.
-          - replace_address: start the node with the -Dcassandra.replace_address option.
-        """
-        if jvm_args is None:
-            jvm_args = []
-
-        if self.is_running():
-            raise NodeError("%s is already running" % self.name)
-
-        for itf in list(self.network_interfaces.values()):
-            if itf is not None and replace_address is None:
-                common.check_socket_available(itf)
-
-        if wait_other_notice:
-            marks = [(node, node.mark_log()) for node in list(self.cluster.nodes.values()) if node.is_running()]
-
-        cdir = self.get_install_dir()
-        launch_bin = common.join_bin(cdir, 'bin', 'dse')
-        # Copy back the dse scripts since profiling may have modified it the previous time
-        shutil.copy(launch_bin, self.get_bin_dir())
-        launch_bin = common.join_bin(self.get_path(), 'bin', 'dse')
-
-        # If Windows, change entries in .bat file to split conf from binaries
-        if common.is_win():
-            self.__clean_bat()
-
-        if profile_options is not None:
-            config = common.get_config()
-            if 'yourkit_agent' not in config:
-                raise NodeError("Cannot enable profile. You need to set 'yourkit_agent' to the path of your agent in a {0}/config".format(common.get_default_path_display_name()))
-            cmd = '-agentpath:%s' % config['yourkit_agent']
-            if 'options' in profile_options:
-                cmd = cmd + '=' + profile_options['options']
-            print_(cmd)
-            # Yes, it's fragile as shit
-            pattern = r'cassandra_parms="-Dlog4j.configuration=log4j-server.properties -Dlog4j.defaultInitOverride=true'
-            common.replace_in_file(launch_bin, pattern, '    ' + pattern + ' ' + cmd + '"')
-
-        os.chmod(launch_bin, os.stat(launch_bin).st_mode | stat.S_IEXEC)
-
-        env = common.make_dse_env(self.get_install_dir(), self.get_path())
-
-        if common.is_win():
-            self._clean_win_jmx()
-
-        pidfile = os.path.join(self.get_path(), 'cassandra.pid')
-        args = [launch_bin, 'cassandra']
-
-        if self.workload is not None:
-            if 'hadoop' in self.workload:
-                args.append('-t')
-            if 'solr' in self.workload:
-                args.append('-s')
-            if 'spark' in self.workload:
-                args.append('-k')
-            if 'cfs' in self.workload:
-                args.append('-c')
-        args += ['-p', pidfile, '-Dcassandra.join_ring=%s' % str(join_ring)]
-        if replace_token is not None:
-            args.append('-Dcassandra.replace_token=%s' % str(replace_token))
-        if replace_address is not None:
-            args.append('-Dcassandra.replace_address=%s' % str(replace_address))
-        if use_jna is False:
-            args.append('-Dcassandra.boot_without_jna=true')
-        args = args + jvm_args
-
-        process = None
-        if common.is_win():
-            # clean up any old dirty_pid files from prior runs
-            if (os.path.isfile(self.get_path() + "/dirty_pid.tmp")):
-                os.remove(self.get_path() + "/dirty_pid.tmp")
-            process = subprocess.Popen(args, cwd=self.get_bin_dir(), env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        else:
-            process = subprocess.Popen(args, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-        # Our modified batch file writes a dirty output with more than just the pid - clean it to get in parity
-        # with *nix operation here.
-        if common.is_win():
-            self.__clean_win_pid()
-            self._update_pid(process)
-        elif update_pid:
-            if no_wait:
-                time.sleep(2)  # waiting 2 seconds nevertheless to check for early errors and for the pid to be set
-            else:
-                for line in process.stdout:
-                    if verbose:
-                        print_(line.rstrip('\n'))
-
-            self._update_pid(process)
-
-            if not self.is_running():
-                raise NodeError("Error starting node %s" % self.name, process)
-
-        if wait_other_notice:
-            for node, mark in marks:
-                node.watch_log_for_alive(self, from_mark=mark)
-
-        if wait_for_binary_proto:
-            self.wait_for_binary_interface()
-
+              quiet_start=False,
+              allow_root=False,
+              set_migration_task=True):
+        process = super(DseNode, self).start(join_ring, no_wait, verbose, update_pid, wait_other_notice, replace_token,
+                                             replace_address, jvm_args, wait_for_binary_proto, profile_options, use_jna,
+                                             quiet_start, allow_root, set_migration_task)
         if self.cluster.hasOpscenter():
             self._start_agent()
 
-        return process
+    def _start_agent(self):
+        agent_dir = os.path.join(self.get_path(), 'datastax-agent')
+        if os.path.exists(agent_dir):
+            self._write_agent_address_yaml(agent_dir)
+            self._write_agent_log4j_properties(agent_dir)
+            args = [os.path.join(agent_dir, 'bin', common.platform_binary('datastax-agent'))]
+            subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-    def stop(self, wait=True, wait_other_notice=False, gently=True):
-        stopped = super(DseNode, self).stop(wait, wait_other_notice, gently)
+    def stop(self, wait=True, wait_other_notice=False, signal_event=signal.SIGTERM, **kwargs):
         if self.cluster.hasOpscenter():
             self._stop_agent()
-        return stopped
+        return super(DseNode, self).stop(wait=wait, wait_other_notice=wait_other_notice, signal_event=signal_event, **kwargs)
+
+    def _stop_agent(self):
+        agent_dir = os.path.join(self.get_path(), 'datastax-agent')
+        if os.path.exists(agent_dir):
+            pidfile = os.path.join(agent_dir, 'datastax-agent.pid')
+            if os.path.exists(pidfile):
+                with open(pidfile, 'r') as f:
+                    pid = int(f.readline().strip())
+                    f.close()
+                if pid is not None:
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except OSError:
+                        pass
+                os.remove(pidfile)
+
+    def nodetool(self, cmd, username=None, password=None, capture_output=True, wait=True):
+        if password is not None:
+            cmd = '-pw {} '.format(password) + cmd
+        if username is not None:
+            cmd = '-u {} '.format(username) + cmd
+
+        return super(DseNode, self).nodetool(cmd)
 
     def dsetool(self, cmd):
-        env = common.make_dse_env(self.get_install_dir(), self.get_path())
-        host = self.address()
+        env = self.get_env()
+        extension.append_to_client_env(self, env)
+        node_ip, binary_port = self.network_interfaces['binary']
         dsetool = common.join_bin(self.get_install_dir(), 'bin', 'dsetool')
-        args = [dsetool, '-h', host, '-j', str(self.jmx_port)]
+        args = [dsetool, '-h', node_ip, '-j', str(self.jmx_port), '-c', str(binary_port)]
         args += cmd.split()
-        p = subprocess.Popen(args, env=env)
-        p.wait()
+        p = subprocess.Popen(args, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return handle_external_tool_process(p, args)
 
-    def dse(self, dse_options=[]):
-        env = common.make_dse_env(self.get_install_dir(), self.get_path())
+    def dse(self, dse_options=None):
+        if dse_options is None:
+            dse_options = []
+        env = self.get_env()
+        extension.append_to_client_env(self, env)
         env['JMX_PORT'] = self.jmx_port
         dse = common.join_bin(self.get_install_dir(), 'bin', 'dse')
         args = [dse]
         args += dse_options
-        p = subprocess.Popen(args, env=env)
-        p.wait()
+        p = subprocess.Popen(args, env=env)  #Don't redirect stdout/stderr, users need to interact with new process
+        return handle_external_tool_process(p, args)
 
-    def hadoop(self, hadoop_options=[]):
-        env = common.make_dse_env(self.get_install_dir(), self.get_path())
+    def hadoop(self, hadoop_options=None):
+        if hadoop_options is None:
+            hadoop_options = []
+        env = self.get_env()
         env['JMX_PORT'] = self.jmx_port
         dse = common.join_bin(self.get_install_dir(), 'bin', 'dse')
         args = [dse, 'hadoop']
         args += hadoop_options
-        p = subprocess.Popen(args, env=env)
-        p.wait()
+        p = subprocess.Popen(args, env=env)  #Don't redirect stdout/stderr, users need to interact with new process
+        return handle_external_tool_process(p, args)
 
-    def hive(self, hive_options=[]):
-        env = common.make_dse_env(self.get_install_dir(), self.get_path())
+    def hive(self, hive_options=None):
+        if hive_options is None:
+            hive_options = []
+        env = self.get_env()
         env['JMX_PORT'] = self.jmx_port
         dse = common.join_bin(self.get_install_dir(), 'bin', 'dse')
         args = [dse, 'hive']
         args += hive_options
-        p = subprocess.Popen(args, env=env)
-        p.wait()
+        p = subprocess.Popen(args, env=env)  #Don't redirect stdout/stderr, users need to interact with new process
+        return handle_external_tool_process(p, args)
 
-    def pig(self, pig_options=[]):
-        env = common.make_dse_env(self.get_install_dir(), self.get_path())
+    def pig(self, pig_options=None):
+        if pig_options is None:
+            pig_options = []
+        env = self.get_env()
         env['JMX_PORT'] = self.jmx_port
         dse = common.join_bin(self.get_install_dir(), 'bin', 'dse')
         args = [dse, 'pig']
         args += pig_options
-        p = subprocess.Popen(args, env=env)
-        p.wait()
+        p = subprocess.Popen(args, env=env)  #Don't redirect stdout/stderr, users need to interact with new process
+        return handle_external_tool_process(p, args)
 
-    def sqoop(self, sqoop_options=[]):
-        env = common.make_dse_env(self.get_install_dir(), self.get_path())
+    def sqoop(self, sqoop_options=None):
+        if sqoop_options is None:
+            sqoop_options = []
+        env = self.get_env()
         env['JMX_PORT'] = self.jmx_port
         dse = common.join_bin(self.get_install_dir(), 'bin', 'dse')
         args = [dse, 'sqoop']
         args += sqoop_options
-        p = subprocess.Popen(args, env=env)
-        p.wait()
+        p = subprocess.Popen(args, env=env)  #Don't redirect stdout/stderr, users need to interact with new process
+        return handle_external_tool_process(p, args)
 
-    def spark(self, spark_options=[]):
-        env = common.make_dse_env(self.get_install_dir(), self.get_path())
+    def spark(self, spark_options=None):
+        if spark_options is None:
+            spark_options = []
+        env = self.get_env()
         env['JMX_PORT'] = self.jmx_port
         dse = common.join_bin(self.get_install_dir(), 'bin', 'dse')
         args = [dse, 'spark']
         args += spark_options
-        p = subprocess.Popen(args, env=env)
-        p.wait()
+        p = subprocess.Popen(args, env=env)  #Don't redirect stdout/stderr, users need to interact with new process
+        return handle_external_tool_process(p, args)
 
     def import_dse_config_files(self):
         self._update_config()
         if not os.path.isdir(os.path.join(self.get_path(), 'resources', 'dse', 'conf')):
             os.makedirs(os.path.join(self.get_path(), 'resources', 'dse', 'conf'))
         common.copy_directory(os.path.join(self.get_install_dir(), 'resources', 'dse', 'conf'), os.path.join(self.get_path(), 'resources', 'dse', 'conf'))
-        self.__update_yaml()
+        self._update_yaml()
 
     def copy_config_files(self):
-        for product in ['dse', 'cassandra', 'hadoop', 'sqoop', 'hive', 'tomcat', 'spark', 'shark', 'mahout', 'pig', 'solr']:
+        for product in ['dse', 'cassandra', 'hadoop', 'hadoop2-client', 'sqoop', 'hive', 'tomcat', 'spark', 'shark', 'mahout', 'pig', 'solr', 'graph']:
             src_conf = os.path.join(self.get_install_dir(), 'resources', product, 'conf')
             dst_conf = os.path.join(self.get_path(), 'resources', product, 'conf')
             if not os.path.isdir(src_conf):
@@ -279,39 +275,52 @@ class DseNode(Node):
                 dst_lib = os.path.join(self.get_path(), 'resources', product, 'lib')
                 if os.path.isdir(dst_lib):
                     common.rmdirs(dst_lib)
-                shutil.copytree(src_lib, dst_lib)
+                if os.path.exists(src_lib):
+                    shutil.copytree(src_lib, dst_lib)
                 src_webapps = os.path.join(self.get_install_dir(), 'resources', product, 'webapps')
                 dst_webapps = os.path.join(self.get_path(), 'resources', product, 'webapps')
                 if os.path.isdir(dst_webapps):
                     common.rmdirs(dst_webapps)
                 shutil.copytree(src_webapps, dst_webapps)
+        src_lib = os.path.join(self.get_install_dir(), 'resources', product, 'gremlin-console', 'conf')
+        dst_lib = os.path.join(self.get_path(), 'resources', product, 'gremlin-console', 'conf')
+        if os.path.isdir(dst_lib):
+            common.rmdirs(dst_lib)
+        if os.path.exists(src_lib):
+            shutil.copytree(src_lib, dst_lib)
 
     def import_bin_files(self):
-        os.makedirs(os.path.join(self.get_path(), 'resources', 'cassandra', 'bin'))
         common.copy_directory(os.path.join(self.get_install_dir(), 'bin'), self.get_bin_dir())
-        common.copy_directory(os.path.join(self.get_install_dir(), 'resources', 'cassandra', 'bin'), os.path.join(self.get_path(), 'resources', 'cassandra', 'bin'))
+        cassandra_bin_dir = os.path.join(self.get_path(), 'resources', 'cassandra', 'bin')
+        shutil.rmtree(cassandra_bin_dir, ignore_errors=True)
+        os.makedirs(cassandra_bin_dir)
+        common.copy_directory(os.path.join(self.get_install_dir(), 'resources', 'cassandra', 'bin'), cassandra_bin_dir)
+        if os.path.exists(os.path.join(self.get_install_dir(), 'resources', 'cassandra', 'tools')):
+            cassandra_tools_dir = os.path.join(self.get_path(), 'resources', 'cassandra', 'tools')
+            shutil.rmtree(cassandra_tools_dir, ignore_errors=True)
+            shutil.copytree(os.path.join(self.get_install_dir(), 'resources', 'cassandra', 'tools'), cassandra_tools_dir)
+        self.export_dse_home_in_dse_env_sh()
 
-    def __update_yaml(self):
-        conf_file = os.path.join(self.get_path(), 'resources', 'dse', 'conf', 'dse.yaml')
-        with open(conf_file, 'r') as f:
-            data = yaml.load(f)
+    def export_dse_home_in_dse_env_sh(self):
+        '''
+        Due to the way CCM lays out files, separating the repository
+        from the node(s) confs, the `dse-env.sh` script of each node
+        needs to have its DSE_HOME var set and exported. Since DSE
+        4.5.x, the stock `dse-env.sh` file includes a commented-out
+        place to do exactly this, intended for installers.
+        Basically: read in the file, write it back out and add the two
+        lines.
+        'sstableloader' is an example of a node script that depends on
+        this, when used in a CCM-built cluster.
+        '''
+        with open(self.get_bin_dir() + "/dse-env.sh", "r") as dse_env_sh:
+            buf = dse_env_sh.readlines()
 
-        data['system_key_directory'] = os.path.join(self.get_path(), 'keys')
-
-        full_options = dict(list(self.cluster._dse_config_options.items()))
-        for name in full_options:
-            value = full_options[name]
-            if isinstance(value, str) and (value is None or len(value) == 0):
-                try:
-                    del data[name]
-                except KeyError:
-                    # it is fine to remove a key not there
-                    pass
-            else:
-                data[name] = full_options[name]
-
-        with open(conf_file, 'w') as f:
-            yaml.safe_dump(data, f, default_flow_style=False)
+        with open(self.get_bin_dir() + "/dse-env.sh", "w") as out_file:
+            for line in buf:
+                out_file.write(line)
+                if line == "# This is here so the installer can force set DSE_HOME\n":
+                    out_file.write("DSE_HOME=" + self.get_install_dir() + "\nexport DSE_HOME\n")
 
     def _update_log4j(self):
         super(DseNode, self)._update_log4j()
@@ -335,6 +344,26 @@ class DseNode(Node):
             log_file = re.sub("\\\\", "/", log_file)
         common.replace_in_file(conf_file, append_pattern, append_pattern + log_file)
 
+    def _update_yaml(self):
+        super(DseNode, self)._update_yaml()
+        conf_file = os.path.join(self.get_path(), 'resources', 'dse', 'conf', 'dse.yaml')
+        with open(conf_file, 'r') as f:
+            data = yaml.safe_load(f)
+
+        data['system_key_directory'] = os.path.join(self.get_path(), 'keys')
+
+        # Get a map of combined cluster and node configuration with the node
+        # configuration taking precedence.
+        full_options = common.merge_configuration(
+            self.cluster._dse_config_options,
+            self._dse_config_options, delete_empty=False)
+
+        # Merge options with original yaml data.
+        data = common.merge_configuration(data, full_options)
+
+        with open(conf_file, 'w') as f:
+            yaml.safe_dump(data, f, default_flow_style=False)
+
     def __generate_server_xml(self):
         server_xml = os.path.join(self.get_path(), 'resources', 'tomcat', 'conf', 'server.xml')
         if os.path.isfile(server_xml):
@@ -342,7 +371,7 @@ class DseNode(Node):
         with open(server_xml, 'w+') as f:
             f.write('<Server port="8005" shutdown="SHUTDOWN">\n')
             f.write('  <Service name="Solr">\n')
-            f.write('    <Connector port="8983" address="%s" protocol="HTTP/1.1" connectionTimeout="20000" maxThreads = "200" URIEncoding="UTF-8"/>\n' % self.network_interfaces['thrift'][0])
+            f.write('    <Connector port="8983" address="%s" protocol="HTTP/1.1" connectionTimeout="20000" maxThreads = "200" URIEncoding="UTF-8"/>\n' % self.ip_addr)
             f.write('    <Engine name="Solr" defaultHost="localhost">\n')
             f.write('      <Host name="localhost"  appBase="../solr/web"\n')
             f.write('            unpackWARs="true" autoDeploy="true"\n')
@@ -352,6 +381,16 @@ class DseNode(Node):
             f.write('  </Service>\n')
             f.write('</Server>\n')
             f.close()
+
+    def __update_gremlin_config_yaml(self):
+        conf_file = os.path.join(self.get_path(), 'resources', 'graph', 'gremlin-console', 'conf', 'remote.yaml')
+        with open(conf_file, 'r') as f:
+            data = yaml.safe_load(f)
+
+        data['hosts'] = [self.ip_addr]
+
+        with open(conf_file, 'w') as f:
+            yaml.safe_dump(data, f, default_flow_style=False)
 
     def _get_directories(self):
         dirs = []
@@ -365,34 +404,11 @@ class DseNode(Node):
         if os.path.exists(agent_source) and not os.path.exists(agent_target):
             shutil.copytree(agent_source, agent_target)
 
-    def _start_agent(self):
-        agent_dir = os.path.join(self.get_path(), 'datastax-agent')
-        if os.path.exists(agent_dir):
-            self._write_agent_address_yaml(agent_dir)
-            self._write_agent_log4j_properties(agent_dir)
-            args = [os.path.join(agent_dir, 'bin', common.platform_binary('datastax-agent'))]
-            subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-    def _stop_agent(self):
-        agent_dir = os.path.join(self.get_path(), 'datastax-agent')
-        if os.path.exists(agent_dir):
-            pidfile = os.path.join(agent_dir, 'datastax-agent.pid')
-        if os.path.exists(pidfile):
-            with open(pidfile, 'r') as f:
-                pid = int(f.readline().strip())
-                f.close()
-            if pid is not None:
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except OSError:
-                    pass
-            os.remove(pidfile)
-
     def _write_agent_address_yaml(self, agent_dir):
         address_yaml = os.path.join(agent_dir, 'conf', 'address.yaml')
         if not os.path.exists(address_yaml):
             with open(address_yaml, 'w+') as f:
-                (ip, port) = self.network_interfaces['thrift']
+                ip = self.ip_addr
                 jmx = self.jmx_port
                 f.write('stomp_interface: 127.0.0.1\n')
                 f.write('local_interface: %s\n' % ip)
@@ -401,7 +417,10 @@ class DseNode(Node):
                 f.write('cassandra_conf: %s\n' % os.path.join(self.get_path(), 'resources', 'cassandra', 'conf', 'cassandra.yaml'))
                 f.write('cassandra_install: %s\n' % self.get_path())
                 f.write('cassandra_logs: %s\n' % os.path.join(self.get_path(), 'logs'))
-                f.write('thrift_port: %s\n' % port)
+                if 'thrift' in self.network_interfaces: 
+                    (_, port) = self.network_interfaces['thrift']
+                    f.write('thrift_port: %s\n' % port)
+
                 f.write('jmx_port: %s\n' % jmx)
                 f.close()
 
@@ -418,3 +437,36 @@ class DseNode(Node):
             f.write('log4j.appender.R.layout.ConversionPattern=%5p [%t] %d{ISO8601} %m%n\n')
             f.write('log4j.appender.R.File=./log/agent.log\n')
             f.close()
+
+    def _update_spark_env(self):
+        try:
+            node_num = re.search(u'node(\d+)', self.name).group(1)
+        except AttributeError:
+            node_num = 0
+        conf_file = os.path.join(self.get_path(), 'resources', 'spark', 'conf', 'spark-env.sh')
+        env = self.get_env()
+        content = []
+        with open(conf_file, 'r') as f:
+            for line in f.readlines():
+                for spark_var in env.keys():
+                    if line.startswith('export %s=' % spark_var) or line.startswith('export %s=' % spark_var, 2):
+                        line = 'export %s=%s\n' % (spark_var, env[spark_var])
+                        break
+                content.append(line)
+
+        with open(conf_file, 'w') as f:
+            f.writelines(content)
+
+        # set unique spark.shuffle.service.port for each node; this is only needed for DSE 5.0.x;
+        # starting in 5.1 this setting is no longer needed
+        if self.cluster.version() > '5.0' and self.cluster.version() < '5.1':
+            defaults_file = os.path.join(self.get_path(), 'resources', 'spark', 'conf', 'spark-defaults.conf')
+            with open(defaults_file, 'a') as f:
+                port_num = 7737 + int(node_num)
+                f.write("\nspark.shuffle.service.port %s\n" % port_num)
+
+        # create Spark working dirs; starting with DSE 5.0.10/5.1.3 these are no longer automatically created
+        for e in ["SPARK_WORKER_DIR", "SPARK_LOCAL_DIRS", "SPARK_EXECUTOR_DIRS"]:
+            dir = env[e]
+            if not os.path.exists(dir):
+                os.makedirs(dir)

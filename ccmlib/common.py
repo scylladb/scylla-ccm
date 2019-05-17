@@ -2,16 +2,22 @@
 # Cassandra Cluster Management lib
 #
 
+from __future__ import absolute_import
+
+import copy
 import fnmatch
+import logging
 import os
 import platform
 import re
 import shutil
+import signal
 import socket
 import stat
 import subprocess
 import sys
 import time
+from distutils.version import LooseVersion  #pylint: disable=import-error, no-name-in-module
 
 import yaml
 from six import print_
@@ -27,6 +33,7 @@ SCYLLAMANAGER_DIR = "scylla-manager"
 CASSANDRA_CONF = "cassandra.yaml"
 SCYLLA_CONF = "scylla.yaml"
 SCYLLAMANAGER_CONF = "scylla-manager.yaml"
+JVM_OPTS_PATTERN = "jvm*.options"
 LOG4J_CONF = "log4j-server.properties"
 LOG4J_TOOL_CONF = "log4j-tools.properties"
 LOGBACK_CONF = "logback.xml"
@@ -37,6 +44,56 @@ CASSANDRA_SH = "cassandra.in.sh"
 
 CONFIG_FILE = "config"
 CCM_CONFIG_DIR = "CCM_CONFIG_DIR"
+
+def get_options_removal_dict(options):
+    dict = {}
+    for option in options:
+        dict[option] = None
+    return dict
+
+#Options introduced in 4.0
+CCM_40_YAML_OPTIONS = get_options_removal_dict(['repaired_data_tracking_for_range_reads_enabled',
+                  'corrupted_tombstone_strategy',
+                  'repaired_data_tracking_for_partition_reads_enabled',
+                  'report_unconfirmed_repaired_data_mismatches'])
+
+class InfoFilter(logging.Filter):
+    def filter(self, rec):
+        return rec.levelno in (logging.DEBUG, logging.INFO)
+
+LOG_FMT = '%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s'
+DATE_FMT = '%H:%M:%S'
+FORMATTER = logging.Formatter(LOG_FMT, DATE_FMT)
+
+INFO_HANDLER = logging.StreamHandler(sys.stdout)
+INFO_HANDLER.setLevel(logging.DEBUG)
+INFO_HANDLER.addFilter(InfoFilter())
+INFO_HANDLER.setFormatter(FORMATTER)
+
+ERROR_HANDLER = logging.StreamHandler(sys.stderr)
+ERROR_HANDLER.setLevel(logging.WARNING)
+ERROR_HANDLER.setFormatter(FORMATTER)
+
+LOG = logging.getLogger('ccm')
+LOG.setLevel(logging.DEBUG)
+LOG.addHandler(INFO_HANDLER)
+LOG.addHandler(ERROR_HANDLER)
+
+
+def error(msg):
+    LOG.error(msg)
+
+
+def warning(msg):
+    LOG.warning(msg)
+
+
+def info(msg):
+    LOG.info(msg)
+
+
+def debug(msg):
+    LOG.debug(msg)
 
 
 class CCMError(Exception):
@@ -53,6 +110,43 @@ class ArgumentError(CCMError):
 
 class UnavailableSocketError(CCMError):
     pass
+
+
+class TimeoutError(Exception):
+
+    def __init__(self, data):
+        Exception.__init__(self, str(data))
+
+
+class LogPatternToVersion(object):
+
+    def __init__(self, versions_to_patterns, default_pattern=None):
+        self.versions_to_patterns, self.default_pattern = versions_to_patterns, default_pattern
+
+    def __call__(self, version):
+        keys_less_than_version = [k for k in self.versions_to_patterns if k <= version]
+
+        if not keys_less_than_version:
+            if self.default_pattern is not None:
+                return self.default_pattern
+            else:
+                raise ValueError("Some kind of default pattern must be specified!")
+
+        return self.versions_to_patterns[max(keys_less_than_version, key=lambda v: LooseVersion(v) if not isinstance(v, LooseVersion) else v)]
+
+    def __repr__(self):
+        return str(self.__class__) + "(versions_to_patterns={}, default_pattern={})".format(self.versions_to_patterns, self.default_pattern)
+
+    @property
+    def patterns(self):
+        patterns = list(self.versions_to_patterns.values())
+        if self.default_pattern is not None:
+            patterns = patterns + [self.default_pattern]
+        return patterns
+
+    @property
+    def versions(self):
+        return list(self.versions_to_patterns)
 
 
 def get_default_path():
@@ -94,7 +188,7 @@ def get_config():
         return {}
 
     with open(config_path, 'r') as f:
-        return yaml.load(f)
+        return yaml.safe_load(f)
 
 
 def now_ms():
@@ -130,7 +224,7 @@ def replace_in_file(file, regexp, replace):
 
 def replaces_in_file(file, replacement_list):
     rs = [(re.compile(regexp), repl) for (regexp, repl) in replacement_list]
-    file_tmp = file + ".tmp"
+    file_tmp = file + "." + str(os.getpid()) + ".tmp"
     with open(file, 'r') as f:
         with open(file_tmp, 'w') as f_tmp:
             for line in f:
@@ -146,10 +240,10 @@ def replace_or_add_into_file_tail(file, regexp, replace):
     replaces_or_add_into_file_tail(file, [(regexp, replace)])
 
 
-def replaces_or_add_into_file_tail(file, replacement_list):
+def replaces_or_add_into_file_tail(file, replacement_list, add_config_close=True):
     rs = [(re.compile(regexp), repl) for (regexp, repl) in replacement_list]
     is_line_found = False
-    file_tmp = file + ".tmp"
+    file_tmp = file + "." + str(os.getpid()) + ".tmp"
     with open(file, 'r') as f:
         with open(file_tmp, 'w') as f_tmp:
             for line in f:
@@ -166,7 +260,8 @@ def replaces_or_add_into_file_tail(file, replacement_list):
             # We are moving the closing tag to the end of the file.
             # Previously, we were having an issue where new lines we wrote
             # were appearing after the closing tag, and thus being ignored.
-            f_tmp.write("</configuration>\n")
+            if add_config_close:
+                f_tmp.write("</configuration>\n")
 
     shutil.move(file_tmp, file)
 
@@ -186,22 +281,14 @@ def make_cassandra_env(install_dir, node_path, update_conf=True):
         sh_file = os.path.join(BIN_DIR, CASSANDRA_SH)
     orig = os.path.join(install_dir, sh_file)
     dst = os.path.join(node_path, sh_file)
-    if not os.path.exists(dst):
+    if not is_win() or not os.path.exists(dst):
         shutil.copy(orig, dst)
 
-    if update_conf:
-        replacements = ""
-        if is_win() and get_version_from_build(node_path=node_path) >= '2.1':
-            replacements = [
-                ('env:CASSANDRA_HOME =', '        $env:CASSANDRA_HOME="%s"' % install_dir),
-                ('env:CASSANDRA_CONF =', '    $env:CCM_DIR="' + node_path + '\\conf"\n    $env:CASSANDRA_CONF="$env:CCM_DIR"'),
-                ('cp = ".*?env:CASSANDRA_HOME.conf', '    $cp = """$env:CASSANDRA_CONF"""')
-            ]
-        else:
-            replacements = [
-                ('CASSANDRA_HOME=', '\tCASSANDRA_HOME=%s' % install_dir),
-                ('CASSANDRA_CONF=', '\tCASSANDRA_CONF=%s' % os.path.join(node_path, 'conf'))
-            ]
+    if update_conf and not (is_win() and get_version_from_build(node_path=node_path) >= '2.1'):
+        replacements = [
+            ('CASSANDRA_HOME=', '\tCASSANDRA_HOME=%s' % install_dir),
+            ('CASSANDRA_CONF=', '\tCASSANDRA_CONF=%s' % os.path.join(node_path, 'conf'))
+        ]
         replaces_in_file(dst, replacements)
 
     # If a cluster-wide cassandra.in.sh file exists in the parent
@@ -226,15 +313,18 @@ def make_cassandra_env(install_dir, node_path, update_conf=True):
     return env
 
 
-def make_dse_env(install_dir, node_path):
+def make_dse_env(install_dir, node_path, node_ip):
+    version = get_version_from_build(node_path=node_path)
     env = os.environ.copy()
     env['MAX_HEAP_SIZE'] = os.environ.get('CCM_MAX_HEAP_SIZE', '500M')
     env['HEAP_NEWSIZE'] = os.environ.get('CCM_HEAP_NEWSIZE', '50M')
+    if version < '6.0':
+        env['SPARK_WORKER_MEMORY'] = os.environ.get('SPARK_WORKER_MEMORY', '1024M')
+        env['SPARK_WORKER_CORES'] = os.environ.get('SPARK_WORKER_CORES', '2')
     env['DSE_HOME'] = os.path.join(install_dir)
     env['DSE_CONF'] = os.path.join(node_path, 'resources', 'dse', 'conf')
     env['CASSANDRA_HOME'] = os.path.join(install_dir, 'resources', 'cassandra')
     env['CASSANDRA_CONF'] = os.path.join(node_path, 'resources', 'cassandra', 'conf')
-    env['HADOOP_CONF_DIR'] = os.path.join(node_path, 'resources', 'hadoop', 'conf')
     env['HIVE_CONF_DIR'] = os.path.join(node_path, 'resources', 'hive', 'conf')
     env['SQOOP_CONF_DIR'] = os.path.join(node_path, 'resources', 'sqoop', 'conf')
     env['TOMCAT_HOME'] = os.path.join(node_path, 'resources', 'tomcat')
@@ -243,6 +333,20 @@ def make_dse_env(install_dir, node_path):
     env['MAHOUT_CONF_DIR'] = os.path.join(node_path, 'resources', 'mahout', 'conf')
     env['SPARK_CONF_DIR'] = os.path.join(node_path, 'resources', 'spark', 'conf')
     env['SHARK_CONF_DIR'] = os.path.join(node_path, 'resources', 'shark', 'conf')
+    env['GREMLIN_CONSOLE_CONF_DIR'] = os.path.join(node_path, 'resources', 'graph', 'gremlin-console', 'conf')
+    env['SPARK_WORKER_DIR'] = os.path.join(node_path, 'spark', 'worker')
+    env['SPARK_LOCAL_DIRS'] = os.path.join(node_path, 'spark', '.local')
+    env['SPARK_EXECUTOR_DIRS'] = os.path.join(node_path, 'spark', 'rdd')
+    env['SPARK_WORKER_LOG_DIR'] = os.path.join(node_path, 'logs', 'spark', 'worker')
+    env['SPARK_MASTER_LOG_DIR'] = os.path.join(node_path, 'logs', 'spark', 'master')
+    env['DSE_LOG_ROOT'] = os.path.join(node_path, 'logs', 'dse')
+    env['CASSANDRA_LOG_DIR'] = os.path.join(node_path, 'logs')
+    env['SPARK_LOCAL_IP'] = '' + node_ip
+    if version >= '5.0':
+        env['HADOOP1_CONF_DIR'] = os.path.join(node_path, 'resources', 'hadoop', 'conf')
+        env['HADOOP2_CONF_DIR'] = os.path.join(node_path, 'resources', 'hadoop2-client', 'conf')
+    else:
+        env['HADOOP_CONF_DIR'] = os.path.join(node_path, 'resources', 'hadoop', 'conf')
     return env
 
 
@@ -264,6 +368,20 @@ def is_win():
     return sys.platform in ("cygwin", "win32")
 
 
+def is_modern_windows_install(version):
+    """
+    The 2.1 release line was when Cassandra received beta windows support.
+    Many features are gated based on that added compatibility.
+
+    Handles floats, strings, and LooseVersions by first converting all three types to a string, then to a LooseVersion.
+    """
+    version = LooseVersion(str(version))
+    if is_win() and version >= LooseVersion('2.1'):
+        return True
+    else:
+        return False
+
+
 def is_ps_unrestricted():
     if not is_win():
         raise CCMError("Can only check PS Execution Policy on Windows")
@@ -273,7 +391,7 @@ def is_ps_unrestricted():
         # pylint: disable=E0602
         except WindowsError:
             print_("ERROR: Could not find powershell. Is it in your path?")
-        if "Unrestricted" in p.communicate()[0]:
+        if "Unrestricted" in str(p.communicate()[0]):
             return True
         else:
             return False
@@ -431,7 +549,7 @@ def validate_install_dir(install_dir):
         raise ArgumentError('%s does not appear to be a cassandra or dse installation directory' % install_dir)
 
 
-def check_socket_available(itf):
+def assert_socket_available(itf):
     info = socket.getaddrinfo(itf[0], itf[1], socket.AF_UNSPEC, socket.SOCK_STREAM)
     if not info:
         raise UnavailableSocketError("Failed to get address info for [%s]:%s" % itf)
@@ -443,10 +561,11 @@ def check_socket_available(itf):
     try:
         s.bind(sockaddr)
         s.close()
+        return True
     except socket.error as msg:
         s.close()
         addr, port = itf
-        raise UnavailableSocketError("Inet address %s:%s is not available: %s" % (addr, port, msg))
+        raise UnavailableSocketError("Inet address %s:%s is not available: %s; a cluster may already be running or you may need to add the loopback alias" % (addr, port, msg))
 
 
 def check_socket_listening(itf, timeout=60):
@@ -458,6 +577,8 @@ def check_socket_listening(itf, timeout=60):
             sock.close()
             return True
         except socket.error:
+            if sock:
+                sock.close()
             # Try again in another 200ms
             time.sleep(.2)
             continue
@@ -487,37 +608,52 @@ def normalize_interface(itf):
     return (ip, itf[1])
 
 
-def parse_settings(args):
+def parse_settings(args, literal_yaml=False):
     settings = {}
-    for s in args:
-        if is_win():
-            # Allow for absolute path on Windows for value in key/value pair
-            splitted = s.split(':', 1)
-        else:
-            splitted = s.split(':')
-        if len(splitted) != 2:
-            raise ArgumentError("A new setting should be of the form 'key: value', got " + s)
-        key = splitted[0].strip()
-        val = splitted[1].strip()
-        # ok, that's not super beautiful
-        if val.lower() == "true":
-            val = True
-        elif val.lower() == "false":
-            val = False
-        else:
-            try:
-                val = int(val)
-            except ValueError:
-                pass
-        splitted = key.split('.')
-        if len(splitted) == 2:
-            try:
-                settings[splitted[0]][splitted[1]] = val
-            except KeyError:
-                settings[splitted[0]] = {}
-                settings[splitted[0]][splitted[1]] = val
-        else:
-            settings[key] = val
+    if literal_yaml:
+        for s in args:
+            settings = dict(settings, **yaml.safe_load(s))
+    else:
+        for s in args:
+            if is_win():
+                # Allow for absolute path on Windows for value in key/value pair
+                splitted = s.split(':', 1)
+            else:
+                splitted = s.split(':')
+            if len(splitted) != 2:
+                raise ArgumentError("A new setting should be of the form 'key: value', got " + s)
+            key = splitted[0].strip()
+            val = splitted[1].strip()
+            # ok, that's not super beautiful
+            if val.lower() == "true":
+                val = True
+            elif val.lower() == "false":
+                val = False
+            else:
+                try:
+                    val = int(val)
+                except ValueError:
+                    pass
+            splitted = key.split('.')
+            split_length = len(splitted)
+            if split_length >= 2:
+                # Where we are currently at in the dict.
+                tree_pos = settings
+                # Iterate over each split and build structure as needed.
+                for pos in range(split_length):
+                    split = splitted[pos]
+                    if pos == split_length - 1:
+                        # If at the last split, set value.
+                        tree_pos[split] = val
+                    else:
+                        # If not at last split, create a new dict at the current
+                        # position for this split if it doesn't already exist
+                        # and update the current position.
+                        if split not in tree_pos:
+                            tree_pos[split] = {}
+                        tree_pos = tree_pos[split]
+            else:
+                settings[key] = val
     return settings
 
 #
@@ -540,7 +676,7 @@ def copy_directory(src_dir, dst_dir):
             shutil.copy(filename, dst_dir)
 
 
-def get_version_from_build(install_dir=None, node_path=None):
+def get_version_from_build(install_dir=None, node_path=None, cassandra=False):
     if install_dir is None and node_path is not None:
         install_dir = get_install_dir_from_cluster_conf(node_path)
     if install_dir is not None:
@@ -551,25 +687,28 @@ def get_version_from_build(install_dir=None, node_path=None):
         version_file = os.path.join(install_dir, '0.version.txt')
         if os.path.exists(version_file):
             with open(version_file) as f:
-                return f.read().strip()
+                return LooseVersion(f.read().strip())
         # For DSE look for a dse*.jar and extract the version number
         dse_version = get_dse_version(install_dir)
         if (dse_version is not None):
-            return dse_version
+            if cassandra:
+                return get_dse_cassandra_version(install_dir)
+            else:
+                return LooseVersion(dse_version)
         # Source cassandra installs we can read from build.xml
         build = os.path.join(install_dir, 'build.xml')
         with open(build) as f:
             for line in f:
                 match = re.search('name="base\.version" value="([0-9.]+)[^"]*"', line)
                 if match:
-                    return match.group(1)
+                    return LooseVersion(match.group(1))
     raise CCMError("Cannot find version")
 
 
 def get_scylla_version(install_dir):
     # FIXME
     if isScylla(install_dir):
-        return '2.2'
+        return LooseVersion('3.0')
     else:
         return None
 
@@ -577,21 +716,20 @@ def get_scylla_version(install_dir):
 def get_dse_version(install_dir):
     for root, dirs, files in os.walk(install_dir):
         for file in files:
-            match = re.search('^dse(?:-core)?-([0-9.]+)(?:-SNAPSHOT)?\.jar', file)
+            match = re.search('^dse(?:-core)?-([0-9.]+)(?:-.*)?\.jar', file)
             if match:
                 return match.group(1)
     return None
 
 
 def get_dse_cassandra_version(install_dir):
-    clib = os.path.join(install_dir, 'resources', 'cassandra', 'lib')
-    for file in os.listdir(clib):
-        if fnmatch.fnmatch(file, 'cassandra-all*.jar'):
-            match = re.search('cassandra-all-([0-9.]+)(?:-.*)?\.jar', file)
-            if match:
-                return match.group(1)
-    raise ArgumentError("Unable to determine Cassandra version in: " + install_dir)
+    dse_cmd = os.path.join(install_dir, 'bin', 'dse')
+    output = subprocess.Popen([dse_cmd, "cassandra", '-v'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT).communicate()[0].rstrip()
+    match = re.search('([0-9.]+)(?:-.*)?', str(output))
+    if match:
+        return LooseVersion(match.group(1))
 
+    raise ArgumentError("Unable to determine Cassandra version in: " + install_dir)
 
 def get_install_dir_from_cluster_conf(node_path):
     file = os.path.join(os.path.dirname(node_path), "cluster.conf")
@@ -610,7 +748,7 @@ def is_dse_cluster(path):
             cluster_path = os.path.join(path, name)
             filename = os.path.join(cluster_path, 'cluster.conf')
             with open(filename, 'r') as f:
-                data = yaml.load(f)
+                data = yaml.safe_load(f)
             if 'dse_dir' in data:
                 return True
     except IOError:
@@ -622,12 +760,92 @@ def invalidate_cache():
 
 
 def get_jdk_version():
+    """
+    Retrieve the Java version as reported in the quoted string returned
+    by invoking 'java -version'.
+
+    Works for Java 1.8, Java 9 and should also be fine for Java 10.
+    """
     version = subprocess.check_output(['java', '-version'], stderr=subprocess.STDOUT)
+    return _get_jdk_version(version)
+
+
+def _get_jdk_version(version):
     ver_pattern = '\"(\d+\.\d+).*\"'
-    return re.search(ver_pattern, str(version)).groups()[0]
+    if re.search(ver_pattern, str(version)):
+        return re.search(ver_pattern, str(version)).groups()[0]
+    # like the output 'java version "9"' for 'java -version'
+    ver_pattern = '\"(\d+).*\"'
+    return re.search(ver_pattern, str(version)).groups()[0] + ".0"
 
 
 def assert_jdk_valid_for_cassandra_version(cassandra_version):
     if cassandra_version >= '3.0' and get_jdk_version() < '1.8':
         print_('ERROR: Cassandra 3.0+ requires Java >= 1.8, found Java {}'.format(get_jdk_version()))
         exit(1)
+
+
+def merge_configuration(original, changes, delete_empty=True, delete_always=False):
+    if not isinstance(original, dict):
+        # if original is not a dictionary, assume changes override it.
+        new = changes
+    else:
+        # Copy original so we do not mutate it.
+        new = copy.deepcopy(original)
+        for k, v in changes.items():
+            # If the new value is None or an empty string, delete it
+            # if it's in the original data.
+            if delete_empty and k in new and new[k] is not None and \
+                    (v is None or (isinstance(v, str) and len(v) == 0)):
+                del new[k]
+            elif not delete_always:
+                new_value = v
+                # If key is in both dicts, update it with new values.
+                if k in new:
+                    if isinstance(v, dict):
+                        new_value = merge_configuration(new[k], v, delete_empty)
+                new[k] = new_value
+    return new
+
+
+def is_intlike(obj):
+    try:
+        int(obj)
+        return True
+    except TypeError:
+        return False
+    raise RuntimeError('Reached end of {}; should not be possible'.format(is_intlike.__name__))
+
+
+def wait_for_any_log(nodes, pattern, timeout, filename='system.log'):
+    """
+    Look for a pattern in the system.log of any in a given list
+    of nodes.
+    @param nodes The list of nodes whose logs to scan
+    @param pattern The target pattern
+    @param timeout How long to wait for the pattern. Note that
+                    strictly speaking, timeout is not really a timeout,
+                    but a maximum number of attempts. This implies that
+                    the all the grepping takes no time at all, so it is
+                    somewhat inaccurate, but probably close enough.
+    @return The first node in whose log the pattern was found
+    """
+    for _ in range(timeout):
+        for node in nodes:
+            found = node.grep_log(pattern, filename=filename)
+            if found:
+                return node
+        time.sleep(1)
+
+    raise TimeoutError(time.strftime("%d %b %Y %H:%M:%S", time.gmtime()) +
+                       " Unable to find: " + repr(pattern) + " in any node log within " + str(timeout) + "s")
+
+
+def get_default_signals():
+    if is_win():
+        # Fill the dictionary with SIGTERM as the cluster is killed forcefully
+        # on Windows regardless of assigned signal (TASKKILL is used)
+        default_signal_events = {'1': signal.SIGTERM, '9': signal.SIGTERM}
+    else:
+        default_signal_events = {'1': signal.SIGHUP, '9': signal.SIGKILL}
+    return default_signal_events
