@@ -337,7 +337,7 @@ class ScyllaNode(Node):
         # from config file scylla#59
         conf_file = os.path.join(self.get_conf_dir(), common.SCYLLA_CONF)
         with open(conf_file, 'r') as f:
-            data = yaml.load(f)
+            data = yaml.full_load(f)
         jvm_args = jvm_args + ['--api-address', data['api_address']]
         jvm_args = jvm_args + ['--collectd-hostname',
                                '%s.%s' % (socket.gethostname(), self.name)]
@@ -611,7 +611,7 @@ class ScyllaNode(Node):
         # TODO: copied from node.py
         conf_file = os.path.join(self.get_conf_dir(), common.SCYLLA_CONF)
         with open(conf_file, 'r') as f:
-            data = yaml.load(f)
+            data = yaml.full_load(f)
 
         data['cluster_name'] = self.cluster.name
         data['auto_bootstrap'] = self.auto_bootstrap
