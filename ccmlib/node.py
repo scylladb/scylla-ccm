@@ -121,7 +121,7 @@ class Node(object):
         node_path = os.path.join(path, name)
         filename = os.path.join(node_path, 'node.conf')
         with open(filename, 'r') as f:
-            data = yaml.load(f)
+            data = common.load_config(f)
         try:
             itf = data['interfaces']
             initial_token = None

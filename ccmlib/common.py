@@ -87,14 +87,20 @@ def get_user_home():
     else:
         return os.path.expanduser('~')
 
+def load_config(f):
+    if isinstance(f, str):
+        f = open(f, 'r')
+    try:
+        return yaml.load(f, Loader=yaml.FullLoader)
+    except AttributeError as e:
+        return yaml.load(f)
+
 
 def get_config():
     config_path = os.path.join(get_default_path(), CONFIG_FILE)
     if not os.path.exists(config_path):
         return {}
-
-    with open(config_path, 'r') as f:
-        return yaml.load(f)
+    return load_config(config_path)
 
 
 def now_ms():
@@ -608,9 +614,7 @@ def is_dse_cluster(path):
         with open(os.path.join(path, 'CURRENT'), 'r') as f:
             name = f.readline().strip()
             cluster_path = os.path.join(path, name)
-            filename = os.path.join(cluster_path, 'cluster.conf')
-            with open(filename, 'r') as f:
-                data = yaml.load(f)
+            data = load_config(os.path.join(cluster_path, 'cluster.conf'))
             if 'dse_dir' in data:
                 return True
     except IOError:

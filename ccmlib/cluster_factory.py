@@ -1,7 +1,5 @@
 import os
 
-import yaml
-
 from ccmlib import common, repository
 from ccmlib.cluster import Cluster
 from ccmlib.dse_cluster import DseCluster
@@ -17,7 +15,7 @@ class ClusterFactory():
         cluster_path = os.path.join(path, name)
         filename = os.path.join(cluster_path, 'cluster.conf')
         with open(filename, 'r') as f:
-            data = yaml.load(f)
+            data = common.load_config(f)
         try:
             install_dir = None
             if 'install_dir' in data:
