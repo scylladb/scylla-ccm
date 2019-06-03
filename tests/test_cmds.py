@@ -92,6 +92,6 @@ class TestCCMCreate(TestCCMCmd):
         self.validate_output(self.create_cmd(args))
         yaml_path = os.path.join(common.get_default_path(), 'test', 'node1', 'conf', 'cassandra.yaml')
         with open(yaml_path, 'r') as f:
-            data = yaml.load(f)
+            data = yaml.safe_load(f)
 
         self.assertEqual(256, data['num_tokens'])

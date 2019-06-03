@@ -209,8 +209,8 @@ class ScyllaManager:
     def _update_config(self,dir=None):
         conf_file = os.path.join(self._get_path(), common.SCYLLAMANAGER_CONF)
         with open(conf_file, 'r') as f:
-            data = yaml.load(f)
-        data['http'] = self._get_api_address() 
+            data = yaml.safe_load(f)
+        data['http'] = self._get_api_address()
         if not 'database' in data:
             data['database'] = {}
         data['database']['hosts'] = [self.scylla_cluster.get_node_ip(1)]

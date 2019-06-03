@@ -94,7 +94,7 @@ def get_config():
         return {}
 
     with open(config_path, 'r') as f:
-        return yaml.load(f)
+        return yaml.safe_load(f)
 
 
 def now_ms():
@@ -610,7 +610,7 @@ def is_dse_cluster(path):
             cluster_path = os.path.join(path, name)
             filename = os.path.join(cluster_path, 'cluster.conf')
             with open(filename, 'r') as f:
-                data = yaml.load(f)
+                data = yaml.safe_load(f)
             if 'dse_dir' in data:
                 return True
     except IOError:
