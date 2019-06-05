@@ -74,11 +74,17 @@ class ScyllaNode(Node):
         self._process_scylla_waiter = None
         self._smp = 1
         self._smp_set_during_test = False
+        self._mem_mb_per_cpu = 512
+        self._mem_set_during_test = False
         self.__conf_updated = False
 
     def set_smp(self, smp):
         self._smp =  smp
         self._smp_set_during_test = True
+
+    def set_mem_mb_per_cpu(self, mem):
+        self._mem_mb_per_cpu = mem
+        self._mem_set_during_test = True
 
     def get_install_cassandra_root(self):
         return os.path.join(self.get_install_dir(), 'resources', 'cassandra')
@@ -366,15 +372,24 @@ class ScyllaNode(Node):
 
         if '--developer-mode' not in args:
             args += ['--developer-mode', 'true']
-        # If --smp is not passed from cmdline, default to --smp 1
         if '--smp' not in args:
-            args += ['--smp', '1']
-        if self._smp_set_during_test:
+            # If --smp is not passed from cmdline, use default (--smp 1)
+            args += ['--smp', str(self._smp)]
+        elif self._smp_set_during_test:
             # If node.set_smp() is called during the test, ignore the --smp
             # passed from the cmdline.
             args[args.index('--smp') + 1] = str(self._smp)
+        else:
+            # Update self._smp based on command line parameter.
+            # It may be used below, along with self._mem_mb_per_cpu, for calculating --memory
+            self._smp = int(args[args.index('--smp') + 1])
         if '--memory' not in args:
-            args += ['--memory', '512M']
+            # If --memory is not passed from cmdline, use default (512M per cpu)
+            args += ['--memory', '{}M'.format(self._mem_mb_per_cpu * self._smp)]
+        elif self._mem_set_during_test:
+            # If node.set_mem_mb_per_cpu() is called during the test, ignore the --memory
+            # passed from the cmdline.
+            args[args.index('--memory') + 1] = '{}M'.format(self._mem_mb_per_cpu * self._smp)
         if '--default-log-level' not in args:
             args += ['--default-log-level', self.__global_log_level]
         # TODO add support for classes_log_level
