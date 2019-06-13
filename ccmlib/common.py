@@ -320,6 +320,7 @@ def get_stress_bin(install_dir):
         os.path.join(install_dir, 'tools', 'stress', 'bin', 'stress'),
         os.path.join(install_dir, 'tools', 'bin', 'stress'),
         os.path.join(install_dir, 'tools', 'bin', 'cassandra-stress'),
+        os.path.join(install_dir, 'scylla-java-tools', 'tools', 'bin', 'cassandra-stress'),
         os.path.join(install_dir, 'resources', 'cassandra', 'tools', 'bin', 'cassandra-stress')
     ]
     candidates = [platform_binary(s) for s in candidates]
