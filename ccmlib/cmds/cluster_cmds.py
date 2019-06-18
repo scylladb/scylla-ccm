@@ -7,7 +7,7 @@ from six import print_
 from ccmlib import common, repository
 from ccmlib.cluster import Cluster
 from ccmlib.cluster_factory import ClusterFactory
-from ccmlib.cmds.command import Cmd
+from ccmlib.cmds.command import Cmd, PlainHelpFormatter
 from ccmlib.common import ArgumentError
 from ccmlib.dse_cluster import DseCluster
 from ccmlib.scylla_cluster import ScyllaCluster
@@ -60,7 +60,6 @@ def parse_populate_count(v):
     else:
         return [int(t) for t in tmp]
 
-
 class ClusterCreateCmd(Cmd):
 
     def description(self):
@@ -68,7 +67,7 @@ class ClusterCreateCmd(Cmd):
 
     def get_parser(self):
         usage = "usage: ccm create [options] cluster_name"
-        parser = self._get_default_parser(usage, self.description())
+        parser = self._get_default_parser(usage, self.description(), formatter=PlainHelpFormatter())
         parser.add_option('--no-switch', action="store_true", dest="no_switch",
                           help="Don't switch to the newly created cluster", default=False)
         parser.add_option('-p', '--partitioner', type="string", dest="partitioner",
@@ -132,6 +131,20 @@ class ClusterCreateCmd(Cmd):
 
         parser.add_option('--scylla-jmx-package-uri', type="string", dest="scylla_jmx_package_uri",
                           help="The path scylla jmx relocatable package", default=None)
+
+        parser.epilog = """
+        
+        Examples of using relocatable packages:
+        
+        # create cluster from version uploaded to s3 (of the daily/nightly as example)
+        ccm create fruch --scylla --version unstable/master:239
+        
+        # create cluster with own versions of each package
+        ccm create fruch --scylla --version temp \\
+            --scylla-package-uri=../scylla/temp.tar.gz \\ 
+            --scylla-java-tools-package-uri=../scylla-tools-java/temp.tar.gz \\
+            --scylla-jmx-package-uri=../scylla-jmx/temp.tar.gz
+        """
 
         return parser
 

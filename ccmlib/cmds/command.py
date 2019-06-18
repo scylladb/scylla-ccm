@@ -1,10 +1,18 @@
 import sys
-from optparse import BadOptionError, Option, OptionParser
+from optparse import BadOptionError, Option, OptionParser, IndentedHelpFormatter
 
 from six import print_
 
 from ccmlib import common
 from ccmlib.cluster_factory import ClusterFactory
+
+
+class PlainHelpFormatter(IndentedHelpFormatter):
+    def format_epilog(self, epilog):
+        if epilog:
+            return epilog + "\n"
+        else:
+            return ""
 
 
 # This is fairly fragile, but handy for now
@@ -76,11 +84,11 @@ class Cmd(object):
     def run(self):
         pass
 
-    def _get_default_parser(self, usage, description, ignore_unknown_options=False):
+    def _get_default_parser(self, usage, description, ignore_unknown_options=False, formatter=None):
         if ignore_unknown_options:
-            parser = ForgivingParser(usage=usage, description=description)
+            parser = ForgivingParser(usage=usage, description=description, formatter=formatter)
         else:
-            parser = OptionParser(usage=usage, description=description)
+            parser = OptionParser(usage=usage, description=description, formatter=formatter)
         parser.add_option('--config-dir', type="string", dest="config_dir",
                           help="Directory for the cluster files [default to {0}]".format(common.get_default_path_display_name()))
         return parser
