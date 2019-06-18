@@ -123,6 +123,16 @@ class ClusterCreateCmd(Cmd):
                           help="Supports 'org.apache.cassandra.locator.PropertyFileSnitch','org.apache.cassandra.locator.GossipingPropertyFileSnitch' used only in multidc clusters")
         parser.add_option("--id", type="int", dest="id",
                           help="Allows running multiple clusters in paralell (up to 100) each must have a unique id value 0-99, this will set the ipprefix value if one was not set to 127.0.<id>.")
+
+        parser.add_option('--scylla-package-uri', type="string", dest="scylla_package_uri",
+                          help="The path scylla relocatable package", default=None)
+
+        parser.add_option('--scylla-java-tools-package-uri', type="string", dest="scylla_java_tools_package_uri",
+                          help="The path scylla java tools relocatable package", default=None)
+
+        parser.add_option('--scylla-jmx-package-uri', type="string", dest="scylla_jmx_package_uri",
+                          help="The path scylla jmx relocatable package", default=None)
+
         return parser
 
     def validate(self, parser, options, args):
@@ -156,6 +166,14 @@ class ClusterCreateCmd(Cmd):
             print_("""WARN: c:\windows\system32\java.exe exists.
                 This may cause registry issues, and jre7 to be used, despite jdk8 being installed.
                 """)
+
+        if options.scylla_package_uri:
+            os.environ['SCYLLA_PACKAGE'] = options.scylla_package_uri
+        if options.scylla_java_tools_package_uri:
+            os.environ['SCYLLA_JAVA_TOOLS_PACKAGE'] = options.scylla_java_tools_package_uri
+        if options.scylla_jmx_package_uri:
+            os.environ['SCYLLA_JMX_PACKAGE'] = options.scylla_jmx_package_uri
+
 
     def run(self):
         try:
@@ -297,7 +315,6 @@ class ClusterAddCmd(Cmd):
             print_("This JMX port is already in use. Choose another.", file=sys.stderr)
             parser.print_help()
             sys.exit(1)
-
 
         self.jmx_port = options.jmx_port
         self.remote_debug_port = options.remote_debug_port
