@@ -101,7 +101,7 @@ class ScyllaCluster(Cluster):
                     # updated code, scylla starts CQL only by default
                     # process should not be checked for scylla as the
                     # process is a boot script (that ends after boot)
-                    node.watch_log_for(start_message, timeout=300,
+                    node.watch_log_for(start_message, timeout=600,
                                        verbose=verbose, from_mark=mark)
                 except RuntimeError:
                     raise Exception("Not able to find start "
