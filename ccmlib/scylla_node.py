@@ -15,6 +15,7 @@ import threading
 import psutil
 import yaml
 from six import print_
+from six.moves import xrange
 
 from ccmlib import common
 from ccmlib.node import Node
@@ -119,7 +120,7 @@ class ScyllaNode(Node):
 
     def set_log_level(self, new_level, class_name=None):
         known_level = {'TRACE' : 'trace', 'DEBUG' : 'debug', 'INFO' : 'info', 'WARN' : 'warn', 'ERROR' : 'error', 'OFF' : 'info'}
-        if not known_level.has_key(new_level):
+        if not new_level in known_level:
             raise common.ArgumentError("Unknown log level %s (use one of %s)" % (new_level, " ".join(known_level)))
 
         new_log_level = known_level[new_level]
@@ -204,7 +205,7 @@ class ScyllaNode(Node):
             if not os.path.isfile(executable):
                 with open(executable, 'w+') as f:
                     f.write('#!/bin/bash\nexec -a scylla ' + ' '.join([os.path.join(dbuild_so_dir, 'ld-linux-x86-64.so.2'), '--library-path', dbuild_so_dir]) + ' "$@" ')
-                os.chmod(executable, 0777)
+                os.chmod(executable, 0o0777)
             args = [executable] + args
         self._process_scylla = subprocess.Popen(args, stdout=scylla_log,
                                                 stderr=scylla_log,
@@ -665,8 +666,8 @@ class ScyllaNode(Node):
         # TODO: add scylla options
         data['api_address'] = data['listen_address']
         # last win and we want node options to win
-        full_options = dict(self.cluster._config_options.items() +
-                            self.get_config_options().items())
+        full_options = dict(list(self.cluster._config_options.items()) +
+                            list(self.get_config_options().items()))
         for name in full_options:
             value = full_options[name]
             if value is None:
