@@ -11,6 +11,7 @@ from six import print_
 from six.moves import urllib
 
 from ccmlib.common import (ArgumentError, CCMError, get_default_path, rmdirs, validate_install_dir)
+from ccmlib.repository import __download
 
 GIT_REPO = "http://github.com/scylladb/scylla.git"
 
@@ -115,48 +116,6 @@ def version_directory(version):
 
 def clean_all():
     rmdirs(__get_dir())
-
-
-def __download(url, target, username=None, password=None, show_progress=False):
-    if username is not None:
-        password_mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-        password_mgr.add_password(None, url, username, password)
-        handler = urllib.request.HTTPBasicAuthHandler(password_mgr)
-        opener = urllib.request.build_opener(handler)
-        urllib.request.install_opener(opener)
-
-    u = urllib.request.urlopen(url)
-    f = open(target, 'wb')
-    meta = u.info()
-    file_size = int(meta.get("Content-Length"))
-    if show_progress:
-        print_("Downloading %s to %s (%.3fMB)" % (url, target, float(file_size) / (1024 * 1024)))
-
-    file_size_dl = 0
-    block_sz = 8192
-    attempts = 0
-    while file_size_dl < file_size:
-        buffer = u.read(block_sz)
-        if not buffer:
-            attempts = attempts + 1
-            if attempts >= 5:
-                raise CCMError("Error downloading file (nothing read after %i attempts, downloded only %i of %i bytes)" % (attempts, file_size_dl, file_size))
-            time.sleep(0.5 * attempts)
-            continue
-        else:
-            attempts = 0
-
-        file_size_dl += len(buffer)
-        f.write(buffer)
-        if show_progress:
-            status = r"%10d  [%3.2f%%]" % (file_size_dl, file_size_dl * 100. / file_size)
-            status = chr(8) * (len(status) + 1) + status
-            print_(status, end='')
-
-    if show_progress:
-        print_("")
-    f.close()
-    u.close()
 
 
 def __get_dir():
