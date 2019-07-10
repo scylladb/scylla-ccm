@@ -15,9 +15,7 @@ from ccmlib.repository import __download
 
 GIT_REPO = "http://github.com/scylladb/scylla.git"
 
-RELOCATABLE_URLS = {
-    'unstable/master': 'https://s3.amazonaws.com/downloads.scylladb.com/relocatable/unstable/master/'
-}
+RELOCATABLE_URLS_BASE = 'https://s3.amazonaws.com/downloads.scylladb.com/relocatable/{0}/{1}'
 
 
 def setup(version, verbose=True):
@@ -25,7 +23,7 @@ def setup(version, verbose=True):
     type_n_version = version.split(':')
     if len(type_n_version) == 2:
         s3_version = type_n_version[1]
-        s3_url = "{0}{1}".format(RELOCATABLE_URLS[type_n_version[0]], s3_version)
+        s3_url = RELOCATABLE_URLS_BASE.format(type_n_version[0], s3_version)
         version = os.path.join(*type_n_version)
 
     cdir = version_directory(version)
