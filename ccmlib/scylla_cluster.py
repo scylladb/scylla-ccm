@@ -25,7 +25,7 @@ class ScyllaCluster(Cluster):
         install_func = common.scylla_extract_install_dir_and_mode
 
         cassandra_version = kwargs.get('cassandra_version', version)
-        if kwargs.get('cassandra_version', version):
+        if cassandra_version:
             self.scylla_mode = 'reloc'
         else:
             install_dir, self.scylla_mode = install_func(install_dir)

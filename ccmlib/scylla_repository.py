@@ -3,7 +3,6 @@ from __future__ import with_statement
 import os
 import tarfile
 import tempfile
-import time
 import shutil
 import glob
 
@@ -27,23 +26,28 @@ def setup(version, verbose=True):
         version = os.path.join(*type_n_version)
 
     cdir = version_directory(version)
+
     if cdir is None:
+        tmp_download = tempfile.mkdtemp()
+
         url = os.environ.get('SCYLLA_PACKAGE', os.path.join(s3_url, 'scylla-package.tar.gz'))
-        download_version(version, verbose=verbose, url=url)
+        download_version(version, verbose=verbose, url=url, target_dir=tmp_download)
 
         url = os.environ.get('SCYLLA_JAVA_TOOLS_PACKAGE', os.path.join(s3_url, 'scylla-tools-package.tar.gz'))
-        download_version(os.path.join(version, 'scylla-java-tools'), verbose=verbose, url=url)
+        download_version(version, verbose=verbose, url=url, target_dir=os.path.join(tmp_download, 'scylla-java-tools'))
 
+        url = os.environ.get('SCYLLA_JMX_PACKAGE', os.path.join(s3_url, 'scylla-jmx-package.tar.gz'))
+        download_version(version, verbose=verbose, url=url, target_dir=os.path.join(tmp_download, 'jmx'))
+
+        cdir = directory_name(version)
+
+        shutil.move(tmp_download, cdir)
         # hack to make the relocatable tools work
-        cdir = version_directory(version)
+        # https://github.com/scylladb/scylla-tools-java/issues/104
         scylla_java_tools_dir = os.path.join(cdir, 'scylla-java-tools')
         for jar_file in glob.glob(scylla_java_tools_dir + "/*.jar"):
             shutil.copy(jar_file, os.path.join(scylla_java_tools_dir, "lib"))
 
-        url = os.environ.get('SCYLLA_JMX_PACKAGE', os.path.join(s3_url, 'scylla-jmx-package.tar.gz'))
-        download_version(os.path.join(version, 'jmx'), verbose=verbose, url=url)
-
-        cdir = version_directory(version)
     return cdir, version
 
 
@@ -57,12 +61,10 @@ def is_valid(url, qualifying=None):
                 for qualifying_attr in qualifying])
 
 
-def download_version(version, url=None, verbose=False):
-    """Download, extract, and build Cassandra tarball.
-
-    if binary == True, download precompiled tarball, otherwise build from source tarball.
+def download_version(version, url=None, verbose=False, target_dir=None):
     """
-    target_dir = None
+    Download, scylla relocatable package tarballs.
+    """
     try:
         if os.path.exists(url) and url.endswith('.tar.gz'):
             target = url
@@ -75,7 +77,7 @@ def download_version(version, url=None, verbose=False):
         if verbose:
             print_("Extracting %s as version %s ..." % (target, version))
         tar = tarfile.open(target)
-        tar.extractall(path=os.path.join(__get_dir(), version))
+        tar.extractall(path=target_dir)
         tar.close()
 
     except urllib.error.URLError as e:
@@ -86,12 +88,12 @@ def download_version(version, url=None, verbose=False):
         raise ArgumentError("Unable to uncompress downloaded file: %s" % str(e))
     except CCMError as e:
         if target_dir:
-            # wipe out the directory if anything goes wrong. Otherwise we will assume it has been compiled the next time it runs.
+            # wipe out the directory if anything goes wrong.
             try:
                 rmdirs(target_dir)
                 print_("Deleted %s due to error" % target_dir)
             except:
-                raise CCMError("Building C* version %s failed. Attempted to delete %s but failed. This will need to be manually deleted" % (version, target_dir))
+                raise CCMError("Downloading/extracting scylla version %s failed. Attempted to delete %s but failed. This will need to be manually deleted" % (version, target_dir))
         raise e
 
 
@@ -112,16 +114,8 @@ def version_directory(version):
         return None
 
 
-def clean_all():
-    rmdirs(__get_dir())
-
-
 def __get_dir():
     repo = os.path.join(get_default_path(), 'scylla-repository')
     if not os.path.exists(repo):
         os.mkdir(repo)
     return repo
-
-
-def lastlogfilename():
-    return os.path.join(__get_dir(), "last.log")
