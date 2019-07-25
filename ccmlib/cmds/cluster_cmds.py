@@ -123,7 +123,7 @@ class ClusterCreateCmd(Cmd):
         parser.add_option("--id", type="int", dest="id",
                           help="Allows running multiple clusters in paralell (up to 100) each must have a unique id value 0-99, this will set the ipprefix value if one was not set to 127.0.<id>.")
 
-        parser.add_option('--scylla-package-uri', type="string", dest="scylla_package_uri",
+        parser.add_option('--scylla-core-package-uri', type="string", dest="scylla_core_package_uri",
                           help="The path scylla relocatable package", default=None)
 
         parser.add_option('--scylla-java-tools-package-uri', type="string", dest="scylla_java_tools_package_uri",
@@ -180,8 +180,8 @@ class ClusterCreateCmd(Cmd):
                 This may cause registry issues, and jre7 to be used, despite jdk8 being installed.
                 """)
 
-        if options.scylla_package_uri:
-            os.environ['SCYLLA_PACKAGE'] = options.scylla_package_uri
+        if options.scylla_core_package_uri:
+            os.environ['SCYLLA_CORE_PACKAGE'] = options.scylla_core_package_uri
         if options.scylla_java_tools_package_uri:
             os.environ['SCYLLA_JAVA_TOOLS_PACKAGE'] = options.scylla_java_tools_package_uri
         if options.scylla_jmx_package_uri:

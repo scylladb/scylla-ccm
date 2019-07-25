@@ -18,7 +18,7 @@ RELOCATABLE_URLS_BASE = 'https://s3.amazonaws.com/downloads.scylladb.com/relocat
 
 
 def setup(version, verbose=True):
-    s3_url = 'https://s3.amazonaws.com/downloads.scylladb.com/relocatable/unstable/master/latest'
+    s3_url = ''
     type_n_version = version.split(':')
     if len(type_n_version) == 2:
         s3_version = type_n_version[1]
@@ -30,7 +30,7 @@ def setup(version, verbose=True):
     if cdir is None:
         tmp_download = tempfile.mkdtemp()
 
-        url = os.environ.get('SCYLLA_PACKAGE', os.path.join(s3_url, 'scylla-package.tar.gz'))
+        url = os.environ.get('SCYLLA_CORE_PACKAGE', os.path.join(s3_url, 'scylla-package.tar.gz'))
         download_version(version, verbose=verbose, url=url, target_dir=tmp_download)
 
         url = os.environ.get('SCYLLA_JAVA_TOOLS_PACKAGE', os.path.join(s3_url, 'scylla-tools-package.tar.gz'))
@@ -72,13 +72,21 @@ def download_version(version, url=None, verbose=False, target_dir=None):
             _, target = tempfile.mkstemp(suffix=".tar.gz", prefix="ccm-")
             __download(url, target, show_progress=verbose)
         else:
-            raise ArgumentError("unsupported url={}".format(url))
+            raise ArgumentError("unsupported url or file doesn't exist\n\turl={}".format(url))
 
         if verbose:
             print_("Extracting %s as version %s ..." % (target, version))
         tar = tarfile.open(target)
         tar.extractall(path=target_dir)
         tar.close()
+
+        # add breadcrumb so we could list the origin of each part easily for debugging
+        # for example listing all the version we have in ccm scylla-repository
+        # find  ~/.ccm/scylla-repository/*/ -iname source.txt | xargs cat
+        source_breadcrumb_file = os.path.join(target_dir, 'source.txt')
+        with open(source_breadcrumb_file, 'w') as f:
+            f.write("version=%s\n" % version)
+            f.write("url=%s\n" % url)
 
     except urllib.error.URLError as e:
         msg = "Invalid version %s" % version if url is None else "Invalid url %s" % url
