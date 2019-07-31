@@ -320,6 +320,7 @@ def get_stress_bin(install_dir):
         os.path.join(install_dir, 'tools', 'stress', 'bin', 'stress'),
         os.path.join(install_dir, 'tools', 'bin', 'stress'),
         os.path.join(install_dir, 'tools', 'bin', 'cassandra-stress'),
+        os.path.join(install_dir, 'scylla-java-tools', 'tools', 'bin', 'cassandra-stress'),
         os.path.join(install_dir, 'resources', 'cassandra', 'tools', 'bin', 'cassandra-stress')
     ]
     candidates = [platform_binary(s) for s in candidates]
@@ -371,7 +372,8 @@ def isScylla(install_dir):
     return (os.path.exists(os.path.join(install_dir, 'scylla')) or
             os.path.exists(os.path.join(install_dir, 'build', 'debug', 'scylla')) or
             os.path.exists(os.path.join(install_dir, 'build', 'dev', 'scylla')) or
-            os.path.exists(os.path.join(install_dir, 'build', 'release', 'scylla')))
+            os.path.exists(os.path.join(install_dir, 'build', 'release', 'scylla')) or
+            os.path.exists(os.path.join(install_dir, 'bin', 'scylla')))
 
 
 def isOpscenter(install_dir):
@@ -398,6 +400,8 @@ def scylla_extract_install_dir_and_mode(install_dir):
     elif install_dir.endswith('build/release') or install_dir.endswith('build/release/'):
         scylla_mode = 'release'
         install_dir = str(os.path.join(install_dir, os.pardir, os.pardir))
+    elif os.path.exists(os.path.join(install_dir, 'libreloc')):
+        scylla_mode = 'reloc'
     return install_dir, scylla_mode
 
 
@@ -567,9 +571,11 @@ def get_version_from_build(install_dir=None, node_path=None):
 
 
 def get_scylla_version(install_dir):
-    # FIXME
     if isScylla(install_dir):
-        return '2.2'
+        scylla_version_file = os.path.join(install_dir, 'SCYLLA-VERSION-FILE')
+        if os.path.exists(scylla_version_file):
+            return open(scylla_version_file).read().strip()
+        return '3.0'
     else:
         return None
 

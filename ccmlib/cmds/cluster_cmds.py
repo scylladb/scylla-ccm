@@ -7,7 +7,7 @@ from six import print_
 from ccmlib import common, repository
 from ccmlib.cluster import Cluster
 from ccmlib.cluster_factory import ClusterFactory
-from ccmlib.cmds.command import Cmd
+from ccmlib.cmds.command import Cmd, PlainHelpFormatter
 from ccmlib.common import ArgumentError
 from ccmlib.dse_cluster import DseCluster
 from ccmlib.scylla_cluster import ScyllaCluster
@@ -60,7 +60,6 @@ def parse_populate_count(v):
     else:
         return [int(t) for t in tmp]
 
-
 class ClusterCreateCmd(Cmd):
 
     def description(self):
@@ -68,7 +67,7 @@ class ClusterCreateCmd(Cmd):
 
     def get_parser(self):
         usage = "usage: ccm create [options] cluster_name"
-        parser = self._get_default_parser(usage, self.description())
+        parser = self._get_default_parser(usage, self.description(), formatter=PlainHelpFormatter())
         parser.add_option('--no-switch', action="store_true", dest="no_switch",
                           help="Don't switch to the newly created cluster", default=False)
         parser.add_option('-p', '--partitioner', type="string", dest="partitioner",
@@ -123,6 +122,30 @@ class ClusterCreateCmd(Cmd):
                           help="Supports 'org.apache.cassandra.locator.PropertyFileSnitch','org.apache.cassandra.locator.GossipingPropertyFileSnitch' used only in multidc clusters")
         parser.add_option("--id", type="int", dest="id",
                           help="Allows running multiple clusters in paralell (up to 100) each must have a unique id value 0-99, this will set the ipprefix value if one was not set to 127.0.<id>.")
+
+        parser.add_option('--scylla-core-package-uri', type="string", dest="scylla_core_package_uri",
+                          help="The path scylla relocatable package", default=None)
+
+        parser.add_option('--scylla-java-tools-package-uri', type="string", dest="scylla_java_tools_package_uri",
+                          help="The path scylla java tools relocatable package", default=None)
+
+        parser.add_option('--scylla-jmx-package-uri', type="string", dest="scylla_jmx_package_uri",
+                          help="The path scylla jmx relocatable package", default=None)
+
+        parser.epilog = """
+        
+        Examples of using relocatable packages:
+        
+        # create cluster from version uploaded to s3 (of the daily/nightly as example)
+        ccm create fruch --scylla --version unstable/master:239
+        
+        # create cluster with own versions of each package
+        ccm create fruch --scylla --version temp \\
+            --scylla-package-uri=../scylla/temp.tar.gz \\ 
+            --scylla-java-tools-package-uri=../scylla-tools-java/temp.tar.gz \\
+            --scylla-jmx-package-uri=../scylla-jmx/temp.tar.gz
+        """
+
         return parser
 
     def validate(self, parser, options, args):
@@ -156,6 +179,14 @@ class ClusterCreateCmd(Cmd):
             print_("""WARN: c:\windows\system32\java.exe exists.
                 This may cause registry issues, and jre7 to be used, despite jdk8 being installed.
                 """)
+
+        if options.scylla_core_package_uri:
+            os.environ['SCYLLA_CORE_PACKAGE'] = options.scylla_core_package_uri
+        if options.scylla_java_tools_package_uri:
+            os.environ['SCYLLA_JAVA_TOOLS_PACKAGE'] = options.scylla_java_tools_package_uri
+        if options.scylla_jmx_package_uri:
+            os.environ['SCYLLA_JMX_PACKAGE'] = options.scylla_jmx_package_uri
+
 
     def run(self):
         try:
@@ -297,7 +328,6 @@ class ClusterAddCmd(Cmd):
             print_("This JMX port is already in use. Choose another.", file=sys.stderr)
             parser.print_help()
             sys.exit(1)
-
 
         self.jmx_port = options.jmx_port
         self.remote_debug_port = options.remote_debug_port

@@ -44,7 +44,7 @@ class ClusterFactory():
             if 'use_vnodes' in data:
                 cluster.use_vnodes = data['use_vnodes']
         except KeyError as k:
-            raise common.LoadError("Error Loading " + filename + ", missing property:" + k)
+            raise common.LoadError("Error Loading " + filename + ", missing property:" + str(k))
 
         for node_name in node_list:
             cluster.nodes[node_name] = Node.load(cluster_path, node_name, cluster)
