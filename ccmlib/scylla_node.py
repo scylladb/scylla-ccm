@@ -563,6 +563,11 @@ class ScyllaNode(Node):
     def copy_config_files_dse(self):
         raise NotImplementedError('ScyllaNode.copy_config_files_dse')
 
+    def hard_link_or_copy_dir(self, src_dir, dst_dir):
+        os.makedirs(dst_dir)
+        for f in os.listdir(src_dir):
+            self.hard_link_or_copy(os.path.join(src_dir, f), os.path.join(dst_dir, f))
+
     def hard_link_or_copy(self, src, dst):
         try:
             os.link(src, dst)
@@ -603,10 +608,10 @@ class ScyllaNode(Node):
             self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'bin', 'scylla'),
                                    os.path.join(self.get_bin_dir(), 'scylla'))
 
-            os.symlink(os.path.join(self.get_install_dir(), 'libexec'),
+            self.hard_link_or_copy_dir(os.path.join(self.get_install_dir(), 'libexec'),
                        os.path.join(self.get_path(), 'libexec'))
 
-            os.symlink(os.path.join(self.get_install_dir(), 'libreloc'),
+            self.hard_link_or_copy_dir(os.path.join(self.get_install_dir(), 'libreloc'),
                        os.path.join(self.get_path(), 'libreloc'))
 
         else:

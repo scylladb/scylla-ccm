@@ -42,11 +42,6 @@ def setup(version, verbose=True):
         cdir = directory_name(version)
 
         shutil.move(tmp_download, cdir)
-        # hack to make the relocatable tools work
-        # https://github.com/scylladb/scylla-tools-java/issues/104
-        scylla_java_tools_dir = os.path.join(cdir, 'scylla-java-tools')
-        for jar_file in glob.glob(scylla_java_tools_dir + "/*.jar"):
-            shutil.copy(jar_file, os.path.join(scylla_java_tools_dir, "lib"))
 
     return cdir, version
 
