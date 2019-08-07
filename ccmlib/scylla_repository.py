@@ -43,7 +43,7 @@ def setup(version, verbose=True):
 
         shutil.move(tmp_download, cdir)
 
-    return cdir, version
+    return cdir, "3.0"  # FIXME: find a way to get the correct scylla version corresponding to cassandra
 
 
 min_attributes = ('scheme', 'netloc')

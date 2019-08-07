@@ -1,28 +1,31 @@
 # ccm node
-from __future__ import with_statement
+from __future__ import absolute_import, with_statement
 
 import errno
 import glob
-import itertools
+import locale
 import os
+import psutil
 import re
+import shlex
 import shutil
 import signal
 import stat
 import subprocess
 import sys
 import time
+import tempfile
 import warnings
+from collections import namedtuple
 from datetime import datetime
-import locale
+from distutils.version import LooseVersion  #pylint: disable=import-error, no-name-in-module
 
 import yaml
-from six import iteritems, print_, string_types
-from six.moves import xrange
+from six import print_, string_types
 
-from ccmlib import common
-from ccmlib.cli_session import CliSession
+from ccmlib import common, extension
 from ccmlib.repository import setup
+from six.moves import xrange
 
 
 class Status():
@@ -44,7 +47,7 @@ class TimeoutError(Exception):
         Exception.__init__(self, str(data))
 
 
-class NodetoolError(Exception):
+class ToolError(Exception):
 
     def __init__(self, command, exit_status, stdout=None, stderr=None):
         self.command = command
@@ -52,19 +55,23 @@ class NodetoolError(Exception):
         self.stdout = stdout
         self.stderr = stderr
 
-        message = "Nodetool command '%s' failed; exit status: %d" % (command, exit_status)
+        message = "Subprocess {} exited with non-zero status; exit status: {}".format(command, exit_status)
         if stdout:
-            message += "; stdout: "
-            message += stdout
+            message += "; \nstdout: "
+            message += self.__decode(stdout)
         if stderr:
-            message += "; stderr: "
-            message += stderr
+            message += "; \nstderr: "
+            message += self.__decode(stderr)
 
         Exception.__init__(self, message)
 
+    def __decode(self, value):
+        if isinstance(value, bytes):
+            return bytes.decode(value, locale.getpreferredencoding(False))
+        return value
 
 # Groups: 1 = cf, 2 = tmp or none, 3 = suffix (Compacted or Data.db)
-_sstable_regexp = re.compile('((?P<keyspace>[^\s-]+)-(?P<cf>[^\s-]+)-)?(?P<tmp>tmp(link)?-)?(?P<version>[^\s-]+)-(?P<number>\d+)-(?P<big>big-)?(?P<suffix>[a-zA-Z]+)\.[a-zA-Z0-9]+$')
+_sstable_regexp = re.compile('((?P<keyspace>[^\s-]+)-(?P<cf>[^\s-]+)-)?(?P<tmp>tmp(link)?-)?(?P<version>[^\s-]+)-(?P<number>\d+)-(?P<format>([a-z]+)-)?(?P<suffix>[a-zA-Z]+)\.[a-zA-Z0-9]+$')
 
 
 class Node(object):
@@ -73,7 +80,7 @@ class Node(object):
     Provides interactions to a Cassandra node.
     """
 
-    def __init__(self, name, cluster, auto_bootstrap, thrift_interface, storage_interface, jmx_port, remote_debug_port, initial_token, save=True, binary_interface=None):
+    def __init__(self, name, cluster, auto_bootstrap, thrift_interface, storage_interface, jmx_port, remote_debug_port, initial_token, save=True, binary_interface=None, byteman_port='0', environment_variables=None, byteman_startup_script=None, derived_cassandra_version=None):
         """
         Create a new Node.
           - name: the name for that node
@@ -94,18 +101,32 @@ class Node(object):
         self.network_interfaces = {'thrift': common.normalize_interface(thrift_interface),
                                    'storage': common.normalize_interface(storage_interface),
                                    'binary': common.normalize_interface(binary_interface)}
+        (self.ip_addr, _) = self.network_interfaces['thrift'] if thrift_interface else self.network_interfaces['binary']
         self.jmx_port = jmx_port
         self.remote_debug_port = remote_debug_port
+        self.byteman_port = byteman_port
+        self.byteman_startup_script = byteman_startup_script
         self.initial_token = initial_token
         self.pid = None
         self.all_pids = []
         self.data_center = None
-        self.workload = None
+        self.workloads = []
+        self._dse_config_options = {}
         self.__config_options = {}
         self.__install_dir = None
         self.__global_log_level = None
         self.__classes_log_level = {}
+        self.__environment_variables = environment_variables or {}
         self.__conf_updated = False
+
+        if derived_cassandra_version:
+            self._cassandra_version = derived_cassandra_version
+        else:
+            try:
+                self._cassandra_version = common.get_version_from_build(self.get_install_dir(), cassandra=True)
+            except common.CCMError:
+                self._cassandra_version = self.cluster.cassandra_version()
+
         if save:
             self.import_config_files()
             self.import_bin_files()
@@ -127,14 +148,19 @@ class Node(object):
             initial_token = None
             if 'initial_token' in data:
                 initial_token = data['initial_token']
+            cassandra_version = None
+            if 'cassandra_version' in data:
+                cassandra_version = LooseVersion(data['cassandra_version'])
             remote_debug_port = 2000
             if 'remote_debug_port' in data:
                 remote_debug_port = data['remote_debug_port']
             binary_interface = None
             if 'binary' in itf and itf['binary'] is not None:
                 binary_interface = tuple(itf['binary'])
-            node = cluster.create_node(data['name'], data['auto_bootstrap'], tuple(itf['thrift']), tuple(itf['storage']), data[
-                                       'jmx_port'], remote_debug_port, initial_token, save=False, binary_interface=binary_interface)
+            thrift_interface = None
+            if 'thrift' in itf and itf['thrift'] is not None:
+                thrift_interface = tuple(itf['thrift'])
+            node = cluster.create_node(data['name'], data['auto_bootstrap'], thrift_interface, tuple(itf['storage']), data['jmx_port'], remote_debug_port, initial_token, save=False, binary_interface=binary_interface, byteman_port=data['byteman_port'], derived_cassandra_version=cassandra_version)
             node.status = data['status']
             if 'pid' in data:
                 node.pid = int(data['pid'])
@@ -142,10 +168,14 @@ class Node(object):
                 node.__install_dir = data['install_dir']
             if 'config_options' in data:
                 node.__config_options = data['config_options']
+            if 'dse_config_options' in data:
+                node._dse_config_options = data['dse_config_options']
+            if 'environment_variables' in data:
+                node.__environment_variables = data['environment_variables']
             if 'data_center' in data:
                 node.data_center = data['data_center']
-            if 'workload' in data:
-                node.workload = data['workload']
+            if 'workloads' in data:
+                node.workloads = data['workloads']
             return node
         except KeyError as k:
             raise common.LoadError("Error Loading " + filename + ", missing property: " + str(k))
@@ -172,7 +202,10 @@ class Node(object):
         update_conf = not self.__conf_updated
         if update_conf:
             self.__conf_updated = True
-        return common.make_cassandra_env(self.get_install_dir(), self.get_path(), update_conf)
+        env = common.make_cassandra_env(self.get_install_dir(), self.get_path(), update_conf)
+        for (key, value) in self.__environment_variables.items():
+            env[key] = value
+        return env
 
     def get_install_cassandra_root(self):
         return self.get_install_dir()
@@ -192,11 +225,43 @@ class Node(object):
     def get_config_options(self):
         return self.__config_options
 
+    def address_for_current_version_slashy(self):
+        """
+        Returns the address formatted for the current version with
+        the Java slashy if necessary.
+        """
+        if self.get_cassandra_version() >= '4.0':
+            return self.address_and_port()
+        else:
+            return "/{}".format(str(self.address()));
+
+    def address_for_version(self, version):
+        """
+        Returns the address formatted for the specified
+        """
+        if version >= '4.0':
+            return self.address_and_port()
+        else:
+            return "{}".format(str(self.address()));
+
+    def address_for_current_version(self):
+        """
+        Returns the address formatted for the current version.
+        """
+        return self.address_for_version(self.get_cassandra_version())
+
     def address(self):
         """
         Returns the IP use by this node for internal communication
         """
         return self.network_interfaces['storage'][0]
+
+    def address_and_port(self):
+        """
+        Returns the IP used for internal communication along with ports
+        """
+        port = self.network_interfaces['storage'][1]
+        return self.network_interfaces['storage'][0] + ':' + str(port)
 
     def get_install_dir(self):
         """
@@ -208,6 +273,10 @@ class Node(object):
             common.validate_install_dir(self.__install_dir)
             return self.__install_dir
 
+    def node_setup(self, version, verbose):
+        dir, v = setup(version, verbose=verbose)
+        return dir
+
     def set_install_dir(self, install_dir=None, version=None, verbose=False):
         """
         Sets the path to the cassandra source directory for use by this node.
@@ -217,27 +286,36 @@ class Node(object):
             if install_dir is not None:
                 common.validate_install_dir(install_dir)
         else:
-            dir, v = setup(version, verbose=verbose)
-            self.__install_dir = dir
+            self.__install_dir = self.node_setup(version, verbose=verbose)
+
+        self._cassandra_version = common.get_version_from_build(self.__install_dir, cassandra=True)
+
+        if self.get_base_cassandra_version() >= 4.0:
+            self.network_interfaces['thrift'] = None
+
         self.import_config_files()
         self.import_bin_files()
         self.__conf_updated = False
+
+        if self.get_cassandra_version() >= '4':
+            self.set_configuration_options(values={'start_rpc': None}, delete_empty=True, delete_always=True)
+            self.set_configuration_options(values={'rpc_port': None}, delete_empty=True, delete_always=True)
+        else:
+            self.set_configuration_options(common.CCM_40_YAML_OPTIONS, delete_empty=True, delete_always=True)
+
         return self
 
-    def set_workload(self, workload):
-        raise common.ArgumentError("Cannot set workload on cassandra node")
+    def set_workloads(self, workloads):
+        raise common.ArgumentError("Cannot set workloads on a cassandra node")
 
     def get_cassandra_version(self):
-        try:
-            return common.get_version_from_build(self.get_install_dir())
-        except common.CCMError:
-            return self.cluster.cassandra_version()
+        return self._cassandra_version
 
     def get_base_cassandra_version(self):
         version = self.get_cassandra_version()
-        return float(version[:version.index('.') + 2])
+        return float('.'.join(version.vstring.split('.')[:2]))
 
-    def set_configuration_options(self, values=None, batch_commitlog=None):
+    def set_configuration_options(self, values=None, delete_empty=False, delete_always=False):
         """
         Set Cassandra configuration options.
         ex:
@@ -245,26 +323,40 @@ class Node(object):
                 'hinted_handoff_enabled' : True,
                 'concurrent_writes' : 64,
             })
-        The batch_commitlog option gives an easier way to switch to batch
-        commitlog (since it requires setting 2 options and unsetting one).
         """
+        if (not hasattr(self,'__config_options') and not hasattr(self,'_Node__config_options')) or self.__config_options is None:
+            self.__config_options = {}
+
         if values is not None:
-            for k, v in iteritems(values):
-                self.__config_options[k] = v
-        if batch_commitlog is not None:
-            if batch_commitlog:
-                self.__config_options["commitlog_sync"] = "batch"
-                self.__config_options["commitlog_sync_batch_window_in_ms"] = 5
-                self.__config_options["commitlog_sync_period_in_ms"] = None
-            else:
-                self.__config_options["commitlog_sync"] = "periodic"
-                self.__config_options["commitlog_sync_period_in_ms"] = 10000
-                self.__config_options["commitlog_sync_batch_window_in_ms"] = None
+            self.__config_options = common.merge_configuration(self.__config_options, values, delete_empty=delete_empty, delete_always=delete_always)
 
         self.import_config_files()
 
-    def get_configuration_options(self):
-        return self.__config_options
+    def set_environment_variable(self, key, value):
+        self.__environment_variables[key] = value
+        self.import_config_files()
+
+    def set_batch_commitlog(self, enabled=False):
+        """
+        The batch_commitlog option gives an easier way to switch to batch
+        commitlog (since it requires setting 2 options and unsetting one).
+        """
+        if enabled:
+            values = {
+                "commitlog_sync": "batch",
+                "commitlog_sync_batch_window_in_ms": 5,
+                "commitlog_sync_period_in_ms": None
+            }
+        else:
+            values = {
+                "commitlog_sync": "periodic",
+                "commitlog_sync_batch_window_in_ms": None,
+                "commitlog_sync_period_in_ms": 10000
+            }
+        self.set_configuration_options(values)
+
+    def set_dse_configuration_options(self, values=None):
+        pass
 
     def show(self, only_status=False, show_cluster=True):
         """
@@ -272,20 +364,22 @@ class Node(object):
         """
         self.__update_status()
         indent = ''.join([" " for i in xrange(0, len(self.name) + 2)])
-        print_("%s: %s" % (self.name, self.__get_status_string()))
+        print_("{}: {}".format(self.name, self.__get_status_string()))
         if not only_status:
             if show_cluster:
-                print_("%s%s=%s" % (indent, 'cluster', self.cluster.name))
-            print_("%s%s=%s" % (indent, 'auto_bootstrap', self.auto_bootstrap))
-            print_("%s%s=%s" % (indent, 'thrift', self.network_interfaces['thrift']))
+                print_("{}{}={}".format(indent, 'cluster', self.cluster.name))
+            print_("{}{}={}".format(indent, 'auto_bootstrap', self.auto_bootstrap))
+            if self.network_interfaces['thrift'] is not None:
+                print_("{}{}={}".format(indent, 'thrift', self.network_interfaces['thrift']))
             if self.network_interfaces['binary'] is not None:
-                print_("%s%s=%s" % (indent, 'binary', self.network_interfaces['binary']))
-            print_("%s%s=%s" % (indent, 'storage', self.network_interfaces['storage']))
-            print_("%s%s=%s" % (indent, 'jmx_port', self.jmx_port))
-            print_("%s%s=%s" % (indent, 'remote_debug_port', self.remote_debug_port))
-            print_("%s%s=%s" % (indent, 'initial_token', self.initial_token))
+                print_("{}{}={}".format(indent, 'binary', self.network_interfaces['binary']))
+            print_("{}{}={}".format(indent, 'storage', self.network_interfaces['storage']))
+            print_("{}{}={}".format(indent, 'jmx_port', self.jmx_port))
+            print_("{}{}={}".format(indent, 'remote_debug_port', self.remote_debug_port))
+            print_("{}{}={}".format(indent, 'byteman_port', self.byteman_port))
+            print_("{}{}={}".format(indent, 'initial_token', self.initial_token))
             if self.pid:
-                print_("%s%s=%s" % (indent, 'pid', self.pid))
+                print_("{}{}={}".format(indent, 'pid', self.pid))
 
     def is_running(self):
         """
@@ -310,7 +404,19 @@ class Node(object):
     def debuglogfilename(self):
         return os.path.join(self.get_path(), 'logs', 'debug.log')
 
-    def grep_log(self, expr, filter_expr=None, filename='system.log'):
+    def gclogfilename(self):
+        return os.path.join(self.get_path(), 'logs', 'gc.log.0.current')
+
+    def compactionlogfilename(self):
+        return os.path.join(self.get_path(), 'logs', 'compaction.log')
+
+    def envfilename(self):
+        return os.path.join(
+            self.get_conf_dir(),
+            common.CASSANDRA_WIN_ENV if common.is_win() else common.CASSANDRA_ENV
+        )
+
+    def grep_log(self, expr, filename='system.log', from_mark=None, filter_expr=None):
         """
         Returns a list of lines matching the regular expression in parameter
         in the Cassandra log of this node
@@ -322,6 +428,8 @@ class Node(object):
         else:
             filter_pattern = None
         with open(os.path.join(self.get_path(), 'logs', filename)) as f:
+            if from_mark:
+                f.seek(from_mark)
             for line in f:
                 m = pattern.search(line)
                 if m and not (filter_pattern and re.search(filter_pattern, line)):
@@ -333,17 +441,12 @@ class Node(object):
         Returns a list of errors with stack traces
         in the Cassandra log of this node
         """
-        if search_str:
-            search_str = search_str if case_sensitive else search_str.lower()
+        return self.grep_log_for_errors_from(seek_start=getattr(self, 'error_mark', 0))
 
-        log_file = os.path.join(self.get_path(), 'logs', filename)
-        if not os.path.exists(log_file):
-            return []
-
-        with open(log_file) as f:
-            if hasattr(self, 'error_mark'):
-                f.seek(self.error_mark)
-            return _grep_log_for_errors(f.read(), distinct_errors=distinct_errors, search_str=search_str, case_sensitive=case_sensitive)
+    def grep_log_for_errors_from(self, filename='system.log', seek_start=0):
+        with open(os.path.join(self.get_path(), 'logs', filename)) as f:
+            f.seek(seek_start)
+            return _grep_log_for_errors(f.read())
 
     def mark_log_for_errors(self, filename='system.log'):
         """
@@ -366,14 +469,19 @@ class Node(object):
             return f.tell()
 
     def print_process_output(self, name, proc, verbose=False):
-        try:
-            stderr = proc.communicate()[1]
-        except ValueError:
-            [stdout, stderr] = ['', '']
-        if stderr is None:
-            stderr = ''
+        # If stderr_file exists on the process, we opted to
+        # store stderr in a separate temporary file, consume that.
+        if hasattr(proc, 'stderr_file') and proc.stderr_file is not None:
+            proc.stderr_file.seek(0)
+            stderr = proc.stderr_file.read()
+        else:
+            try:
+                stderr = proc.communicate()[1]
+            except ValueError:
+                stderr = ''
+
         if len(stderr) > 1:
-            print_("[%s ERROR] %s" % (name, stderr.strip()))
+            print_("[{} ERROR] {}".format(name, stderr.strip()))
 
     # This will return when exprs are found or it timeouts
     def watch_log_for(self, exprs, from_mark=None, timeout=600, process=None, verbose=False, filename='system.log'):
@@ -383,7 +491,7 @@ class Node(object):
         timeouts (a TimeoutError is then raised). On successful completion,
         a list of pair (line matched, match object) is returned.
         """
-        elapsed = 0
+        start = time.time()
         tofind = [exprs] if isinstance(exprs, string_types) else exprs
         tofind = [re.compile(e) for e in tofind]
         matchings = []
@@ -392,12 +500,16 @@ class Node(object):
             return None
 
         log_file = os.path.join(self.get_path(), 'logs', filename)
+        output_read = False
         while not os.path.exists(log_file):
-            time.sleep(.1)
-            if process:
+            time.sleep(.5)
+            if start + timeout < time.time():
+                raise TimeoutError(time.strftime("%d %b %Y %H:%M:%S", time.gmtime()) + " [" + self.name + "] Timed out waiting for {} to be created.".format(log_file))
+            if process and not output_read:
                 process.poll()
                 if process.returncode is not None:
                     self.print_process_output(self.name, process, verbose)
+                    output_read = True
                     if process.returncode != 0:
                         raise RuntimeError()  # Shouldn't reuse RuntimeError but I'm lazy
 
@@ -408,11 +520,12 @@ class Node(object):
             while True:
                 # First, if we have a process to check, then check it.
                 # Skip on Windows - stdout/stderr is cassandra.bat
-                if not common.is_win():
+                if not common.is_win() and not output_read:
                     if process:
                         process.poll()
                         if process.returncode is not None:
                             self.print_process_output(self.name, process, verbose)
+                            output_read = True
                             if process.returncode != 0:
                                 raise RuntimeError()  # Shouldn't reuse RuntimeError but I'm lazy
 
@@ -428,11 +541,9 @@ class Node(object):
                                 return matchings[0] if isinstance(exprs, string_types) else matchings
                 else:
                     # yep, it's ugly
-                    time.sleep(0.01)
-                    elapsed = elapsed + 1
-                    if elapsed > 100 * timeout:
-                        raise TimeoutError(time.strftime("%d %b %Y %H:%M:%S", time.gmtime()) + " [" + self.name + "] Missing: " + str(
-                            [e.pattern for e in tofind]) + ":\n" + reads[:50] + ".....\nSee {} for remainder".format(filename))
+                    time.sleep(1)
+                    if start + timeout < time.time():
+                        raise TimeoutError(time.strftime("%d %b %Y %H:%M:%S", time.gmtime()) + " [" + self.name + "] Missing: " + str([e.pattern for e in tofind]) + ":\n" + reads[:50] + ".....\nSee {} for remainder".format(filename))
 
                 if process:
                     if common.is_win():
@@ -457,7 +568,7 @@ class Node(object):
         the log is watched from the beginning.
         """
         tofind = nodes if isinstance(nodes, list) else [nodes]
-        tofind = ["%s is now [dead|DOWN]" % node.address() for node in tofind]
+        tofind = ["%s is now [dead|DOWN]" % node.address_for_version(self.get_cassandra_version()) for node in tofind]
         self.watch_log_for(tofind, from_mark=from_mark, timeout=timeout, filename=filename)
 
     def watch_log_for_alive(self, nodes, from_mark=None, timeout=120, filename='system.log'):
@@ -466,7 +577,7 @@ class Node(object):
         nodes are marked UP. This method works similarly to watch_log_for_death.
         """
         tofind = nodes if isinstance(nodes, list) else [nodes]
-        tofind = ["%s.* now UP" % node.address() for node in tofind]
+        tofind = ["%s.* now UP" % node.address_for_version(self.get_cassandra_version()) for node in tofind]
         self.watch_log_for(tofind, from_mark=from_mark, timeout=timeout, filename=filename)
 
     def wait_for_binary_interface(self, **kwargs):
@@ -475,65 +586,92 @@ class Node(object):
         log for 'Starting listening for CQL clients' before checking for the
         interface to be listening.
 
-        Emits a warning if not listening after 10 seconds.
+        Emits a warning if not listening after 30 seconds.
         """
         if self.cluster.version() >= '1.2':
             self.watch_log_for("Starting listening for CQL clients", **kwargs)
 
         binary_itf = self.network_interfaces['binary']
-        if not common.check_socket_listening(binary_itf, timeout=10):
-            warnings.warn("Binary interface %s:%s is not listening after 10 seconds, node may have failed to start."
+        if not common.check_socket_listening(binary_itf, timeout=30):
+            warnings.warn("Binary interface %s:%s is not listening after 30 seconds, node may have failed to start."
                           % (binary_itf[0], binary_itf[1]))
+
+    def wait_for_thrift_interface(self, **kwargs):
+        """
+        Waits for the Thrift interface to be listening.
+
+        Emits a warning if not listening after 30 seconds.
+        """
+        if self.cluster.version() >= '4':
+            return;
+
+        self.watch_log_for("Listening for thrift clients...", **kwargs)
+
+        thrift_itf = self.network_interfaces['thrift']
+        if not common.check_socket_listening(thrift_itf, timeout=30):
+            warnings.warn("Thrift interface {}:{} is not listening after 30 seconds, node may have failed to start.".format(thrift_itf[0], thrift_itf[1]))
+
+    def get_launch_bin(self):
+        cdir = self.get_install_dir()
+        launch_bin = common.join_bin(cdir, 'bin', 'cassandra')
+        # Copy back the cassandra scripts since profiling may have modified it the previous time
+        shutil.copy(launch_bin, self.get_bin_dir())
+        return common.join_bin(self.get_path(), 'bin', 'cassandra')
+
+    def add_custom_launch_arguments(self, args):
+        pass
 
     def start(self,
               join_ring=True,
               no_wait=False,
               verbose=False,
               update_pid=True,
-              wait_other_notice=False,
+              wait_other_notice=True,
               replace_token=None,
               replace_address=None,
               jvm_args=None,
               wait_for_binary_proto=False,
               profile_options=None,
               use_jna=False,
-              quiet_start=False):
+              quiet_start=False,
+              allow_root=False,
+              set_migration_task=True):
         """
         Start the node. Options includes:
           - join_ring: if false, start the node with -Dcassandra.join_ring=False
           - no_wait: by default, this method returns when the node is started and listening to clients.
             If no_wait=True, the method returns sooner.
-          - wait_other_notice: if True, this method returns only when all other live node of the cluster
-            have marked this node UP.
+          - wait_other_notice: if truthy, this method returns only when all other live node of the cluster
+            have marked this node UP. if an integer, sets the timeout for how long to wait
           - replace_token: start the node with the -Dcassandra.replace_token option.
           - replace_address: start the node with the -Dcassandra.replace_address option.
         """
         if jvm_args is None:
             jvm_args = []
+
+        if set_migration_task and self.cluster.cassandra_version() >= '3.0.1':
+            jvm_args += ['-Dcassandra.migration_task_wait_in_seconds={}'.format(len(self.cluster.nodes) * 2)]
+
         # Validate Windows env
-        if common.is_win() and not common.is_ps_unrestricted() and self.cluster.version() >= '2.1':
+        if common.is_modern_windows_install(self.cluster.version()) and not common.is_ps_unrestricted():
             raise NodeError("PS Execution Policy must be unrestricted when running C* 2.1+")
 
         if not common.is_win() and quiet_start:
-            print_("WARN: Tried to set Windows quiet start behavior, but we're not running on Windows.")
+            common.warning("Tried to set Windows quiet start behavior, but we're not running on Windows.")
 
         if self.is_running():
-            raise NodeError("%s is already running" % self.name)
+            raise NodeError("{} is already running".format(self.name))
 
         for itf in list(self.network_interfaces.values()):
             if itf is not None and replace_address is None:
-                common.check_socket_available(itf)
+                common.assert_socket_available(itf)
 
         if wait_other_notice:
             marks = [(node, node.mark_log()) for node in list(self.cluster.nodes.values()) if node.is_live()]
 
         self.mark = self.mark_log()
 
-        cdir = self.get_install_dir()
-        launch_bin = common.join_bin(cdir, 'bin', 'cassandra')
-        # Copy back the cassandra scripts since profiling may have modified it the previous time
-        shutil.copy(launch_bin, self.get_bin_dir())
-        launch_bin = common.join_bin(self.get_path(), 'bin', 'cassandra')
+        launch_bin = self.get_launch_bin()
 
         # If Windows, change entries in .bat file to split conf from binaries
         if common.is_win():
@@ -543,7 +681,7 @@ class Node(object):
             config = common.get_config()
             if 'yourkit_agent' not in config:
                 raise NodeError("Cannot enable profile. You need to set 'yourkit_agent' to the path of your agent in a ~/.ccm/config")
-            cmd = '-agentpath:%s' % config['yourkit_agent']
+            cmd = '-agentpath:{}'.format(config['yourkit_agent'])
             if 'options' in profile_options:
                 cmd = cmd + '=' + profile_options['options']
             print_(cmd)
@@ -555,11 +693,18 @@ class Node(object):
 
         env = self.get_env()
 
+        extension.append_to_server_env(self, env)
+
         if common.is_win():
             self._clean_win_jmx()
 
         pidfile = os.path.join(self.get_path(), 'cassandra.pid')
-        args = [launch_bin, '-p', pidfile, '-Dcassandra.join_ring=%s' % str(join_ring)]
+        args = [launch_bin]
+
+        self.add_custom_launch_arguments(args)
+
+        args = args + ['-p', pidfile, '-Dcassandra.join_ring=%s' % str(join_ring)]
+
         args.append('-Dcassandra.logdir=%s' % os.path.join(self.get_path(), 'logs'))
         if replace_token is not None:
             args.append('-Dcassandra.replace_token=%s' % str(replace_token))
@@ -567,6 +712,8 @@ class Node(object):
             args.append('-Dcassandra.replace_address=%s' % str(replace_address))
         if use_jna is False:
             args.append('-Dcassandra.boot_without_jna=true')
+        if allow_root:
+            args.append('-R')
         env['JVM_EXTRA_OPTS'] = env.get('JVM_EXTRA_OPTS', "") + " " + " ".join(jvm_args)
 
         # In case we are restarting a node
@@ -576,6 +723,9 @@ class Node(object):
         process = None
         FNULL = open(os.devnull, 'w')
         stdout_sink = subprocess.PIPE if verbose else FNULL
+        # write stderr to a temporary file to prevent overwhelming pipe (> 65K data).
+        stderr = tempfile.SpooledTemporaryFile(max_size=0xFFFF)
+
         if common.is_win():
             # clean up any old dirty_pid files from prior runs
             if (os.path.isfile(self.get_path() + "/dirty_pid.tmp")):
@@ -584,12 +734,14 @@ class Node(object):
             if quiet_start and self.cluster.version() >= '2.2.4':
                 args.append('-q')
 
-            process = subprocess.Popen(args, cwd=self.get_bin_dir(), env=env, stdout=stdout_sink, stderr=subprocess.PIPE)
+            process = subprocess.Popen(args, cwd=self.get_bin_dir(), env=env, stdout=stdout_sink, stderr=stderr)
         else:
-            process = subprocess.Popen(args, env=env, stdout=stdout_sink, stderr=subprocess.PIPE)
+            process = subprocess.Popen(args, env=env, stdout=stdout_sink, stderr=stderr)
+
+        process.stderr_file = stderr
+
         # Our modified batch file writes a dirty output with more than just the pid - clean it to get in parity
         # with *nix operation here.
-
         if verbose:
             stdout, stderr = process.communicate()
             print_(stdout)
@@ -605,16 +757,25 @@ class Node(object):
             if not self.is_running():
                 raise NodeError("Error starting node %s" % self.name, process)
 
-        if wait_other_notice:
+        # If wait_other_notice is a bool, we don't want to treat it as a
+        # timeout. Other intlike types, though, we want to use.
+        if common.is_intlike(wait_other_notice) and not isinstance(wait_other_notice, bool):
+            for node, mark in marks:
+                node.watch_log_for_alive(self, from_mark=mark, timeout=wait_other_notice)
+        elif wait_other_notice:
             for node, mark in marks:
                 node.watch_log_for_alive(self, from_mark=mark)
 
-        if wait_for_binary_proto:
+        # If wait_for_binary_proto is a bool, we don't want to treat it as a
+        # timeout. Other intlike types, though, we want to use.
+        if common.is_intlike(wait_for_binary_proto) and not isinstance(wait_for_binary_proto, bool):
+            self.wait_for_binary_interface(from_mark=self.mark, timeout=wait_for_binary_proto)
+        elif wait_for_binary_proto:
             self.wait_for_binary_interface(from_mark=self.mark)
 
         return process
 
-    def stop(self, wait=True, wait_other_notice=False, other_nodes=None, gently=True, wait_seconds=127):
+    def stop(self, wait=True, wait_other_notice=False, signal_event=signal.SIGTERM, **kwargs):
         """
         Stop the node.
           - wait: if True (the default), wait for the Cassandra process to be
@@ -624,12 +785,15 @@ class Node(object):
             exception stating it couldn't stop the node.
           - wait_other_notice: return only when the other live nodes of the
             cluster have marked this node has dead.
-          - gently: Let Cassandra clean up and shut down properly. Otherwise do
-            a 'kill -9' which shuts down faster.
+          - signal_event: Signal event to send to Cassandra; default is to
+            let Cassandra clean up and shut down properly (SIGTERM [15])
+          - Optional:
+             + gently: Let Cassandra clean up and shut down properly; unless
+                       false perform a 'kill -9' which shuts down faster.
         """
         if self.is_running():
             if wait_other_notice:
-                if not other_nodes:
+                if not kwargs.get('other_nodes', None):
                     other_nodes = list(self.cluster.nodes.values())
                 marks = [(node, node.mark_log()) for node in other_nodes if node.is_live() and node is not self]
 
@@ -643,21 +807,22 @@ class Node(object):
                 # We want the node to flush its data before shutdown as some tests rely on small writes being present.
                 # The default Periodic sync at 10 ms may not have flushed data yet, causing tests to fail.
                 # This is not a hard requirement, however, so we swallow any exceptions this may throw and kill anyway.
-                if gently is True:
+                if signal_event is signal.SIGTERM:
                     try:
                         self.flush()
                     except:
-                        print_("WARN: Failed to flush node: {0} on shutdown.".format(self.name))
+                        common.warning("Failed to flush node: {0} on shutdown.".format(self.name))
                         pass
 
                 os.system("taskkill /F /PID " + str(self.pid))
                 if self._find_pid_on_windows():
-                    print_("WARN: Failed to terminate node: {0} with pid: {1}".format(self.name, self.pid))
+                    common.warning("Failed to terminate node: {0} with pid: {1}".format(self.name, self.pid))
             else:
-                if gently:
-                    os.kill(self.pid, signal.SIGTERM)
-                else:
-                    os.kill(self.pid, signal.SIGKILL)
+                # Determine if the signal event should be updated to keep API compatibility
+                if 'gently' in kwargs and kwargs['gently'] is False:
+                    signal_event = signal.SIGKILL
+
+                os.kill(self.pid, signal_event)
 
             if wait_other_notice:
                 for node, mark in marks:
@@ -667,6 +832,7 @@ class Node(object):
 
             still_running = self.is_running()
             if still_running and wait:
+                wait_seconds = kwargs.get('wait_seconds', 127)
                 # The sum of 7 sleeps starting at 1 and doubling each time
                 # is 2**7-1 (=127). So to sleep an arbitrary wait_seconds
                 # we need the first sleep to be wait_seconds/(2**7-1).
@@ -684,146 +850,117 @@ class Node(object):
         else:
             return False
 
-    def wait_for_compactions(self):
+    def wait_for_compactions(self, timeout=120):
         """
         Wait for all compactions to finish on this node.
         """
         pattern = re.compile("pending tasks: 0")
-        while True:
-            output, err = self.nodetool("compactionstats", capture_output=True)
+        start = time.time()
+        while time.time() - start < timeout:
+            output, err, rc = self.nodetool("compactionstats")
             if pattern.search(output):
-                break
-            time.sleep(10)
+                return
+            time.sleep(1)
+        raise TimeoutError("{} [{}] Compactions did not finish in {} seconds".format(time.strftime("%d %b %Y %H:%M:%S", time.gmtime()), self.name, timeout))
 
-    def nodetool(self, cmd, capture_output=True, wait=True):
-        """
-        Setting wait=False makes it impossible to detect errors,
-        if capture_output is also False. wait=False allows us to return
-        while nodetool is still running.
-        """
-        if capture_output and not wait:
-            raise common.ArgumentError("Cannot set capture_output while wait is False.")
+    def nodetool_process(self, cmd):
         env = self.get_env()
         nodetool = self.get_tool('nodetool')
         args = [nodetool, '-h', 'localhost', '-p', str(self.jmx_port)]
-        args += cmd.split()
-        if capture_output:
-            p = subprocess.Popen(args, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            stdout, stderr = p.communicate()
-        else:
-            p = subprocess.Popen(args, env=env)
-            stdout, stderr = None, None
+        args += shlex.split(cmd)
 
-        if wait:
-            exit_status = p.wait()
-            if exit_status != 0:
-                raise NodetoolError(" ".join(args), exit_status, stdout, stderr)
+        return subprocess.Popen(args, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
 
-        return stdout, stderr
+    def nodetool(self, cmd):
+        p = self.nodetool_process(cmd)
+        return handle_external_tool_process(p, ['nodetool', '-h', 'localhost', '-p', str(self.jmx_port)] + shlex.split(cmd))
 
     def dsetool(self, cmd):
         raise common.ArgumentError('Cassandra nodes do not support dsetool')
 
-    def dse(self, dse_options=[]):
+    def dse(self, dse_options=None):
         raise common.ArgumentError('Cassandra nodes do not support dse')
 
-    def hadoop(self, hadoop_options=[]):
+    def hadoop(self, hadoop_options=None):
         raise common.ArgumentError('Cassandra nodes do not support hadoop')
 
-    def hive(self, hive_options=[]):
+    def hive(self, hive_options=None):
         raise common.ArgumentError('Cassandra nodes do not support hive')
 
-    def pig(self, pig_options=[]):
+    def pig(self, pig_options=None):
         raise common.ArgumentError('Cassandra nodes do not support pig')
 
-    def sqoop(self, sqoop_options=[]):
+    def sqoop(self, sqoop_options=None):
         raise common.ArgumentError('Cassandra nodes do not support sqoop')
 
-    def bulkload(self, options):
+    def bulkload_process(self, options):
         loader_bin = common.join_bin(self.get_path(), 'bin', 'sstableloader')
         env = self.get_env()
-        host, port = self.network_interfaces['thrift']
+        extension.append_to_client_env(self, env)
+        # CASSANDRA-8358 switched from thrift to binary port
+        host, port = self.network_interfaces['thrift'] if self.get_cassandra_version() < '2.2' else self.network_interfaces['binary']
         args = ['-d', host, '-p', str(port)]
-        os.execve(loader_bin, [common.platform_binary('sstableloader')] + args + options, env)
+        return subprocess.Popen([loader_bin] + args + options, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE)
 
-    def scrub(self, options):
+    def bulkload(self, options):
+        p = self.bulkload_process(options=options)
+        return handle_external_tool_process(p, ['sstable bulkload'] + options)
+
+    def scrub_process(self, options):
         scrub_bin = self.get_tool('sstablescrub')
         env = self.get_env()
-        os.execve(scrub_bin, [common.platform_binary('sstablescrub')] + options, env)
+        return subprocess.Popen([scrub_bin] + options, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE)
 
-    def verify(self, options):
+    def scrub(self, options):
+        p = self.scrub_process(options=options)
+        return handle_external_tool_process(p, ['sstablescrub'] + options)
+
+    def verify_process(self, options):
         verify_bin = self.get_tool('sstableverify')
         env = self.get_env()
-        os.execve(verify_bin, [common.platform_binary('sstableverify')] + options, env)
+        return subprocess.Popen([verify_bin] + options, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE)
 
-    def run_cli(self, cmds=None, show_output=False, cli_options=[]):
-        cli = self.get_tool('cassandra-cli')
-        env = self.get_env()
-        host = self.network_interfaces['thrift'][0]
-        port = self.network_interfaces['thrift'][1]
-        args = ['-h', host, '-p', str(port), '--jmxport', str(self.jmx_port)] + cli_options
-        sys.stdout.flush()
-        if cmds is None:
-            os.execve(cli, [common.platform_binary('cassandra-cli')] + args, env)
-        else:
-            p = subprocess.Popen([cli] + args, env=env, stdin=subprocess.PIPE, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
-            for cmd in cmds.split(';'):
-                p.stdin.write(cmd + ';\n')
-            p.stdin.write("quit;\n")
-            p.wait()
-            for err in p.stderr:
-                print_("(EE) ", err, end='')
-            if show_output:
-                i = 0
-                for log in p.stdout:
-                    # first four lines are not interesting
-                    if i >= 4:
-                        print_(log, end='')
-                    i = i + 1
+    def verify(self, options):
+        p = self.verify_process(options=options)
+        return handle_external_tool_process(p, ['sstableverify'] + options)
 
-    def run_cqlsh(self, cmds=None, show_output=False, cqlsh_options=[], return_output=False):
+    def run_cqlsh_process(self, cmds=None, cqlsh_options=None):
+        if cqlsh_options is None:
+            cqlsh_options = []
         cqlsh = self.get_tool('cqlsh')
         env = self.get_env()
-        host = self.network_interfaces['thrift'][0]
+        extension.append_to_client_env(self, env)
         if self.get_base_cassandra_version() >= 2.1:
-            port = self.network_interfaces['binary'][1]
+            host, port = self.network_interfaces['binary']
         else:
-            port = self.network_interfaces['thrift'][1]
-        args = cqlsh_options + [host, str(port)]
+            host, port = self.network_interfaces['thrift']
+        args = []
+        args += cqlsh_options
+        extension.append_to_cqlsh_args(self, env, args)
+        args += [host, str(port)]
         sys.stdout.flush()
+
         if cmds is None:
             if common.is_win():
                 subprocess.Popen([cqlsh] + args, env=env, creationflags=subprocess.CREATE_NEW_CONSOLE)
             else:
                 os.execve(cqlsh, [common.platform_binary('cqlsh')] + args, env)
         else:
-            p = subprocess.Popen([cqlsh] + args, env=env, stdin=subprocess.PIPE, stderr=subprocess.PIPE, stdout=subprocess.PIPE, universal_newlines=True)
+            p = subprocess.Popen([cqlsh] + args, env=env, stdin=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 stdout=subprocess.PIPE, universal_newlines=True)
+
+        if cmds is not None:
             for cmd in cmds.split(';'):
                 cmd = cmd.strip()
                 if cmd:
                     p.stdin.write(cmd + ';\n')
             p.stdin.write("quit;\n")
-            p.wait()
 
-            output = (p.stdout.read(), p.stderr.read())
+        return p
 
-            for err in output[1].split('\n'):
-                print_("(EE) ", err, end='')
-
-            if show_output:
-                print_(output[0], end='')
-
-            if return_output:
-                return output
-
-    def cli(self):
-        cdir = self.get_install_dir()
-        cli = common.join_bin(cdir, 'bin', 'cassandra-cli')
-        env = self.get_env()
-        host = self.network_interfaces['thrift'][0]
-        port = self.network_interfaces['thrift'][1]
-        args = ['-h', host, '-p', str(port), '--jmxport', str(self.jmx_port)]
-        return CliSession(subprocess.Popen([cli] + args, env=env, stdin=subprocess.PIPE, stderr=subprocess.PIPE, stdout=subprocess.PIPE))
+    def run_cqlsh(self, cmds=None, cqlsh_options=None):
+        p = self.run_cqlsh_process(cmds, cqlsh_options)
+        return handle_external_tool_process(p, ['cqlsh', cmds, cqlsh_options])
 
     def set_log_level(self, new_level, class_name=None):
         known_level = ['TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'OFF']
@@ -859,24 +996,33 @@ class Node(object):
                                           'logback.xml')
         common.copy_file(new_logback_config, cassandra_conf_dir)
 
-    def clear(self, clear_all=False, only_data=False, saved_caches=False):
-        data_dirs = ['data']
-        if not only_data:
-            data_dirs.append("commitlogs")
-            if clear_all:
-                data_dirs.append('logs')
-                if saved_caches:
-                    data_dirs.append('saved_caches')
+    def update_startup_byteman_script(self, byteman_startup_script):
+        """
+        Update the byteman startup script, i.e., rule injected before the node starts.
+
+        :param byteman_startup_script: the relative path to the script
+        :raise common.LoadError: if the node does not have byteman installed
+        """
+        if self.byteman_port == '0':
+            raise common.LoadError('Byteman is not installed')
+        self.byteman_startup_script = byteman_startup_script
+        self.import_config_files()
+
+    def clear(self, clear_all=False, only_data=False):
+        data_dirs = ['data{0}'.format(x) for x in xrange(0, self.cluster.data_dir_count)]
+        data_dirs.append("commitlogs")
+        if clear_all:
+            data_dirs.extend(['saved_caches', 'logs'])
         for d in data_dirs:
             full_dir = os.path.join(self.get_path(), d)
-            if only_data:
+            if only_data and d != "commitlogs":
                 for dir in os.listdir(full_dir):
                     keyspace_dir = os.path.join(full_dir, dir)
                     if os.path.isdir(keyspace_dir) and dir != "system":
                         for f in os.listdir(keyspace_dir):
-                            full_path = os.path.join(keyspace_dir, f)
-                            if os.path.isfile(full_path):
-                                os.remove(full_path)
+                            table_dir = os.path.join(keyspace_dir, f)
+                            shutil.rmtree(table_dir)
+                            os.mkdir(table_dir)
             else:
                 common.rmdirs(full_dir)
                 os.mkdir(full_dir)
@@ -887,8 +1033,7 @@ class Node(object):
             if not os.path.exists(dir):
                 os.mkdir(dir)
 
-    def run_sstable2json(self, out_file=None, keyspace=None, datafiles=None, column_families=None, enumerate_keys=False):
-        print_("running")
+    def run_sstable2json(self, out_file=None, keyspace=None, datafiles=None, column_families=None, keys=None, enumerate_keys=False):
         if out_file is None:
             out_file = sys.stdout
         sstable2json = self._find_cmd('sstabledump')
@@ -900,6 +1045,9 @@ class Node(object):
             args = [sstable2json, sstablefile]
             if enumerate_keys:
                 args = args + ["-e"]
+            if keys is not None:
+                for key in keys:
+                    args = args + ["-k", key]
             subprocess.call(args, env=env, stdout=out_file)
             print_("")
 
@@ -913,13 +1061,13 @@ class Node(object):
             args = [json2sstable, "-s", "-K", ks, "-c", cf, in_file_name, sstablefile]
             subprocess.call(args, env=env)
 
-    def run_sstablesplit(self, datafiles=None, size=None, keyspace=None, column_families=None,
-                         no_snapshot=False, debug=False):
+    def run_sstablesplit_process(self, datafiles=None, size=None, keyspace=None, column_families=None,
+                                 no_snapshot=False, debug=False):
         sstablesplit = self._find_cmd('sstablesplit')
         env = self.get_env()
         sstablefiles = self.__gather_sstables(datafiles, keyspace, column_families)
 
-        results = []
+        processes = []
 
         def do_split(f):
             print_("-- {0}-----".format(os.path.basename(f)))
@@ -933,83 +1081,147 @@ class Node(object):
             cmd.append(f)
             p = subprocess.Popen(cmd, cwd=os.path.join(self.get_install_dir(), 'resources', 'cassandra', 'bin'),
                                  env=env, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
-            (out, err) = p.communicate()
-            rc = p.returncode
-            results.append((out, err, rc))
+            processes.append(p)
 
         for sstablefile in sstablefiles:
             do_split(sstablefile)
 
+        return processes
+
+    def run_sstablesplit(self, datafiles=None, size=None, keyspace=None, column_families=None,
+                         no_snapshot=False, debug=False):
+        processes = self.run_sstablesplit_process(datafiles, size, keyspace, column_families, no_snapshot, debug)
+        results = []
+
+        for p in processes:
+            results.append(handle_external_tool_process(p, "sstablesplit"))
+
         return results
 
-    def run_sstablemetadata(self, output_file=None, datafiles=None, keyspace=None, column_families=None):
+    def run_sstablemetadata_process(self, datafiles=None, keyspace=None, column_families=None):
         cdir = self.get_install_dir()
         sstablemetadata = self._find_cmd('sstablemetadata')
         env = self.get_env()
         sstablefiles = self.__gather_sstables(datafiles=datafiles, keyspace=keyspace, columnfamilies=column_families)
-        results = []
+
+        cmd = [sstablemetadata]
+        cmd.extend(sstablefiles)
+
+        return subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=env)
+
+    def run_sstablemetadata(self, datafiles=None, keyspace=None, column_families=None):
+        p = self.run_sstablemetadata_process(datafiles, keyspace, column_families)
+        return handle_external_tool_process(p, "sstablemetadata on keyspace: {}, column_family: {}".format(keyspace, column_families))
+
+    def run_sstabledump_process(self, datafiles=None, keyspace=None, column_families=None, keys=None, enumerate_keys=False, command=False):
+        sstabledump = self._find_cmd('sstabledump')
+
+        env = self.get_env()
+        sstablefiles = self.__gather_sstables(datafiles=datafiles, keyspace=keyspace, columnfamilies=column_families)
+        processes = []
+
+        def do_dump(sstable):
+            if command:
+                print_("-- {0} -----".format(os.path.basename(sstable)))
+            cmd = [sstabledump, sstable]
+            if enumerate_keys:
+                cmd.append('-e')
+            if keys is not None:
+                for key in keys:
+                    cmd = cmd + ["-k", key]
+            p = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=env)
+            if command:
+                out, err, rc = handle_external_tool_process(p, "sstabledump")
+                print_(out)
+                print_('\n')
+            else:
+                processes.append(p)
 
         for sstable in sstablefiles:
-            cmd = [sstablemetadata, sstable]
-            if output_file is None:
-                p = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=env)
-                (out, err) = p.communicate()
-                rc = p.returncode
-                results.append((out, err, rc))
-            else:
-                subprocess.call(cmd, env=env, stdout=output_file)
-        if output_file is None:
-            return results
+            do_dump(sstable)
 
-    def run_sstableexpiredblockers(self, output_file=None, keyspace=None, column_family=None):
+        return processes
+
+    def run_sstabledump(self, datafiles=None, keyspace=None, column_families=None, keys=None, enumerate_keys=False, command=False):
+        processes = self.run_sstabledump_process(datafiles, keyspace, column_families, keys, enumerate_keys, command)
+        results = []
+
+        for p in processes:
+            results.append(handle_external_tool_process(p, "sstabledump"))
+
+        return results
+
+    def run_sstableexpiredblockers_process(self, keyspace=None, column_family=None):
         cdir = self.get_install_dir()
         sstableexpiredblockers = self._find_cmd('sstableexpiredblockers')
         env = self.get_env()
         cmd = [sstableexpiredblockers, keyspace, column_family]
-        results = []
-        if output_file is None:
-            p = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=env)
-            (out, err) = p.communicate()
-            rc = p.returncode
-            results.append((out, err, rc))
-        else:
-            subprocess.call(cmd, env=env, stdout=output_file)
-        if output_file is None:
-            return results
+        return subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=env)
 
-    def get_sstablespath(self, output_file=None, datafiles=None, keyspace=None, tables=None):
+    def run_sstableexpiredblockers(self, keyspace=None, column_family=None):
+        p = self.run_sstableexpiredblockers_process(keyspace=keyspace, column_family=column_family)
+        if p is not None:
+            return handle_external_tool_process(p, ['sstableexpiredblockers', keyspace, column_family])
+        else:
+            return None, None, None
+
+    def run_sstableupgrade_process(self, keyspace=None, column_family=None):
+        cdir = self.get_install_dir()
+        sstableupgrade = self.get_tool('sstableupgrade')
+        env = self.get_env()
+        cmd = [sstableupgrade, keyspace, column_family]
+        p = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=env)
+        return p
+
+    def run_sstableupgrade(self, keyspace=None, column_family=None):
+        p = self.run_sstableupgrade_process(keyspace, column_family)
+        if p is not None:
+            return handle_external_tool_process(p, "sstableupgrade on {} : {}".format(keyspace, column_family))
+        else:
+            return None, None, None
+
+    def get_sstablespath(self, datafiles=None, keyspace=None, tables=None, **kawrgs):
         sstablefiles = self.__gather_sstables(datafiles=datafiles, keyspace=keyspace, columnfamilies=tables)
         return sstablefiles
 
-    def run_sstablerepairedset(self, set_repaired=True, datafiles=None, keyspace=None, column_families=None):
+    def run_sstablerepairedset_process(self, set_repaired=True, datafiles=None, keyspace=None, column_families=None):
         cdir = self.get_install_dir()
         sstablerepairedset = self._find_cmd('sstablerepairedset')
         env = self.get_env()
         sstablefiles = self.__gather_sstables(datafiles, keyspace, column_families)
+        processes = []
 
         for sstable in sstablefiles:
             if set_repaired:
                 cmd = [sstablerepairedset, "--really-set", "--is-repaired", sstable]
             else:
                 cmd = [sstablerepairedset, "--really-set", "--is-unrepaired", sstable]
-            subprocess.call(cmd, env=env)
+            p = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            processes.append(p)
 
-    def run_sstablelevelreset(self, keyspace, cf, output=False):
+        return processes
+
+    def run_sstablerepairedset(self, set_repaired=True, datafiles=None, keyspace=None, column_families=None):
+        processes = self.run_sstablerepairedset_process(set_repaired=set_repaired, datafiles=datafiles, keyspace=keyspace, column_families=column_families)
+        results = []
+        for p in processes:
+            results.append(handle_external_tool_process(p, "sstablerepairedset on {} : {}".format(keyspace, column_families)))
+        return results
+
+    def run_sstablelevelreset_process(self, keyspace, cf):
         cdir = self.get_install_dir()
         sstablelevelreset = self._find_cmd('sstablelevelreset')
         env = self.get_env()
 
         cmd = [sstablelevelreset, "--really-reset", keyspace, cf]
 
-        if output:
-            p = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=env)
-            (stdout, stderr) = p.communicate()
-            rc = p.returncode
-            return (stdout, stderr, rc)
-        else:
-            return subprocess.call(cmd, env=env)
+        return subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=env)
 
-    def run_sstableofflinerelevel(self, keyspace, cf, dry_run=False, output=False):
+    def run_sstablelevelreset(self, keyspace, cf):
+        p = self.run_sstablelevelreset_process(keyspace, cf)
+        return handle_external_tool_process(p, "sstablelevelreset on {} : {}".format(keyspace, cf))
+
+    def run_sstableofflinerelevel_process(self, keyspace, cf, dry_run=False):
         cdir = self.get_install_dir()
         sstableofflinerelevel = self._find_cmd('sstableofflinerelevel')
         env = self.get_env()
@@ -1019,29 +1231,26 @@ class Node(object):
         else:
             cmd = [sstableofflinerelevel, keyspace, cf]
 
-        if output:
-            p = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=env)
-            (stdout, stderr) = p.communicate()
-            rc = p.returncode
-            return (stdout, stderr, rc)
-        else:
-            return subprocess.call(cmd, env=env)
+        return subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=env)
 
-    def run_sstableverify(self, keyspace, cf, options=None, output=False):
-        sstableverify = self.get_tool('sstableverify')
+    def run_sstableofflinerelevel(self, keyspace, cf, dry_run=False):
+        p = self.run_sstableofflinerelevel_process(keyspace, cf, dry_run=dry_run)
+        return handle_external_tool_process(p, "sstableoflinerelevel on {} : {}".format(keyspace, cf))
+
+    def run_sstableverify_process(self, keyspace, cf, options=None):
+        cdir = self.get_install_dir()
+        sstableverify = common.join_bin(cdir, 'bin', 'sstableverify')
         env = self.get_env()
 
         cmd = [sstableverify, keyspace, cf]
         if options is not None:
             cmd[1:1] = options
 
-        if output:
-            p = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=env)
-            (stdout, stderr) = p.communicate()
-            rc = p.returncode
-            return (stdout, stderr, rc)
-        else:
-            return subprocess.call(cmd, env=env)
+        return subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=env)
+
+    def run_sstableverify(self, keyspace, cf, options=None):
+        p = self.run_sstableverify_process(keyspace, cf, options=options)
+        return handle_external_tool_process(p, "sstableverify on {} : {} with options: {}".format(keyspace, cf, options))
 
     def _find_cmd(self, cmd):
         """
@@ -1053,20 +1262,27 @@ class Node(object):
         else:
             fcmd = common.join_bin(cdir, 'bin', cmd)
         try:
-            os.chmod(fcmd, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+            if os.path.exists(fcmd):
+                os.chmod(fcmd, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
         except:
-            print_("WARN: Couldn't change permissions to use {0}.".format(cmd))
-            print_("WARN: If it didn't work, you will have to do so manually.")
+            common.warning("Couldn't change permissions to use {0}.".format(cmd))
+            common.warning("If it didn't work, you will have to do so manually.")
         return fcmd
 
+    def has_cmd(self, cmd):
+        """
+        Indicates if specified command can be found under cassandra root
+        """
+        return os.path.exists(self._find_cmd(cmd))
+
     def list_keyspaces(self):
-        keyspaces = os.listdir(os.path.join(self.get_path(), 'data'))
+        keyspaces = os.listdir(os.path.join(self.get_path(), 'data0'))
         keyspaces.remove('system')
         keyspaces.remove('system_schema')
         return keyspaces
 
-    def get_sstables(self, keyspace, column_family):
-        keyspace_dir = os.path.join(self.get_path(), 'data', keyspace)
+    def get_sstables_per_data_directory(self, keyspace, column_family):
+        keyspace_dirs = [os.path.join(self.get_path(), "data{0}".format(x), keyspace) for x in xrange(0, self.cluster.data_dir_count)]
         cf_glob = '*'
         if column_family:
             # account for changes in data dir layout from CASSANDRA-5202
@@ -1074,22 +1290,56 @@ class Node(object):
                 cf_glob = column_family
             else:
                 cf_glob = column_family + '-*'
-        if not os.path.exists(keyspace_dir):
-            raise common.ArgumentError("Unknown keyspace {0}".format(keyspace))
+        for keyspace_dir in keyspace_dirs:
+            if not os.path.exists(keyspace_dir):
+                raise common.ArgumentError("Unknown keyspace {0}".format(keyspace))
 
         # data directory layout is changed from 1.1
         if self.get_base_cassandra_version() < 1.1:
-            files = glob.glob(os.path.join(keyspace_dir, "{0}*-Data.db".format(column_family)))
+            files = [glob.glob(os.path.join(keyspace_dir, "{0}*-Data.db".format(column_family))) for keyspace_dir in keyspace_dirs]
         elif self.get_base_cassandra_version() < 2.2:
-            files = glob.glob(os.path.join(keyspace_dir, cf_glob, "%s-%s*-Data.db" % (keyspace, column_family)))
+            files = [glob.glob(os.path.join(keyspace_dir, cf_glob, "%s-%s*-Data.db" % (keyspace, column_family))) for keyspace_dir in keyspace_dirs]
         else:
-            files = glob.glob(os.path.join(keyspace_dir, cf_glob, "*big-Data.db"))
-        for f in files:
-            if os.path.exists(f.replace('Data.db', 'Compacted')):
-                files.remove(f)
+            files = [glob.glob(os.path.join(keyspace_dir, cf_glob, "*-Data.db")) for keyspace_dir in keyspace_dirs]
+
+        for d in files:
+            for f in d:
+                if os.path.exists(f.replace('Data.db', 'Compacted')):
+                    files.remove(f)
         return files
 
-    def stress(self, stress_options=None, capture_output=False, **kwargs):
+    def get_sstables(self, keyspace, column_family):
+        return [f for sublist in self.get_sstables_per_data_directory(keyspace, column_family) for f in sublist]
+
+    def get_sstables_via_sstableutil(self, keyspace, table, sstabletype='all', oplogs=False, cleanup=False, match='-Data.db'):
+        env = common.make_cassandra_env(self.get_install_cassandra_root(), self.get_node_cassandra_root())
+        tool_bin = self.get_tool('sstableutil')
+
+        args = [tool_bin, '--type', sstabletype]
+
+        if oplogs:
+            args.extend(['--oplog'])
+        if cleanup:
+            args.extend(['--cleanup'])
+
+        args.extend([keyspace, table])
+
+        p = subprocess.Popen(args, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        stdout, stderr = p.communicate()
+
+        if p.returncode != 0:
+            common.error("""Error invoking sstableutil; returned {code}; args={args}; env={env}
+            stdout:
+            {stdout}
+            stderr:
+            {stderr}
+            """.format(code=p.returncode, args=args, env=env, stdout=stdout, stderr=stderr))
+            raise Exception("Error invoking sstableutil; returned {code}".format(code=p.returncode))
+
+        return sorted(filter(lambda s: match in s, stdout.splitlines()))
+
+    def stress_process(self, stress_options=None, whitelist=False):
         if stress_options is None:
             stress_options = []
         else:
@@ -1103,8 +1353,7 @@ class Node(object):
         if has_limit or has_throttle:
             args = [stress, 'version']
             p = subprocess.Popen(args, cwd=common.parse_path(stress),
-                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                 **kwargs)
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             stdout, stderr = p.communicate()
 
             if p.returncode == 1 and has_throttle:
@@ -1119,27 +1368,24 @@ class Node(object):
             stress_options.append(self.address())
         else:
             stress_options.append('-node')
+            if whitelist:
+                stress_options.append("whitelist")
             stress_options.append(self.address())
             # specify used jmx port if not already set
             if not [opt for opt in stress_options if opt.startswith('jmx=')]:
                 stress_options.extend(['-port', 'jmx=' + self.jmx_port])
         args = [stress] + stress_options
         try:
-            stdout_handle = kwargs.pop("stdout", subprocess.PIPE)
-            stderr_handle = kwargs.pop("stderr", subprocess.PIPE)
             p = subprocess.Popen(args, cwd=common.parse_path(stress),
-                                 stdout=stdout_handle, stderr=stderr_handle,
-                                 **kwargs)
-            stdout, stderr = p.communicate()
-            return_code = p.wait()
-            assert return_code == 0, "Stress command exited with error code: {return_code}\n" \
-                                     "stdout: {stdout}\n" \
-                                     "stderr: {stderr}\n".format(**locals())
-            if capture_output:
-                return stdout, stderr
-            else:
-                return None, None
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            return p
+        except KeyboardInterrupt:
+            pass
 
+    def stress(self, stress_options=None, whitelist=False):
+        p = self.stress_process(stress_options=stress_options, whitelist=whitelist)
+        try:
+            return handle_external_tool_process(p, ['stress'] + stress_options)
         except KeyboardInterrupt:
             pass
 
@@ -1198,19 +1444,27 @@ class Node(object):
         if live_data is not None:
             warnings.warn("The 'live_data' keyword argument is deprecated.",
                           DeprecationWarning)
-        info = self.nodetool('info', capture_output=True)[0]
-        return _get_load_from_info_output(info)
+        output = self.nodetool('info')[0]
+        return _get_load_from_info_output(output)
 
     def row_cache_entries(self):
         """Uses `nodetool info` to get the node row cache entry count."""
         info = self.nodetool('info', capture_output=True)[0]
         return _get_row_cache_entries_from_info_output(info)
 
-    def flush(self):
-        self.nodetool("flush")
+    def flush(self, options=None):
+        if options is None:
+            options = []
+        args = ["flush"] + options
+        cmd = ' '.join(args)
+        self.nodetool(cmd)
 
-    def compact(self):
-        self.nodetool("compact")
+    def compact(self, options=None):
+        if options is None:
+            options = []
+        args = ["compact"] + options
+        cmd = ' '.join(args)
+        self.nodetool(cmd)
 
     def drain(self, block_on_log=False):
         mark = self.mark_log()
@@ -1218,22 +1472,28 @@ class Node(object):
         if block_on_log:
             self.watch_log_for("DRAINED", from_mark=mark)
 
-    def repair(self, options=[], **kwargs):
+    def repair(self, options=None):
+        if options is None:
+            options = []
         args = ["repair"] + options
         cmd = ' '.join(args)
-        return self.nodetool(cmd, **kwargs)
+        return self.nodetool(cmd)
 
     def move(self, new_token):
         self.nodetool("move " + str(new_token))
 
-    def cleanup(self):
-        self.nodetool("cleanup")
+    def cleanup(self, options=None):
+        if options is None:
+            options = []
+        args = ["cleanup"] + options
+        cmd = ' '.join(args)
+        self.nodetool(cmd)
 
-    def version(self):
-        self.nodetool("version")
-
-    def decommission(self):
-        self.nodetool("decommission")
+    def decommission(self, force=False):
+        cmd = 'decommission'
+        if force:
+            cmd += " --force"
+        self.nodetool(cmd)
         self.status = Status.DECOMMISSIONED
         self._update_config()
 
@@ -1257,7 +1517,7 @@ class Node(object):
     def import_config_files(self):
         self._update_config()
         self.copy_config_files()
-        self.__update_yaml()
+        self._update_yaml()
         # loggers changed > 2.1
         if self.get_base_cassandra_version() < 2.1:
             self._update_log4j()
@@ -1331,7 +1591,7 @@ class Node(object):
         common.replace_in_file(bat_file, 'powershell /file .*', 'powershell /file "' + os.path.join(self.get_path(), 'bin', 'cassandra.ps1" %*'))
 
     def _save(self):
-        self.__update_yaml()
+        self._update_yaml()
         # loggers changed > 2.1
         if self.get_base_cassandra_version() < 2.1:
             self._update_log4j()
@@ -1345,7 +1605,7 @@ class Node(object):
         if not os.path.exists(dir_name):
             os.mkdir(dir_name)
             for dir in self._get_directories():
-                os.mkdir(os.path.join(dir_name, dir))
+                os.mkdir(dir)
 
         filename = os.path.join(dir_name, 'node.conf')
         values = {
@@ -1355,6 +1615,9 @@ class Node(object):
             'interfaces': self.network_interfaces,
             'jmx_port': self.jmx_port,
             'config_options': self.__config_options,
+            'dse_config_options': self._dse_config_options,
+            'environment_variables': self.__environment_variables,
+            'cassandra_version': str(self.get_cassandra_version())
         }
         if self.pid:
             values['pid'] = self.pid
@@ -1364,14 +1627,16 @@ class Node(object):
             values['install_dir'] = self.__install_dir
         if self.remote_debug_port:
             values['remote_debug_port'] = self.remote_debug_port
+        if self.byteman_port:
+            values['byteman_port'] = self.byteman_port
         if self.data_center:
             values['data_center'] = self.data_center
-        if self.workload is not None:
-            values['workload'] = self.workload
+        if self.workloads is not None:
+            values['workloads'] = self.workloads
         with open(filename, 'w') as f:
             yaml.safe_dump(values, f)
 
-    def __update_yaml(self):
+    def _update_yaml(self):
         conf_file = os.path.join(self.get_conf_dir(), common.CASSANDRA_CONF)
         with open(conf_file, 'r') as f:
             data = yaml.safe_load(f)
@@ -1391,37 +1656,32 @@ class Node(object):
             # cassandra 0.8
             data['seed_provider'][0]['parameters'][0]['seeds'] = ','.join(self.cluster.get_seeds())
         data['listen_address'], data['storage_port'] = self.network_interfaces['storage']
-        data['rpc_address'], data['rpc_port'] = self.network_interfaces['thrift']
+        if self.network_interfaces['thrift'] is not None and self.get_base_cassandra_version() < 4:
+            data['rpc_address'], data['rpc_port'] = self.network_interfaces['thrift']
         if self.network_interfaces['binary'] is not None and self.get_base_cassandra_version() >= 1.2:
-            _, data['native_transport_port'] = self.network_interfaces['binary']
+            data['rpc_address'], data['native_transport_port'] = self.network_interfaces['binary']
 
-        data['data_file_directories'] = [os.path.join(self.get_path(), 'data')]
+        data['data_file_directories'] = [os.path.join(self.get_path(), 'data{0}'.format(x)) for x in xrange(0, self.cluster.data_dir_count)]
         data['commitlog_directory'] = os.path.join(self.get_path(), 'commitlogs')
         data['saved_caches_directory'] = os.path.join(self.get_path(), 'saved_caches')
+
         if self.get_cassandra_version() > '3.0' and 'hints_directory' in yaml_text:
-            data['hints_directory'] = os.path.join(self.get_path(), 'data', 'hints')
+            data['hints_directory'] = os.path.join(self.get_path(), 'hints')
+
+        if self.get_cassandra_version() >= '3.8':
+            data['cdc_raw_directory'] = os.path.join(self.get_path(), 'cdc_raw')
 
         if self.cluster.partitioner:
             data['partitioner'] = self.cluster.partitioner
 
-        full_options = dict(list(self.cluster._config_options.items()) + list(self.__config_options.items()))  # last win and we want node options to win
-        for name in full_options:
-            value = full_options[name]
-            if isinstance(value, str) and (value is None or len(value) == 0):
-                try:
-                    del data[name]
-                except KeyError:
-                    # it is fine to remove a key not there
-                    pass
-            else:
-                try:
-                    if isinstance(data[name], dict):
-                        for option in full_options[name]:
-                            data[name][option] = full_options[name][option]
-                    else:
-                        data[name] = full_options[name]
-                except KeyError:
-                    data[name] = full_options[name]
+        # Get a map of combined cluster and node configuration with the node
+        # configuration taking precedence.
+        full_options = common.merge_configuration(
+            self.cluster._config_options,
+            self.__config_options, delete_empty=False)
+
+        # Merge options with original yaml data.
+        data = common.merge_configuration(data, full_options)
 
         with open(conf_file, 'w') as f:
             yaml.safe_dump(data, f, default_flow_style=False)
@@ -1491,38 +1751,99 @@ class Node(object):
             common.replace_or_add_into_file_tail(conf_file, full_logger_pattern, logger_pattern + class_name + '" level="' + self.__classes_log_level[class_name] + '"/>')
 
     def __update_envfile(self):
+        agentlib_setting = '-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address={}'.format(str(self.remote_debug_port))
+        remote_debug_options = agentlib_setting
         # The cassandra-env.ps1 file has been introduced in 2.1
-        if common.is_win() and self.get_base_cassandra_version() >= 2.1:
+        if common.is_modern_windows_install(self.get_base_cassandra_version()):
             conf_file = os.path.join(self.get_conf_dir(), common.CASSANDRA_WIN_ENV)
             jmx_port_pattern = '^\s+\$JMX_PORT='
             jmx_port_setting = '    $JMX_PORT="' + self.jmx_port + '"'
-            remote_debug_options = '    $env:JVM_OPTS="$env:JVM_OPTS -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=' + str(self.remote_debug_port) + '"'
+            if self.get_cassandra_version() < '3.2':
+                remote_debug_options = '    $env:JVM_OPTS="$env:JVM_OPTS {}"'.format(agentlib_setting)
         else:
             conf_file = os.path.join(self.get_conf_dir(), common.CASSANDRA_ENV)
             jmx_port_pattern = 'JMX_PORT='
             jmx_port_setting = 'JMX_PORT="' + self.jmx_port + '"'
-            remote_debug_options = 'JVM_OPTS="$JVM_OPTS -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=' + str(self.remote_debug_port) + '"'
+            if self.get_cassandra_version() < '3.2':
+                remote_debug_options = 'JVM_OPTS="$JVM_OPTS {}"'.format(agentlib_setting)
 
         common.replace_in_file(conf_file, jmx_port_pattern, jmx_port_setting)
 
+        if common.is_modern_windows_install(common.get_version_from_build(node_path=self.get_path())):
+            dst = os.path.join(self.get_conf_dir(), common.CASSANDRA_WIN_ENV)
+            replacements = [
+                ('env:CASSANDRA_HOME =', '        $env:CASSANDRA_HOME="%s"' % self.get_install_dir()),
+                ('env:CASSANDRA_CONF =', '    $env:CCM_DIR="' + self.get_path() + '\\conf"\n    $env:CASSANDRA_CONF="$env:CCM_DIR"'),
+                ('cp = ".*?env:CASSANDRA_HOME.conf', '    $cp = """$env:CASSANDRA_CONF"""')
+            ]
+            common.replaces_in_file(dst, replacements)
+
         if self.remote_debug_port != '0':
             remote_debug_port_pattern = '((-Xrunjdwp:)|(-agentlib:jdwp=))transport=dt_socket,server=y,suspend=n,address='
-            common.replace_in_file(conf_file, remote_debug_port_pattern, remote_debug_options)
+            if self.get_cassandra_version() < '3.2':
+                common.replace_in_file(conf_file, remote_debug_port_pattern, remote_debug_options)
+            else:
+                for f in glob.glob(os.path.join(self.get_conf_dir(), common.JVM_OPTS_PATTERN)):
+                    if os.path.isfile(f):
+                        common.replace_in_file(f, remote_debug_port_pattern, remote_debug_options)
+
+        if self.byteman_port != '0':
+            byteman_jar = glob.glob(os.path.join(self.get_install_dir(), 'build', 'lib', 'jars', 'byteman-[0-9]*.jar'))[0]
+            agent_string = "-javaagent:{}=listener:true,boot:{},port:{}".format(byteman_jar, byteman_jar, str(self.byteman_port))
+            if self.byteman_startup_script is not None:
+                agent_string = agent_string + ",script:{}".format(self.byteman_startup_script)
+            if common.is_modern_windows_install(self.get_base_cassandra_version()):
+                with open(conf_file, "r+") as conf_rewrite:
+                    conf_lines = conf_rewrite.readlines()
+                    # Remove trailing brace, will be replaced
+                    conf_lines = conf_lines[:-1]
+                    conf_lines.append("    $env:JVM_OPTS=\"$env:JVM_OPTS {}\"\n}}\n".format(agent_string))
+                    conf_rewrite.seek(0)
+                    conf_rewrite.truncate()
+                    conf_rewrite.writelines(conf_lines)
+            else:
+                common.replaces_or_add_into_file_tail(conf_file, [('.*byteman.*', "JVM_OPTS=\"$JVM_OPTS {}\"".format(agent_string))], add_config_close=False)
 
         if self.get_cassandra_version() < '2.0.1':
             common.replace_in_file(conf_file, "-Xss", '    JVM_OPTS="$JVM_OPTS -Xss228k"')
 
+        # gc.log was turned on by default in 2.2.5/3.0.3/3.3
+        if self.get_cassandra_version() >= '2.2.5':
+            gc_log_pattern = "-Xloggc"
+            gc_log_path = os.path.join(self.get_path(), 'logs', 'gc.log')
+            if common.is_win():
+                gc_log_setting = '    $env:JVM_OPTS="$env:JVM_OPTS -Xloggc:{}"'.format(gc_log_path)
+            else:
+                gc_log_setting = 'JVM_OPTS="$JVM_OPTS -Xloggc:{}"'.format(gc_log_path)
+
+            common.replace_in_file(conf_file, gc_log_pattern, gc_log_setting)
+
+            # Java 9
+            gc_log_pattern = "-Xlog[:]gc=info"
+            if common.is_win():
+                gc_log_setting = '    $env:JVM_OPTS="$env:JVM_OPTS -Xlog:gc=info,heap=trace,age=debug,safepoint=info,promotion=trace:file={}:time,uptime,pid,tid,level:filecount=10,filesize=10240"'.format(gc_log_path)
+            else:
+                gc_log_setting = 'JVM_OPTS="$JVM_OPTS -Xlog:gc=info,heap=trace,age=debug,safepoint=info,promotion=trace:file={}:time,uptime,pid,tid,level:filecount=10,filesize=10240"'.format(gc_log_path)
+
+            common.replace_in_file(conf_file, gc_log_pattern, gc_log_setting)
+
         for itf in list(self.network_interfaces.values()):
             if itf is not None and common.interface_is_ipv6(itf):
-                if common.is_win():
-                    common.replace_in_file(conf_file,
-                                           '-Djava.net.preferIPv4Stack=true',
-                                           '\t$env:JVM_OPTS="$env:JVM_OPTS -Djava.net.preferIPv4Stack=false -Djava.net.preferIPv6Addresses=true"')
+                if self.get_cassandra_version() < '3.2':
+                    if common.is_win():
+                        common.replace_in_file(conf_file,
+                                               '-Djava.net.preferIPv4Stack=true',
+                                               '\t$env:JVM_OPTS="$env:JVM_OPTS -Djava.net.preferIPv4Stack=false -Djava.net.preferIPv6Addresses=true"')
+                    else:
+                        common.replace_in_file(conf_file,
+                                               '-Djava.net.preferIPv4Stack=true',
+                                               'JVM_OPTS="$JVM_OPTS -Djava.net.preferIPv4Stack=false -Djava.net.preferIPv6Addresses=true"')
+                    break
                 else:
-                    common.replace_in_file(conf_file,
-                                           '-Djava.net.preferIPv4Stack=true',
-                                           'JVM_OPTS="$JVM_OPTS -Djava.net.preferIPv4Stack=false -Djava.net.preferIPv6Addresses=true"')
-                break
+                    for f in glob.glob(os.path.join(self.get_conf_dir(), common.JVM_OPTS_PATTERN)):
+                        if os.path.isfile(f):
+                            common.replace_in_file(f, '-Djava.net.preferIPv4Stack=true', '')
+                    break
 
     def __update_status(self):
         if self.pid is None:
@@ -1538,6 +1859,10 @@ class Node(object):
         else:
             try:
                 os.kill(self.pid, 0)
+                proc = psutil.Process(self.pid)
+                if proc.status() == psutil.STATUS_ZOMBIE:
+                    time.sleep(2)
+                    raise OSError(errno.ESRCH, "process was zombie, ignoring")
             except OSError as err:
                 if err.errno == errno.ESRCH:
                     # not running
@@ -1550,6 +1875,9 @@ class Node(object):
                 else:
                     # some other error
                     raise err
+            except psutil.NoSuchProcess as err:
+                if self.status == Status.UP or self.status == Status.DECOMMISSIONED:
+                    self.status = Status.DOWN
             else:
                 if self.status == Status.DOWN or self.status == Status.UNINITIALIZED:
                     self.status = Status.UP
@@ -1572,24 +1900,26 @@ class Node(object):
             import psutil
             found = psutil.pid_exists(self.pid)
         except ImportError:
-            print_("WARN: psutil not installed. Pid tracking functionality will suffer. See README for details.")
+            common.warning("psutil not installed. Pid tracking functionality will suffer. See README for details.")
             cmd = 'tasklist /fi "PID eq ' + str(self.pid) + '"'
             proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
 
             for line in proc.stdout:
-                if re.match("Image", line):
+                if re.match("Image", str(line)):
                     found = True
         return found
 
     def _get_directories(self):
         dirs = []
-        for i in ['data', 'commitlogs', 'saved_caches', 'logs', 'conf', 'bin', os.path.join('data', 'hints')]:
+        for i in ['commitlogs', 'saved_caches', 'logs', 'conf', 'bin', 'hints']:
             dirs.append(os.path.join(self.get_path(), i))
+        for x in xrange(0, self.cluster.data_dir_count):
+            dirs.append(os.path.join(self.get_path(), 'data{0}'.format(x)))
         return dirs
 
     def __get_status_string(self):
         if self.status == Status.UNINITIALIZED:
-            return "%s (%s)" % (Status.DOWN, "Not initialized")
+            return "{} ({})".format(Status.DOWN, "Not initialized")
         else:
             return self.status
 
@@ -1648,7 +1978,7 @@ class Node(object):
                                         self.get_path() +
                                         '/dirty_pid.tmp. Manually kill it and check logs - ccm will be out of sync.')
             except Exception as e:
-                print_("ERROR: Problem starting " + self.name + " (" + str(e) + ")")
+                common.error("Problem starting " + self.name + " (" + str(e) + ")")
                 raise Exception('Error while parsing <node>/dirty_pid.tmp in path: ' + self.get_path())
 
     def _delete_old_pid(self):
@@ -1662,15 +1992,15 @@ class Node(object):
         start = time.time()
         while not (os.path.isfile(pidfile) and os.stat(pidfile).st_size > 0):
             if (time.time() - start > 30.0):
-                print_("Timed out waiting for pidfile to be filled (current time is %s)" % (datetime.now()))
+                common.error("Timed out waiting for pidfile to be filled (current time is {})".format(datetime.now()))
                 break
             else:
                 time.sleep(0.1)
 
         try:
-            with open(pidfile, 'r') as f:
-                if common.is_win() and self.get_base_cassandra_version() >= 2.1:
-                    self.pid = int(f.readline().strip().decode('utf-16'))
+            with open(pidfile, 'rb') as f:
+                if common.is_modern_windows_install(self.get_base_cassandra_version()):
+                    self.pid = int(f.readline().strip().decode('utf-16').strip())
                 else:
                     self.pid = int(f.readline().strip())
                 self.all_pids.append(self.pid)
@@ -1693,26 +2023,27 @@ class Node(object):
             if not columnfamilies or len(columnfamilies) > 1:
                 raise common.ArgumentError("Exactly one column family must be specified with datafiles")
 
-            cf_dir = os.path.join(os.path.realpath(self.get_path()), 'data', keyspace, columnfamilies[0])
+            for x in xrange(0, self.cluster.data_dir_count):
+                cf_dir = os.path.join(os.path.realpath(self.get_path()), 'data{0}'.format(x), keyspace, columnfamilies[0])
 
-            sstables = set()
-            for datafile in datafiles:
-                if not os.path.isabs(datafile):
-                    datafile = os.path.join(os.getcwd(), datafile)
+                sstables = set()
+                for datafile in datafiles:
+                    if not os.path.isabs(datafile):
+                        datafile = os.path.join(os.getcwd(), datafile)
 
-                if not datafile.startswith(cf_dir + '-') and not datafile.startswith(cf_dir + os.sep):
-                    raise NodeError("File doesn't appear to belong to the specified keyspace and column family: " + datafile)
+                    if not datafile.startswith(cf_dir + '-') and not datafile.startswith(cf_dir + os.sep):
+                        raise NodeError("File doesn't appear to belong to the specified keyspace and column familily: " + datafile)
 
-                sstable = _sstable_regexp.match(os.path.basename(datafile))
-                if not sstable:
-                    raise NodeError("File doesn't seem to be a valid sstable filename: " + datafile)
+                    sstable = _sstable_regexp.match(os.path.basename(datafile))
+                    if not sstable:
+                        raise NodeError("File doesn't seem to be a valid sstable filename: " + datafile)
 
-                sstable = sstable.groupdict()
-                if not sstable['tmp'] and sstable['number'] not in sstables:
-                    if not os.path.exists(datafile):
-                        raise IOError("File doesn't exist: " + datafile)
-                    sstables.add(sstable['number'])
-                    files.append(datafile)
+                    sstable = sstable.groupdict()
+                    if not sstable['tmp'] and sstable['number'] not in sstables:
+                        if not os.path.exists(datafile):
+                            raise IOError("File doesn't exist: " + datafile)
+                        sstables.add(sstable['number'])
+                        files.append(datafile)
 
         return files
 
@@ -1746,7 +2077,7 @@ class Node(object):
             p.suspend()
         except ImportError:
             if common.is_win():
-                print_("WARN: psutil not installed. Pause functionality will not work properly on Windows.")
+                common.warning("psutil not installed. Pause functionality will not work properly on Windows.")
             else:
                 os.kill(self.pid, signal.SIGSTOP)
 
@@ -1757,11 +2088,11 @@ class Node(object):
             p.resume()
         except ImportError:
             if common.is_win():
-                print_("WARN: psutil not installed. Resume functionality will not work properly on Windows.")
+                common.warning("psutil not installed. Resume functionality will not work properly on Windows.")
             else:
                 os.kill(self.pid, signal.SIGCONT)
 
-    def jstack(self, opts=None):
+    def jstack_process(self, opts=None):
         opts = [] if opts is None else opts
         jstack_location = os.path.abspath(os.path.join(os.environ['JAVA_HOME'],
                                                        'bin',
@@ -1769,6 +2100,48 @@ class Node(object):
         jstack_cmd = [jstack_location, '-J-d64'] + opts + [str(self.pid)]
         return subprocess.Popen(jstack_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
+    def jstack(self, opts=None):
+        p = self.jstack_process(opts=opts)
+        return handle_external_tool_process(p, ['jstack'] + opts)
+
+    def byteman_submit_process(self, opts):
+        cdir = self.get_install_dir()
+        byteman_cmd = []
+        byteman_cmd.append(os.path.join(os.environ['JAVA_HOME'],
+                                        'bin',
+                                        'java'))
+        byteman_cmd.append('-cp')
+        byteman_cmd.append(glob.glob(os.path.join(cdir, 'build', 'lib', 'jars', 'byteman-submit-[0-9]*.jar'))[0])
+        byteman_cmd.append('org.jboss.byteman.agent.submit.Submit')
+        byteman_cmd.append('-p')
+        byteman_cmd.append(self.byteman_port)
+        byteman_cmd += opts
+        return subprocess.Popen(byteman_cmd)
+
+    def byteman_submit(self, opts):
+        p = self.byteman_submit_process(opts=opts)
+        return handle_external_tool_process(p, ['byteman_submit'] + opts)
+
+    def data_directories(self):
+        return [os.path.join(self.get_path(), 'data{0}'.format(x)) for x in xrange(0, self.cluster.data_dir_count)]
+
+    def get_sstable_data_files_process(self, ks, table):
+        env = self.get_env()
+        args = [self.get_tool('sstableutil'), '--type', 'final', ks, table]
+
+        p = subprocess.Popen(args, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        return p
+
+    def get_sstable_data_files(self, ks, table):
+        """
+        Read sstable data files by using sstableutil, so we ignore temporary files
+        """
+        p = self.get_sstable_data_files_process(ks=ks, table=table)
+
+        out, _, _ = handle_external_tool_process(p, ["sstableutil", '--type', 'final', ks, table])
+
+        return sorted(filter(lambda s: s.endswith('-Data.db'), out.splitlines()))
 
 def _get_load_from_info_output(info):
     load_lines = [s for s in info.split('\n')
@@ -1779,9 +2152,15 @@ def _get_load_from_info_output(info):
         raise RuntimeError(msg)
     load_line = load_lines[0].split()
 
-    unit_multipliers = {'KB': 1,
+    # Don't have access to C* version here, so we need to support both prefix styles
+    # See CASSANDRA-9692 on Apache JIRA
+    unit_multipliers = {'KiB': 1,
+                        'KB': 1,
+                        'MiB': 1024,
                         'MB': 1024,
+                        'GiB': 1024 * 1024,
                         'GB': 1024 * 1024,
+                        'TiB': 1024 * 1024 * 1024,
                         'TB': 1024 * 1024 * 1024}
     load_num, load_units = load_line[2], load_line[3]
 
@@ -1799,6 +2178,58 @@ def _get_load_from_info_output(info):
     return float(load_num) * load_mult
 
 
+def _grep_log_for_errors(log):
+    except_re = re.compile(r'[Ee]xception|AssertionError')
+    log_cat_re = re.compile(r'(INFO|DEBUG|WARN|ERROR)')
+
+    def log_line_category(line):
+        match = log_cat_re.search(line)
+        return match.group(0) if match else None
+
+    matches = []
+
+    loglines = log.splitlines()
+
+    for line_num, line in enumerate(loglines):
+        found_exception = False
+        line_category = log_line_category(line)
+        if line_category == 'ERROR':
+            matches.append([line])
+            found_exception = True
+
+        elif line_category == 'WARN':
+            match = except_re.search(line)
+            if match is not None:
+                matches.append([line])
+                found_exception = True
+
+        if found_exception:
+            for next_line_num in range(line_num + 1, len(loglines)):
+                next_line = loglines[next_line_num]
+                # if a log line can't be identified, assume continuation of an ERROR/WARN exception
+                if log_line_category(next_line) is None:
+                    matches[-1].append(next_line)
+                else:
+                    break
+
+    return matches
+
+
+def handle_external_tool_process(process, cmd_args):
+    out, err = process.communicate()
+    if (out is not None) and isinstance(out, bytes):
+        out = out.decode()
+    if (err is not None) and isinstance(err, bytes):
+        err = err.decode()
+    rc = process.returncode
+
+    if rc != 0:
+        raise ToolError(cmd_args, rc, out, err)
+
+    ret = namedtuple('Subprocess_Return', 'stdout stderr rc')
+    return ret(stdout=out, stderr=err, rc=rc)
+
+
 def _get_row_cache_entries_from_info_output(info):
     row_cache_lines = [s for s in info.split('\n')
                        if s.startswith('Row Cache')]
@@ -1809,26 +2240,3 @@ def _get_row_cache_entries_from_info_output(info):
     row_cache_line = row_cache_lines[0].replace(",", "").split()
     return int(row_cache_line[4])
 
-
-def _grep_log_for_errors(log, distinct_errors=False, search_str=None, case_sensitive=True):
-    matchings = []
-    it = iter(log.splitlines())
-    for line in it:
-        l = line if case_sensitive else line.lower()
-        is_error_line = ('ERROR' in l and
-                         'DEBUG' not in l.split('ERROR')[0]) if not search_str else search_str in l
-        if is_error_line:
-            append_line = line if not search_str else l[l.rfind(search_str):]
-            if not distinct_errors:
-                append_line = [append_line]
-            matchings.append(append_line)
-            if not distinct_errors:
-                try:
-                    it, peeker = itertools.tee(it)
-                    while 'INFO' not in next(peeker):
-                        matchings[-1].append(next(it))
-                except StopIteration:
-                    break
-    if distinct_errors:
-        matchings = list(set(matchings))
-    return matchings

@@ -1,10 +1,16 @@
+
+from __future__ import absolute_import
+
+import os
 import sys
 from optparse import BadOptionError, Option, OptionParser, IndentedHelpFormatter
+import re
 
 from six import print_
 
 from ccmlib import common
 from ccmlib.cluster_factory import ClusterFactory
+from ccmlib.remote import PARAMIKO_IS_AVAILABLE, get_remote_usage
 
 
 class PlainHelpFormatter(IndentedHelpFormatter):
@@ -47,9 +53,23 @@ class ForgivingParser(OptionParser):
 
 
 class Cmd(object):
+    options_list = []
+    usage = ""
+    descr_text = ""
+    ignore_unknown_options = False
 
     def get_parser(self):
-        pass
+        if self.usage == "":
+            pass
+        if PARAMIKO_IS_AVAILABLE:
+            self.usage = self.usage.replace("usage: ccm",
+                                            "usage: ccm [remote_options]") + \
+                         os.linesep + os.linesep + \
+                         get_remote_usage()
+        parser = self._get_default_parser(self.usage, self.description(), self.ignore_unknown_options)
+        for args, kwargs in self.options_list:
+            parser.add_option(*args, **kwargs)
+        return parser
 
     def validate(self, parser, options, args, cluster_name=False, node_name=False, load_cluster=False, load_node=True):
         self.options = options
@@ -63,6 +83,9 @@ class Cmd(object):
             if len(args) == 0:
                 print_('Missing cluster name', file=sys.stderr)
                 parser.print_help()
+                exit(1)
+            if not re.match('^[a-zA-Z0-9_-]+$', args[0]):
+                print_('Cluster name should only contain word characters or hyphen', file=sys.stderr)
                 exit(1)
             self.name = args[0]
         if node_name:
@@ -94,7 +117,7 @@ class Cmd(object):
         return parser
 
     def description(self):
-        return ""
+        return self.descr_text
 
     def _load_current_cluster(self):
         name = common.current_cluster_name(self.path)

@@ -11,6 +11,7 @@ import stat
 import subprocess
 import time
 import threading
+from distutils.version import LooseVersion
 
 import psutil
 import yaml
@@ -61,7 +62,7 @@ class ScyllaNode(Node):
 
     def __init__(self, name, cluster, auto_bootstrap, thrift_interface,
                  storage_interface, jmx_port, remote_debug_port, initial_token,
-                 save=True, binary_interface=None):
+                 save=False, binary_interface=None):
         super(ScyllaNode, self).__init__(name, cluster, auto_bootstrap,
                                          thrift_interface, storage_interface,
                                          jmx_port, remote_debug_port,
@@ -80,7 +81,7 @@ class ScyllaNode(Node):
         self.__conf_updated = False
 
     def set_smp(self, smp):
-        self._smp =  smp
+        self._smp = smp
         self._smp_set_during_test = True
 
     def set_mem_mb_per_cpu(self, mem):
@@ -114,7 +115,7 @@ class ScyllaNode(Node):
 
     def get_cassandra_version(self):
         # TODO: Handle versioning
-        return '2.2'
+        return LooseVersion('2.2')
 
     def set_log_level(self, new_level, class_name=None):
         known_level = {'TRACE' : 'trace', 'DEBUG' : 'debug', 'INFO' : 'info', 'WARN' : 'warn', 'ERROR' : 'error', 'OFF' : 'info'}
@@ -317,12 +318,12 @@ class ScyllaNode(Node):
         for itf in list(self.network_interfaces.values()):
             if itf is not None and replace_address is None:
                 try:
-                    common.check_socket_available(itf)
+                    common.assert_socket_available(itf)
                 except Exception as msg:
                     print("{}. Looking for offending processes...".format(msg))
-                    for proc in psutil.process_iter():
-                        if any(self.cluster.ipprefix in cmd for cmd in proc.cmdline()):
-                            print("name={} pid={} cmdline={}".format(proc.name(), proc.pid, proc.cmdline()));
+                    #for proc in psutil.process_iter():
+                    #    if any(self.cluster.ipprefix in cmd for cmd in proc.cmdline()):
+                    #        print("name={} pid={} cmdline={}".format(proc.name(), proc.pid, proc.cmdline()));
                     raise msg
 
         marks = []
@@ -464,7 +465,7 @@ class ScyllaNode(Node):
             raise NodeError('Problem starting node %s scylla-jmx due to %s' %
                             (self.name, e))
 
-    def stop(self, wait=True, wait_other_notice=False, other_nodes=None, gently=True, wait_seconds=127):
+    def stop(self, wait=True, wait_other_notice=False, signal_event=signal.SIGTERM, **kwargs):
         """
         Stop the node.
           - wait: if True (the default), wait for the Scylla process to be
@@ -478,6 +479,8 @@ class ScyllaNode(Node):
             Otherwise do a 'kill -9' which shuts down faster.
         """
         marks = []
+        gently = kwargs.get('gently', False)
+        other_nodes = kwargs.get('other_nodes', [])
         if self.is_running():
             if wait_other_notice:
                 if not other_nodes:
@@ -507,10 +510,12 @@ class ScyllaNode(Node):
                     except OSError as e:
                         pass
             else:
-                signal_mapping = {True: signal.SIGTERM, False: signal.SIGKILL}
+                if not gently:
+                    signal_event = signal.SIGKILL
+
                 for pid in [self.jmx_pid, self.pid]:
                     try:
-                        os.kill(pid, signal_mapping[gently])
+                        os.kill(pid, signal_event)
                     except OSError:
                         pass
 
@@ -522,11 +527,12 @@ class ScyllaNode(Node):
 
             still_running = self.is_running()
             if still_running and wait:
+                wait_seconds = kwargs.get('wait_seconds', 127)
                 # The sum of 7 sleeps starting at 1 and doubling each time
                 # is 2**7-1 (=127). So to sleep an arbitrary wait_seconds
                 # we need the first sleep to be wait_seconds/(2**7-1).
                 wait_time_sec = wait_seconds/(2**7-1.0)
-                for i in xrange(0, 7):
+                for i in range(0, 7):
                     time.sleep(wait_time_sec)
                     if not self.is_running():
                         return True
@@ -676,7 +682,7 @@ class ScyllaNode(Node):
                 self.get_base_cassandra_version() >= 1.2):
             _, data['native_transport_port'] = self.network_interfaces['binary']
 
-        data['data_file_directories'] = [os.path.join(self.get_path(), 'data')]
+        data['data_file_directories'] = [os.path.join(self.get_path(), 'data{0}'.format(x)) for x in xrange(0, self.cluster.data_dir_count)]
         data['commitlog_directory'] = os.path.join(self.get_path(),
                                                    'commitlogs')
         data['hints_directory'] = os.path.join(self.get_path(), 'hints')
@@ -690,8 +696,9 @@ class ScyllaNode(Node):
         # TODO: add scylla options
         data['api_address'] = data['listen_address']
         # last win and we want node options to win
-        full_options = dict(list(self.cluster._config_options.items()) +
-                            list(self.get_config_options().items()))
+        full_options = dict(** self.cluster._config_options)
+        full_options.update(self.get_config_options())
+
         for name in full_options:
             value = full_options[name]
             if value is None:
@@ -840,9 +847,11 @@ class ScyllaNode(Node):
         raise NotImplementedError('ScyllaNode.__generate_server_xml')
 
     def _get_directories(self):
-        dirs = {}
+        dirs = []
         for i in ['data', 'commitlogs', 'bin', 'conf', 'logs', 'hints', 'view_hints']:
-            dirs[i] = os.path.join(self.get_path(), i)
+            dirs.append(os.path.join(self.get_path(), i))
+        for x in range(0, self.cluster.data_dir_count):
+            dirs.append(os.path.join(self.get_path(), 'data{0}'.format(x)))
         return dirs
 
     def _copy_agent(self):
@@ -862,9 +871,9 @@ class ScyllaNode(Node):
 
     def _wait_no_pending_flushes(self, wait_timeout=60):
         def no_pending_flushes():
-            stdout, _ = self.nodetool('cfstats')
+            res = self.nodetool('cfstats')
             pending_flushes = False
-            for line in stdout.splitlines():
+            for line in res.stdout.splitlines():
                 line = line.strip()
                 if line.startswith('Pending flushes'):
                     _, pending_flushes_str = line.split(':')

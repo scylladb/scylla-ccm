@@ -1,0 +1,12 @@
+language: python
+python:
+  - "2.7.13"
+  - "3.4.5"
+  - "3.5.4"
+  - "3.6.3"
+install:
+  - pip install pylint six pyyaml paramiko psutil
+script:
+  - pylint --py3k --disable=W1633,W1648 ccmlib
+  - pylint --disable=all --enable=E,F ccmlib
+  - nosetests
