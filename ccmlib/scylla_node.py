@@ -637,7 +637,7 @@ class ScyllaNode(Node):
                                                  'scylla-jmx'))
 
         parent_dir = os.path.dirname(os.path.realpath(__file__))
-        resources_bin_dir = os.path.join(parent_dir, '..', 'resources', 'bin')
+        resources_bin_dir = os.path.join(parent_dir, 'resources', 'bin')
         for name in os.listdir(resources_bin_dir):
             filename = os.path.join(resources_bin_dir, name)
             if os.path.isfile(filename):
