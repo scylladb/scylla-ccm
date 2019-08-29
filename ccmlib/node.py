@@ -704,9 +704,8 @@ class Node(object):
         if capture_output and not wait:
             raise common.ArgumentError("Cannot set capture_output while wait is False.")
         env = self.get_env()
-        host = self.address()
         nodetool = self.get_tool('nodetool')
-        args = [nodetool, '-h', host, '-p', str(self.jmx_port)]
+        args = [nodetool, '-h', 'localhost', '-p', str(self.jmx_port)]
         args += cmd.split()
         if capture_output:
             p = subprocess.Popen(args, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
