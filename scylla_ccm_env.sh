@@ -27,3 +27,7 @@ echo
 
 echo "=== Stop and remove"
 echo "ccm remove"
+
+
+echo "=== Create scylla cluster with single node [relocatable]"
+echo "ccm create scylla-reloc-1 -n 1 --scylla --version unstable/master:380 --scylla-core-package-uri=../scylla/build/dev/scylla-package.tar.gz"
