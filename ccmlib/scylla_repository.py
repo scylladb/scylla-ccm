@@ -5,6 +5,7 @@ import tarfile
 import tempfile
 import shutil
 import glob
+import subprocess
 
 from six import print_
 from six.moves import urllib
@@ -31,17 +32,20 @@ def setup(version, verbose=True):
         tmp_download = tempfile.mkdtemp()
 
         url = os.environ.get('SCYLLA_CORE_PACKAGE', os.path.join(s3_url, 'scylla-package.tar.gz'))
-        download_version(version, verbose=verbose, url=url, target_dir=tmp_download)
+        download_version(version, verbose=verbose, url=url, target_dir=os.path.join(tmp_download, 'scylla-core-package'))
 
         url = os.environ.get('SCYLLA_JAVA_TOOLS_PACKAGE', os.path.join(s3_url, 'scylla-tools-package.tar.gz'))
         download_version(version, verbose=verbose, url=url, target_dir=os.path.join(tmp_download, 'scylla-java-tools'))
 
         url = os.environ.get('SCYLLA_JMX_PACKAGE', os.path.join(s3_url, 'scylla-jmx-package.tar.gz'))
-        download_version(version, verbose=verbose, url=url, target_dir=os.path.join(tmp_download, 'jmx'))
+        download_version(version, verbose=verbose, url=url, target_dir=os.path.join(tmp_download, 'scylla-jmx'))
 
         cdir = directory_name(version)
 
         shutil.move(tmp_download, cdir)
+
+        # install using scylla install.sh
+        run_scylla_install_script(os.path.join(cdir, 'scylla-core-package'), cdir)
 
     return cdir, version
 
@@ -89,15 +93,6 @@ def download_version(version, url=None, verbose=False, target_dir=None):
         raise ArgumentError(msg)
     except tarfile.ReadError as e:
         raise ArgumentError("Unable to uncompress downloaded file: %s" % str(e))
-    except CCMError as e:
-        if target_dir:
-            # wipe out the directory if anything goes wrong.
-            try:
-                rmdirs(target_dir)
-                print_("Deleted %s due to error" % target_dir)
-            except:
-                raise CCMError("Downloading/extracting scylla version %s failed. Attempted to delete %s but failed. This will need to be manually deleted" % (version, target_dir))
-        raise e
 
 
 def directory_name(version):
@@ -122,3 +117,18 @@ def __get_dir():
     if not os.path.exists(repo):
         os.mkdir(repo)
     return repo
+
+
+def run_scylla_install_script(install_dir, target_dir):
+    scylla_target_dir = os.path.join(target_dir, 'scylla')
+
+    def run(cmd, cwd=None):
+        subprocess.check_call(['bash', '-c', cmd], cwd=cwd, stderr=None, stdout=None)
+
+    # FIXME: remove this hack once scylladb/scylla#4949 is fixed and merged
+    run('''sed 's|"$prefix|"$root/$prefix|' -i install.sh''', cwd=install_dir)
+
+    run('''{0}/install.sh --root {1} --target  centos --disttype redhat --pkg server'''.format(install_dir, scylla_target_dir), cwd=install_dir)
+    run('''mkdir -p {0}/conf; cp ./conf/scylla.yaml {0}/conf'''.format(scylla_target_dir), cwd=install_dir)
+    run('''ln -s {}/opt/scylladb/bin .'''.format(scylla_target_dir), cwd=target_dir)
+    run('''ln -s {}/conf .'''.format(scylla_target_dir), cwd=target_dir)

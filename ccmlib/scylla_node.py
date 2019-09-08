@@ -563,11 +563,6 @@ class ScyllaNode(Node):
     def copy_config_files_dse(self):
         raise NotImplementedError('ScyllaNode.copy_config_files_dse')
 
-    def hard_link_or_copy_dir(self, src_dir, dst_dir):
-        os.makedirs(dst_dir)
-        for f in os.listdir(src_dir):
-            self.hard_link_or_copy(os.path.join(src_dir, f), os.path.join(dst_dir, f))
-
     def hard_link_or_copy(self, src, dst):
         try:
             os.link(src, dst)
@@ -607,13 +602,6 @@ class ScyllaNode(Node):
             relative_repos_root = '../..'
             self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'bin', 'scylla'),
                                    os.path.join(self.get_bin_dir(), 'scylla'))
-
-            self.hard_link_or_copy_dir(os.path.join(self.get_install_dir(), 'libexec'),
-                       os.path.join(self.get_path(), 'libexec'))
-
-            self.hard_link_or_copy_dir(os.path.join(self.get_install_dir(), 'libreloc'),
-                       os.path.join(self.get_path(), 'libreloc'))
-
         else:
             relative_repos_root = '..'
             self.hard_link_or_copy(os.path.join(self.get_install_dir(),
@@ -621,9 +609,9 @@ class ScyllaNode(Node):
                                    os.path.join(self.get_bin_dir(), 'scylla'))
 
         if 'scylla-repository' in self.get_install_dir():
-            self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'jmx', 'scylla-jmx-1.0.jar'),
+            self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'scylla-jmx', 'scylla-jmx-1.0.jar'),
                                    os.path.join(self.get_bin_dir(), 'scylla-jmx-1.0.jar'))
-            self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'jmx', 'scylla-jmx'),
+            self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'scylla-jmx', 'scylla-jmx'),
                                    os.path.join(self.get_bin_dir(), 'scylla-jmx'))
         else:
             self.hard_link_or_copy(os.path.join(self.get_jmx_dir(relative_repos_root), 'target', 'scylla-jmx-1.0.jar'),
