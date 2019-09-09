@@ -24,7 +24,7 @@ setup(
     url='https://github.com/pcmanus/ccm',
     packages=['ccmlib', 'ccmlib.cmds'],
     scripts=[ccmscript],
-    install_requires=['pyYaml', 'six >=1.4.1'],
+    install_requires=['pyYaml', 'psutil', 'six >=1.4.1'],
     classifiers=[
         "License :: OSI Approved :: Apache Software License",
         "Programming Language :: Python",
@@ -35,5 +35,5 @@ setup(
         'Programming Language :: Python :: 3.3',
         'Programming Language :: Python :: 3.4'
     ],
-
+    include_package_data=True,
 )
