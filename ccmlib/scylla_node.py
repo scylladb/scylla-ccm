@@ -585,14 +585,11 @@ class ScyllaNode(Node):
                         except OSError:
                             pass
 
-            if wait_other_notice:
-                for node, mark in marks:
-                    node.watch_log_for_death(self, from_mark=mark)
-            else:
-                time.sleep(.1)
+            if not wait and not wait_other_notice:
+                return True
 
             still_running = self.is_running()
-            if still_running and wait:
+            if still_running:
                 # The sum of 7 sleeps starting at 1 and doubling each time
                 # is 2**7-1 (=127). So to sleep an arbitrary wait_seconds
                 # we need the first sleep to be wait_seconds/(2**7-1).
@@ -605,6 +602,10 @@ class ScyllaNode(Node):
                 raise NodeError("Problem stopping node %s" % self.name)
             else:
                 return True
+
+            if wait_other_notice:
+                for node, mark in marks:
+                    node.watch_log_for_death(self, from_mark=mark)
         else:
             return False
 
