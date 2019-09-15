@@ -604,7 +604,22 @@ class ScyllaNode(Node):
                 return True
 
             if not self.wait_until_stopped(wait_seconds):
-                raise NodeError("Problem stopping node %s" % self.name)
+                if self.jmx_pid:
+                    try:
+                        os.kill(self.jmx_pid, signal.SIGKILL)
+                    except OSError:
+                        pass
+                if gently and self.pid:
+                    # Aborting is intended to generate a core dump
+                    # so the reason the node didn't stop normally can be studied.
+                    print("{} is still running. Trying to generate coredump using kill({}, SIGQUIT)...".format(self.name, self.pid))
+                    try:
+                        os.kill(self.pid, signal.SIGQUIT)
+                    except OSError:
+                        pass
+                    self.wait_until_stopped(300)
+                if self.is_running():
+                    raise NodeError("Problem stopping node %s" % self.name)
 
             if wait_other_notice:
                 for node, mark in marks:
