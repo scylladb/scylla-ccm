@@ -541,20 +541,19 @@ class ScyllaNode(Node):
                             (self.name, e))
 
     def wait_until_stopped(self, wait_seconds=127):
-        still_running = self.is_running()
-        if still_running:
-            # The sum of 7 sleeps starting at 1 and doubling each time
-            # is 2**7-1 (=127). So to sleep an arbitrary wait_seconds
-            # we need the first sleep to be wait_seconds/(2**7-1).
-            wait_time_sec = wait_seconds/(2**7-1.0)
-            for i in xrange(0, 7):
-                time.sleep(wait_time_sec)
-                if not self.is_running():
-                    return True
+        start_time = time.time()
+        wait_time_sec = 1
+        while True:
+            if not self.is_running():
+                return True
+            elapsed = time.time() - start_time
+            if elapsed >= wait_seconds:
+                return False
+            time.sleep(wait_time_sec)
+            if elapsed + wait_time_sec > wait_seconds:
+                wait_time_sec = wait_seconds - elapsed
+            elif wait_time_sec <= 16:
                 wait_time_sec *= 2
-            return False
-        else:
-            return True
 
     def stop(self, wait=True, wait_other_notice=False, other_nodes=None, gently=True, wait_seconds=127):
         """
