@@ -540,6 +540,22 @@ class ScyllaNode(Node):
             raise NodeError('Problem starting node %s scylla-agent due to %s' %
                             (self.name, e))
 
+    def wait_until_stopped(self, wait_seconds=127):
+        still_running = self.is_running()
+        if still_running:
+            # The sum of 7 sleeps starting at 1 and doubling each time
+            # is 2**7-1 (=127). So to sleep an arbitrary wait_seconds
+            # we need the first sleep to be wait_seconds/(2**7-1).
+            wait_time_sec = wait_seconds/(2**7-1.0)
+            for i in xrange(0, 7):
+                time.sleep(wait_time_sec)
+                if not self.is_running():
+                    return True
+                wait_time_sec *= 2
+            return False
+        else:
+            return True
+
     def stop(self, wait=True, wait_other_notice=False, other_nodes=None, gently=True, wait_seconds=127):
         """
         Stop the node.
@@ -588,20 +604,8 @@ class ScyllaNode(Node):
             if not wait and not wait_other_notice:
                 return True
 
-            still_running = self.is_running()
-            if still_running:
-                # The sum of 7 sleeps starting at 1 and doubling each time
-                # is 2**7-1 (=127). So to sleep an arbitrary wait_seconds
-                # we need the first sleep to be wait_seconds/(2**7-1).
-                wait_time_sec = wait_seconds/(2**7-1.0)
-                for i in xrange(0, 7):
-                    time.sleep(wait_time_sec)
-                    if not self.is_running():
-                        return True
-                    wait_time_sec *= 2
+            if not self.wait_until_stopped(wait_seconds):
                 raise NodeError("Problem stopping node %s" % self.name)
-            else:
-                return True
 
             if wait_other_notice:
                 for node, mark in marks:
