@@ -3,10 +3,12 @@ import os
 import shutil
 import time
 import subprocess
-import threading
 import signal
 import yaml
-import errno
+import uuid
+import datetime
+
+from six import print_
 
 from ccmlib import common
 from ccmlib.cluster import Cluster
@@ -59,7 +61,7 @@ class ScyllaCluster(Cluster):
                     initial_token, save=True, binary_interface=None):
         return ScyllaNode(name, self, auto_bootstrap, thrift_interface,
                           storage_interface, jmx_port, remote_debug_port,
-                          initial_token, save, binary_interface)
+                          initial_token, save, binary_interface, scylla_manager=self._scylla_manager)
 
     # copy from cluster
     def __update_pids(self, started):
@@ -178,16 +180,19 @@ class ScyllaCluster(Cluster):
             return
         self._scylla_manager.start()
 
-    def stop_scylla_manager(self,gently=True):
+    def stop_scylla_manager(self, gently=True):
         if not self._scylla_manager:
             return
         self._scylla_manager.stop(gently)
 
+
 class ScyllaManager:
-    def __init__(self,scylla_cluster,install_dir=None):
+    def __init__(self, scylla_cluster, install_dir=None):
         self.scylla_cluster = scylla_cluster
         self._process_scylla_manager = None
         self._pid = None
+        self.auth_token = str(uuid.uuid4())
+
         if install_dir:
             if not os.path.exists(self._get_path()):
                 os.mkdir(self._get_path())
@@ -195,15 +200,15 @@ class ScyllaManager:
         else:
             self._update_pid()
 
-    def _install(self,dir):
-        self._copy_config_files(dir)
-        self._copy_bin_files(dir)
-        self._update_config(dir)
+    def _install(self, install_dir):
+        self._copy_config_files(install_dir)
+        self._copy_bin_files(install_dir)
+        self._update_config(install_dir)
 
     def _get_api_address(self):
         return "%s:9090" % self.scylla_cluster.get_node_ip(1)
 
-    def _update_config(self,dir=None):
+    def _update_config(self, install_dir=None):
         conf_file = os.path.join(self._get_path(), common.SCYLLAMANAGER_CONF)
         with open(conf_file, 'r') as f:
             data = yaml.safe_load(f)
@@ -212,9 +217,9 @@ class ScyllaManager:
             data['database'] = {}
         data['database']['hosts'] = [self.scylla_cluster.get_node_ip(1)]
         data['database']['replication_factor'] = 3
-        if dir:
-            data['database']['keyspace_tpl_file'] = os.path.join(dir,'dist','etc','create_keyspace.cql.tpl')
-            data['database']['migrate_dir'] = os.path.join(dir,'schema','cql')
+        if install_dir:
+            data['database']['keyspace_tpl_file'] = os.path.join(install_dir, 'dist', 'etc', 'create_keyspace.cql.tpl')
+            data['database']['migrate_dir'] = os.path.join(install_dir, 'schema', 'cql')
         if 'https' in data:
             del data['https']
         if 'tls_cert_file' in data:
@@ -229,30 +234,41 @@ class ScyllaManager:
         with open(conf_file, 'w') as f:
             yaml.safe_dump(data, f, default_flow_style=False)
 
-    def _copy_config_files(self,dir):
-        conf_dir = os.path.join(dir, 'dist','etc')
+    def _copy_config_files(self, install_dir):
+        conf_dir = os.path.join(install_dir, 'dist', 'etc')
         if not os.path.exists(conf_dir):
-            raise Exception("%s is not a valid scylla-manager install dir" % dir)
+            raise Exception("%s is not a valid scylla-manager install dir" % install_dir)
         for name in os.listdir(conf_dir):
             filename = os.path.join(conf_dir, name)
             if os.path.isfile(filename):
                 shutil.copy(filename, self._get_path())
+        agent_conf = os.path.join(install_dir, 'etc/scylla-manager-agent/scylla-manager-agent.yaml')
+        if os.path.exists(agent_conf):
+            shutil.copy(agent_conf, self._get_path())
 
-    def _copy_bin_files(self,dir):
-        os.mkdir(os.path.join(self._get_path(),'bin'))
+    def _copy_bin_files(self, install_dir):
+        os.mkdir(os.path.join(self._get_path(), 'bin'))
         files = ['scylla-manager', 'sctool']
         for name in files:
-            src = os.path.join(dir, name)
+            src = os.path.join(install_dir, 'usr', 'bin',name)
             if not os.path.exists(src):
                raise Exception("%s not found in scylla-manager install dir" % src)
             shutil.copy(src,
                         os.path.join(self._get_path(), 'bin', name))
 
+        agent_bin = os.path.join(install_dir, 'usr', 'bin', 'scylla-manager-agent')
+        if os.path.exists(agent_bin):
+            shutil.copy(agent_bin, os.path.join(self._get_path(), 'bin', 'scylla-manager-agent'))
+
+    @property
+    def is_agent_available(self):
+        return os.path.exists(os.path.join(self._get_path(), 'bin', 'scylla-manager-agent'))
+
     def _get_path(self):
         return os.path.join(self.scylla_cluster.get_path(), common.SCYLLAMANAGER_DIR)
 
     def _get_pid_file(self):
-        return os.path.join(self._get_path(),"scylla-manager.pid")
+        return os.path.join(self._get_path(), "scylla-manager.pid")
 
     def _update_pid(self):
         if not os.path.isfile(self._get_pid_file()):
@@ -275,7 +291,7 @@ class ScyllaManager:
                             (e))
 
     def start(self):
-        # some configurations are set post initalization (cluster id) so
+        # some configurations are set post initialisation (cluster id) so
         # we are forced to update the config prior to calling start
         self._update_config()
         # check process is not running
@@ -292,8 +308,8 @@ class ScyllaManager:
         if os.path.isfile(self._get_pid_file()):
             os.remove(self._get_pid_file())
 
-        args=[os.path.join(self._get_path(),'bin','scylla-manager'),
-              '--config-file',os.path.join(self._get_path(),'scylla-manager.yaml')]
+        args = [os.path.join(self._get_path(), 'bin', 'scylla-manager'),
+                '--config-file', os.path.join(self._get_path(), 'scylla-manager.yaml')]
         self._process_scylla_manager = subprocess.Popen(args, stdout=scylla_log,
                                                 stderr=scylla_log,
                                                 close_fds=True)
@@ -301,14 +317,14 @@ class ScyllaManager:
         with open(self._get_pid_file(), 'w') as pid_file:
             pid_file.write(str(self._process_scylla_manager.pid))
 
-        api_interface = common.parse_interface(self._get_api_address(),9090)
+        api_interface = common.parse_interface(self._get_api_address(), 9090)
         if not common.check_socket_listening(api_interface,timeout=180):
             raise Exception("scylla manager interface %s:%s is not listening after 180 seconds, scylla manager may have failed to start."
                           % (api_interface[0], api_interface[1]))
 
         return self._process_scylla_manager
 
-    def stop(self,gently):
+    def stop(self, gently):
         if self._process_scylla_manager:
             if gently:
                 try:
@@ -329,7 +345,7 @@ class ScyllaManager:
                     pass
 
     def sctool(self, cmd):
-        sctool = os.path.join(self._get_path(),'bin','sctool')
+        sctool = os.path.join(self._get_path(), 'bin', 'sctool')
         args = [sctool, '--api-url', "http://%s/api/v1" % self._get_api_address()]
         args += cmd
         p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
