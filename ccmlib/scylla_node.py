@@ -61,7 +61,7 @@ class ScyllaNode(Node):
 
     def __init__(self, name, cluster, auto_bootstrap, thrift_interface,
                  storage_interface, jmx_port, remote_debug_port, initial_token,
-                 save=True, binary_interface=None):
+                 save=True, binary_interface=None, scylla_manager=None):
         super(ScyllaNode, self).__init__(name, cluster, auto_bootstrap,
                                          thrift_interface, storage_interface,
                                          jmx_port, remote_debug_port,
@@ -73,11 +73,16 @@ class ScyllaNode(Node):
         self._process_jmx_waiter = None
         self._process_scylla = None
         self._process_scylla_waiter = None
+        self._process_agent = None
+        self._process_agent_waiter = None
         self._smp = 1
         self._smp_set_during_test = False
         self._mem_mb_per_cpu = 512
         self._mem_set_during_test = False
         self.__conf_updated = False
+        self.scylla_manager = scylla_manager
+        self.jmx_pid = None
+        self.agent_pid = None
 
     def set_smp(self, smp):
         self._smp =  smp
@@ -148,6 +153,10 @@ class ScyllaNode(Node):
     def _wait_for_scylla(self):
         if self._process_scylla:
             self._process_scylla.wait()
+
+    def _wait_for_agent(self):
+        if self._process_agent:
+            self._process_agent.wait()
 
     def _start_jmx(self, data):
         jmx_jar_dir = os.path.join(self.get_path(), 'bin')
@@ -238,6 +247,52 @@ class ScyllaNode(Node):
 
         return self._process_scylla
 
+    def _create_agent_config(self):
+        conf_file = os.path.join(self.get_conf_dir(), 'scylla-manager-agent.yaml')
+        ssl_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'scylla_test_ssl')
+
+        data = dict()
+
+        data['scylla_config_file'] = os.path.join(self.get_conf_dir(), common.SCYLLA_CONF)
+        data['https'] = "{}:10001".format(self.address())
+        data['auth_token'] = self.scylla_manager.auth_token
+        data['tls_cert_file'] = os.path.join(ssl_dir, 'scylla-manager-agent.crt')
+        data['tls_key_file'] = os.path.join(ssl_dir, 'scylla-manager-agent.key')
+        data['logger'] = dict(level='debug')
+
+        with open(conf_file, 'w') as f:
+            yaml.safe_dump(data, f, default_flow_style=False)
+        return conf_file
+
+    def _start_scylla_manager_agent(self):
+        agent_bin = os.path.join(self.scylla_manager._get_path(), 'bin', 'scylla-manager-agent')
+        log_file = os.path.join(self.get_path(), 'logs', 'system.log.manager_agent')
+        config_file = self._create_agent_config()
+
+        agent_log = open(log_file, 'a')
+        args = [agent_bin,
+                '--config-file', config_file]
+        self._process_agent = subprocess.Popen(args, stdout=agent_log,
+                                             stderr=agent_log,
+                                             close_fds=True)
+        self._process_agent.poll()
+        # When running on ccm standalone, the waiter thread would block
+        # the create commands. Besides in that mode, waiting is unnecessary,
+        # since the original popen reference is garbage collected.
+        standalone = os.environ.get('SCYLLA_CCM_STANDALONE', None)
+        if standalone is None:
+            self._process_agent_waiter = threading.Thread(target=self._wait_for_agent)
+            self._process_agent_waiter.start()
+        pid_filename = os.path.join(self.get_path(), 'scylla-agent.pid')
+        with open(pid_filename, 'w') as pid_file:
+            pid_file.write(str(self._process_agent.pid))
+
+        api_interface = common.parse_interface(self.address(), 10001)
+        if not common.check_socket_listening(api_interface, timeout=180):
+            raise Exception(
+                "scylla manager agent interface %s:%s is not listening after 180 seconds, scylla manager agent may have failed to start."
+                % (api_interface[0], api_interface[1]))
+
     def _wait_java_up(self, data):
         java_up = False
         iteration = 0
@@ -321,8 +376,9 @@ class ScyllaNode(Node):
                 except Exception as msg:
                     print("{}. Looking for offending processes...".format(msg))
                     for proc in psutil.process_iter():
+                        print  proc.cmdline()
                         if any(self.cluster.ipprefix in cmd for cmd in proc.cmdline()):
-                            print("name={} pid={} cmdline={}".format(proc.name(), proc.pid, proc.cmdline()));
+                            print("name={} pid={} cmdline={}".format(proc.name(), proc.pid, proc.cmdline()))
                     raise msg
 
         marks = []
@@ -413,7 +469,8 @@ class ScyllaNode(Node):
             raise NodeError(e_msg, scylla_process)
 
         self.is_running()
-
+        if self.scylla_manager and self.scylla_manager.is_agent_available:
+            self._start_scylla_manager_agent()
         return scylla_process
 
     def start_dse(self,
@@ -464,6 +521,25 @@ class ScyllaNode(Node):
             raise NodeError('Problem starting node %s scylla-jmx due to %s' %
                             (self.name, e))
 
+    def _update_scylla_agent_pid(self):
+        pidfile = os.path.join(self.get_path(), 'scylla-agent.pid')
+
+        start = time.time()
+        while not (os.path.isfile(pidfile) and os.stat(pidfile).st_size > 0):
+            if time.time() - start > 30.0:
+                print_("Timed out waiting for pidfile to be filled "
+                       "(current time is %s)" % (datetime.datetime.now()))
+                break
+            else:
+                time.sleep(0.1)
+
+        try:
+            with open(pidfile, 'r') as f:
+                self.agent_pid = int(f.readline().strip())
+        except IOError as e:
+            raise NodeError('Problem starting node %s scylla-agent due to %s' %
+                            (self.name, e))
+
     def stop(self, wait=True, wait_other_notice=False, other_nodes=None, gently=True, wait_seconds=127):
         """
         Stop the node.
@@ -486,33 +562,28 @@ class ScyllaNode(Node):
                          other_nodes if
                          node.is_live() and node is not self]
             self._update_jmx_pid()
-
-            if self._process_jmx and self._process_scylla:
-                if gently:
-                    try:
-                        self._process_jmx.terminate()
-                    except OSError as e:
-                        pass
-                    try:
-                        self._process_scylla.terminate()
-                    except OSError as e:
-                        pass
-                else:
-                    try:
-                        self._process_jmx.kill()
-                    except OSError as e:
-                        pass
-                    try:
-                        self._process_scylla.kill()
-                    except OSError as e:
-                        pass
+            if self.scylla_manager and self.scylla_manager.is_agent_available:
+                self._update_scylla_agent_pid()
+            for proc in [self._process_jmx, self._process_scylla, self._process_agent]:
+                if proc:
+                    if gently:
+                        try:
+                            proc.terminate()
+                        except OSError:
+                            pass
+                    else:
+                        try:
+                            proc.kill()
+                        except OSError:
+                            pass
             else:
                 signal_mapping = {True: signal.SIGTERM, False: signal.SIGKILL}
-                for pid in [self.jmx_pid, self.pid]:
-                    try:
-                        os.kill(pid, signal_mapping[gently])
-                    except OSError:
-                        pass
+                for pid in [self.jmx_pid, self.pid, self.agent_pid]:
+                    if pid:
+                        try:
+                            os.kill(pid, signal_mapping[gently])
+                        except OSError:
+                            pass
 
             if wait_other_notice:
                 for node, mark in marks:

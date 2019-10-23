@@ -4,18 +4,30 @@ import os
 import tarfile
 import tempfile
 import shutil
-import glob
 import subprocess
+import re
+import gzip
+import StringIO
+from subprocess import Popen, PIPE, STDOUT
+
+import hashlib
+import requests
 
 from six import print_
 from six.moves import urllib
 
-from ccmlib.common import (ArgumentError, CCMError, get_default_path, rmdirs, validate_install_dir)
+from ccmlib.common import (
+    ArgumentError, get_default_path, rmdirs, validate_install_dir)
 from ccmlib.repository import __download
 
 GIT_REPO = "http://github.com/scylladb/scylla.git"
 
 RELOCATABLE_URLS_BASE = 'https://s3.amazonaws.com/downloads.scylladb.com/relocatable/{0}/{1}'
+
+
+def run(cmd, cwd=None):
+    subprocess.check_call(['bash', '-c', cmd], cwd=cwd,
+                          stderr=None, stdout=None)
 
 
 def setup(version, verbose=True):
@@ -31,23 +43,101 @@ def setup(version, verbose=True):
     if cdir is None:
         tmp_download = tempfile.mkdtemp()
 
-        url = os.environ.get('SCYLLA_CORE_PACKAGE', os.path.join(s3_url, 'scylla-package.tar.gz'))
-        download_version(version, verbose=verbose, url=url, target_dir=os.path.join(tmp_download, 'scylla-core-package'))
+        url = os.environ.get('SCYLLA_CORE_PACKAGE', os.path.join(
+            s3_url, 'scylla-package.tar.gz'))
+        download_version(version, verbose=verbose, url=url, target_dir=os.path.join(
+            tmp_download, 'scylla-core-package'))
 
-        url = os.environ.get('SCYLLA_JAVA_TOOLS_PACKAGE', os.path.join(s3_url, 'scylla-tools-package.tar.gz'))
-        download_version(version, verbose=verbose, url=url, target_dir=os.path.join(tmp_download, 'scylla-java-tools'))
+        url = os.environ.get('SCYLLA_JAVA_TOOLS_PACKAGE', os.path.join(
+            s3_url, 'scylla-tools-package.tar.gz'))
+        download_version(version, verbose=verbose, url=url, target_dir=os.path.join(
+            tmp_download, 'scylla-java-tools'))
 
-        url = os.environ.get('SCYLLA_JMX_PACKAGE', os.path.join(s3_url, 'scylla-jmx-package.tar.gz'))
-        download_version(version, verbose=verbose, url=url, target_dir=os.path.join(tmp_download, 'scylla-jmx'))
+        url = os.environ.get('SCYLLA_JMX_PACKAGE', os.path.join(
+            s3_url, 'scylla-jmx-package.tar.gz'))
+        download_version(version, verbose=verbose, url=url,
+                         target_dir=os.path.join(tmp_download, 'scylla-jmx'))
 
         cdir = directory_name(version)
 
         shutil.move(tmp_download, cdir)
 
         # install using scylla install.sh
-        run_scylla_install_script(os.path.join(cdir, 'scylla-core-package'), cdir)
+        run_scylla_install_script(os.path.join(
+            cdir, 'scylla-core-package'), cdir)
+
+    setup_scylla_manager()
 
     return cdir, version
+
+
+def setup_scylla_manager():
+
+    """
+    download and cache scylla-manager RPMs,
+    :return:
+    """
+    base_url = os.environ.get('SCYLLA_MANAGER_PACKAGE', None)
+    scylla_ext_opts = os.environ.get('SCYLLA_EXT_OPTS', '')
+
+    if base_url and '--scylla-manager' not in scylla_ext_opts:
+        m = hashlib.md5()
+        m.update(base_url)
+
+        # select a dir to change this version of scylla-manager based on the md5 of the path
+        install_dir = directory_name(os.path.join('manager', m.hexdigest()))
+        if not os.path.exists(install_dir):
+            os.makedirs(install_dir)
+
+            # download and traverse the repo data, for getting the url for the RPMs
+            url = os.path.join(base_url, 'repodata/repomd.xml')
+            page = requests.get(url).text
+
+            primary_regex = re.compile(r'="(.*?primary.xml.gz)"')
+            primary_path = primary_regex.search(page).groups()[0]
+
+            url = os.path.join(base_url, primary_path)
+            data = requests.get(url).content
+
+            # unzip the repo primary listing
+            zf = gzip.GzipFile(fileobj=StringIO.StringIO(data))
+            data = zf.read()
+
+            files_to_download = []
+            for rpm_file in ['scylla-manager-client', 'scylla-manager-server', 'scylla-manager-agent']:
+                try:
+                    f_regex = re.compile(
+                        r'="({}.*?x86_64.rpm)"'.format(rpm_file))
+                    f_rpm = f_regex.search(data).groups()[0]
+                    files_to_download.append(f_rpm)
+                except Exception:
+                    pass
+
+            # download the RPMs and extract them into place
+            for rpm_file in files_to_download:
+                url = os.path.join(base_url, rpm_file)
+                rpm_data = requests.get(url).content
+
+                p = Popen(['bash', '-c', 'rpm2cpio - | cpio -id'],
+                          stdout=PIPE, stdin=PIPE, stderr=STDOUT, cwd=install_dir)
+                grep_stdout = p.communicate(input=rpm_data)[0]
+                print_(grep_stdout.decode())
+
+            # TODO: remove this, and make the code the correct paths directly
+            # final touch to align the files structure to how it in mermaid repo
+            run('''
+                    cp ./usr/bin/sctool .
+                    cp ./usr/bin/scylla-manager .
+                    
+                    mkdir -p dist/etc
+                    mkdir schema
+                    cp -r ./etc/scylla-manager/* ./dist/etc/
+                    cp -r ./etc/scylla-manager/cql ./schema/
+                ''',
+                cwd=install_dir)
+
+        scylla_ext_opts += ' --scylla-manager={}'.format(install_dir)
+        os.environ['SCYLLA_EXT_OPTS'] = scylla_ext_opts
 
 
 min_attributes = ('scheme', 'netloc')
@@ -71,7 +161,8 @@ def download_version(version, url=None, verbose=False, target_dir=None):
             _, target = tempfile.mkstemp(suffix=".tar.gz", prefix="ccm-")
             __download(url, target, show_progress=verbose)
         else:
-            raise ArgumentError("unsupported url or file doesn't exist\n\turl={}".format(url))
+            raise ArgumentError(
+                "unsupported url or file doesn't exist\n\turl={}".format(url))
 
         if verbose:
             print_("Extracting %s as version %s ..." % (target, version))
@@ -92,7 +183,8 @@ def download_version(version, url=None, verbose=False, target_dir=None):
         msg = msg + " (underlying error is: %s)" % str(e)
         raise ArgumentError(msg)
     except tarfile.ReadError as e:
-        raise ArgumentError("Unable to uncompress downloaded file: %s" % str(e))
+        raise ArgumentError(
+            "Unable to uncompress downloaded file: %s" % str(e))
 
 
 def directory_name(version):
@@ -122,13 +214,12 @@ def __get_dir():
 def run_scylla_install_script(install_dir, target_dir):
     scylla_target_dir = os.path.join(target_dir, 'scylla')
 
-    def run(cmd, cwd=None):
-        subprocess.check_call(['bash', '-c', cmd], cwd=cwd, stderr=None, stdout=None)
-
     # FIXME: remove this hack once scylladb/scylla#4949 is fixed and merged
     run('''sed 's|"$prefix|"$root/$prefix|' -i install.sh''', cwd=install_dir)
 
-    run('''{0}/install.sh --root {1} --target  centos --disttype redhat --pkg server'''.format(install_dir, scylla_target_dir), cwd=install_dir)
-    run('''mkdir -p {0}/conf; cp ./conf/scylla.yaml {0}/conf'''.format(scylla_target_dir), cwd=install_dir)
+    run('''{0}/install.sh --root {1} --target  centos --disttype redhat --pkg server'''.format(
+        install_dir, scylla_target_dir), cwd=install_dir)
+    run('''mkdir -p {0}/conf; cp ./conf/scylla.yaml {0}/conf'''.format(
+        scylla_target_dir), cwd=install_dir)
     run('''ln -s {}/opt/scylladb/bin .'''.format(scylla_target_dir), cwd=target_dir)
     run('''ln -s {}/conf .'''.format(scylla_target_dir), cwd=target_dir)
