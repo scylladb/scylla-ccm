@@ -391,8 +391,6 @@ class ScyllaNode(Node):
         launch_bin = common.join_bin(self.get_path(), 'bin', 'scylla')
         options_file = os.path.join(self.get_path(), 'conf', 'scylla.yaml')
 
-        os.chmod(launch_bin, os.stat(launch_bin).st_mode | stat.S_IEXEC)
-
         # TODO: we do not support forcing specific settings
         # TODO: workaround for api-address as we do not load it
         # from config file scylla#59
@@ -653,12 +651,13 @@ class ScyllaNode(Node):
     def copy_config_files_dse(self):
         raise NotImplementedError('ScyllaNode.copy_config_files_dse')
 
-    def hard_link_or_copy(self, src, dst):
+    def hard_link_or_copy(self, src, dst, extra_perms=0):
         try:
             os.link(src, dst)
         except OSError as oserror:
             if oserror.errno == errno.EXDEV or oserror.errno == errno.EMLINK:
                 shutil.copy(src, dst)
+                os.chmod(dst, os.stat(src).st_mode | extra_perms)
             else:
                 raise RuntimeError("Unable to create hard link from %s to %s: %s" % (src, dst, oserror))
 
@@ -691,12 +690,14 @@ class ScyllaNode(Node):
         if scylla_mode == 'reloc':
             relative_repos_root = '../..'
             self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'bin', 'scylla'),
-                                   os.path.join(self.get_bin_dir(), 'scylla'))
+                                   os.path.join(self.get_bin_dir(), 'scylla'),
+                                   stat.S_IEXEC)
         else:
             relative_repos_root = '..'
             self.hard_link_or_copy(os.path.join(self.get_install_dir(),
                                                 'build', scylla_mode, 'scylla'),
-                                   os.path.join(self.get_bin_dir(), 'scylla'))
+                                   os.path.join(self.get_bin_dir(), 'scylla'),
+                                   stat.S_IEXEC)
 
         if 'scylla-repository' in self.get_install_dir():
             self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'scylla-jmx', 'scylla-jmx-1.0.jar'),
