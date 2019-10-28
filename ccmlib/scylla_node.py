@@ -14,6 +14,8 @@ import threading
 
 import psutil
 import yaml
+import glob
+
 from six import print_
 from six.moves import xrange
 
@@ -203,17 +205,11 @@ class ScyllaNode(Node):
         self._delete_old_pid()
 
         scylla_log = open(log_file, 'a')
-        env_copy = os.environ
+        try:
+            env_copy = self._launch_env
+        except AttributeError:
+            env_copy = os.environ
         env_copy['SCYLLA_HOME'] = self.get_path()
-        dbuild_so_dir = os.environ.get('SCYLLA_DBUILD_SO_DIR')
-        if dbuild_so_dir:
-            # FIXME: this should be removed once we'll support running scylla relocatable package
-            executable = os.path.join(dbuild_so_dir, 'scylla.sh')
-            if not os.path.isfile(executable):
-                with open(executable, 'w+') as f:
-                    f.write('#!/bin/bash\nexec -a scylla ' + ' '.join([os.path.join(dbuild_so_dir, 'ld-linux-x86-64.so.2'), '--library-path', dbuild_so_dir]) + ' "$@" ')
-                os.chmod(executable, 0o0777)
-            args = [executable] + args
         self._process_scylla = subprocess.Popen(args, stdout=scylla_log,
                                                 stderr=scylla_log,
                                                 close_fds=True,
@@ -651,13 +647,18 @@ class ScyllaNode(Node):
     def copy_config_files_dse(self):
         raise NotImplementedError('ScyllaNode.copy_config_files_dse')
 
-    def hard_link_or_copy(self, src, dst, extra_perms=0):
+    def hard_link_or_copy(self, src, dst, extra_perms=0, always_copy=False):
+        def do_copy(src, dst, extra_perms=0):
+            shutil.copy(src, dst)
+            os.chmod(dst, os.stat(src).st_mode | extra_perms)
+
+        if always_copy:
+            return do_copy(src, dst, extra_perms)
         try:
             os.link(src, dst)
         except OSError as oserror:
             if oserror.errno == errno.EXDEV or oserror.errno == errno.EMLINK:
-                shutil.copy(src, dst)
-                os.chmod(dst, os.stat(src).st_mode | extra_perms)
+                do_copy(src, dst, extra_perms)
             else:
                 raise RuntimeError("Unable to create hard link from %s to %s: %s" % (src, dst, oserror))
 
@@ -694,10 +695,26 @@ class ScyllaNode(Node):
                                    stat.S_IEXEC)
         else:
             relative_repos_root = '..'
-            self.hard_link_or_copy(os.path.join(self.get_install_dir(),
-                                                'build', scylla_mode, 'scylla'),
-                                   os.path.join(self.get_bin_dir(), 'scylla'),
-                                   stat.S_IEXEC)
+            src = os.path.join(self.get_install_dir(), 'build', scylla_mode, 'scylla')
+            dst = os.path.join(self.get_bin_dir(), 'scylla')
+            dbuild_so_dir = os.environ.get('SCYLLA_DBUILD_SO_DIR')
+            if not dbuild_so_dir:
+                self.hard_link_or_copy(src, dst, stat.S_IEXEC)
+            else:
+                self.hard_link_or_copy(src, dst, stat.S_IEXEC, always_copy=True)
+
+                search_pattern = os.path.join(dbuild_so_dir, 'ld-linux-x86-64.so.*')
+                res = glob.glob(search_pattern)
+                if not res:
+                    raise RuntimeError('{} not found'.format(search_pattern))
+                if len(res) > 1:
+                    raise RuntimeError('{}: found too make matches: {}'.format(search_pattern, res))
+                loader = res[0]
+                cmd = ['patchelf', '--set-interpreter', loader, dst]
+                subprocess.check_call(cmd)
+
+                self._launch_env = dict(os.environ)
+                self._launch_env['LD_LIBRARY_PATH'] = dbuild_so_dir
 
         if 'scylla-repository' in self.get_install_dir():
             self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'scylla-jmx', 'scylla-jmx-1.0.jar'),
