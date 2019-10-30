@@ -217,6 +217,9 @@ def run_scylla_install_script(install_dir, target_dir):
     # FIXME: remove this hack once scylladb/scylla#4949 is fixed and merged
     run('''sed 's|"$prefix|"$root/$prefix|' -i install.sh''', cwd=install_dir)
 
+    # FIXME: remove systemctl command from install.sh, since they won't work inside docker, and they are not needed
+    run('''sed -i '/systemctl --user/d' install.sh''', cwd=install_dir)
+
     run('''{0}/install.sh --root {1} --prefix {1} --prefix /opt/scylladb --nonroot'''.format(
         install_dir, scylla_target_dir), cwd=install_dir)
     run('''mkdir -p {0}/conf; cp ./conf/scylla.yaml {0}/conf'''.format(
