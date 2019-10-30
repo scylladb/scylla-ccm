@@ -710,11 +710,26 @@ class ScyllaNode(Node):
                 if len(res) > 1:
                     raise RuntimeError('{}: found too make matches: {}'.format(search_pattern, res))
                 loader = res[0]
-                cmd = ['patchelf', '--set-interpreter', loader, dst]
-                subprocess.check_call(cmd)
 
                 self._launch_env = dict(os.environ)
                 self._launch_env['LD_LIBRARY_PATH'] = dbuild_so_dir
+
+                patchelf_cmd = [loader, os.path.join(dbuild_so_dir, 'patchelf'), '--set-interpreter', loader, dst]
+                def run_patchelf(patchelf_cmd):
+                    p = subprocess.Popen(patchelf_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=self._launch_env)
+                    (stdout, stderr) = p.communicate()
+                    return (p.returncode, stdout, stderr)
+
+                (returncode, stdout, stderr) = run_patchelf(patchelf_cmd)
+                if returncode != 0:
+                    # Retry after stripping binary if hit
+                    # https://github.com/scylladb/scylla/issues/5245
+                    if stderr == 'read\n':
+                        cmd = ['strip', dst]
+                        subprocess.check_call(cmd)
+                        (returncode, stdout, stderr) = run_patchelf(patchelf_cmd)
+                if returncode != 0:
+                    raise RuntimeError('{} exited with status {}.\nstdout:{}\nstderr:\n{}'.format(patchelf_cmd, returncode, stdout, stderr))
 
         if 'scylla-repository' in self.get_install_dir():
             self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'scylla-jmx', 'scylla-jmx-1.0.jar'),
