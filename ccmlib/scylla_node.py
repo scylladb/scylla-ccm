@@ -710,11 +710,15 @@ class ScyllaNode(Node):
                 if len(res) > 1:
                     raise RuntimeError('{}: found too make matches: {}'.format(search_pattern, res))
                 loader = res[0]
-                cmd = ['patchelf', '--set-interpreter', loader, dst]
-                subprocess.check_call(cmd)
 
                 self._launch_env = dict(os.environ)
                 self._launch_env['LD_LIBRARY_PATH'] = dbuild_so_dir
+
+                cmd = [loader, os.path.join(dbuild_so_dir, 'patchelf'), '--set-interpreter', loader, dst]
+                p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=self._launch_env)
+                (stdout, stderr) = p.communicate()
+                if p.returncode != 0:
+                    raise RuntimeError('{}: exited with status {}.\nstdout:{}\nstderr:\n{}'.format(cmd, p.returncode, stdout, stderr))
 
         if 'scylla-repository' in self.get_install_dir():
             self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'scylla-jmx', 'scylla-jmx-1.0.jar'),
