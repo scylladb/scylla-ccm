@@ -865,8 +865,12 @@ class Node(object):
 
     def nodetool_process(self, cmd):
         env = self.get_env()
+        if self.is_scylla():
+            host = self.address()
+        else:
+            host = 'localhost'
         nodetool = self.get_tool('nodetool')
-        args = [nodetool, '-h', 'localhost', '-p', str(self.jmx_port)]
+        args = [nodetool, '-h', host, '-p', str(self.jmx_port)]
         args += shlex.split(cmd)
 
         return subprocess.Popen(args, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)

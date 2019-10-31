@@ -123,14 +123,21 @@ class ClusterCreateCmd(Cmd):
         Examples of using relocatable packages:
 
         # create cluster from version uploaded to s3 (of the daily/nightly as example)
-        ccm create fruch --scylla --version unstable/master:239
-
+        ccm create scylla-reloc-1 -n 1 --scylla --version unstable/master:380
+        
         # create cluster with own versions of each package
-        ccm create fruch --scylla --version temp \\
-            --scylla-package-uri=../scylla/temp.tar.gz \\ 
+        ccm create scylla-reloc-1 -n 1 --scylla --version temp \\
+            --scylla-core-package-uri=../scylla/build/release/scylla-package.tar.gz \\ 
             --scylla-java-tools-package-uri=../scylla-tools-java/temp.tar.gz \\
             --scylla-jmx-package-uri=../scylla-jmx/temp.tar.gz
+
+        # create cluster with overwriting only one package
+        ccm create scylla-reloc-1 -n 1 --scylla --version unstable/master:380 \\
+            --scylla-core-package-uri=../scylla/build/dev/scylla-package.tar.gz
+
         """
+
+        return parser
 
     def validate(self, parser, options, args):
         if options.scylla and not options.install_dir:

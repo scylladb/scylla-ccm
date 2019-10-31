@@ -15,6 +15,8 @@ from distutils.version import LooseVersion
 
 import psutil
 import yaml
+import glob
+
 from six import print_
 from six.moves import xrange
 
@@ -62,7 +64,7 @@ class ScyllaNode(Node):
 
     def __init__(self, name, cluster, auto_bootstrap, thrift_interface,
                  storage_interface, jmx_port, remote_debug_port, initial_token,
-                 save=False, binary_interface=None):
+                 save=True, binary_interface=None, scylla_manager=None):
         super(ScyllaNode, self).__init__(name, cluster, auto_bootstrap,
                                          thrift_interface, storage_interface,
                                          jmx_port, remote_debug_port,
@@ -74,11 +76,16 @@ class ScyllaNode(Node):
         self._process_jmx_waiter = None
         self._process_scylla = None
         self._process_scylla_waiter = None
+        self._process_agent = None
+        self._process_agent_waiter = None
         self._smp = 1
         self._smp_set_during_test = False
         self._mem_mb_per_cpu = 512
         self._mem_set_during_test = False
         self.__conf_updated = False
+        self.scylla_manager = scylla_manager
+        self.jmx_pid = None
+        self.agent_pid = None
 
     def set_smp(self, smp):
         self._smp = smp
@@ -150,6 +157,10 @@ class ScyllaNode(Node):
         if self._process_scylla:
             self._process_scylla.wait()
 
+    def _wait_for_agent(self):
+        if self._process_agent:
+            self._process_agent.wait()
+
     def _start_jmx(self, data):
         jmx_jar_dir = os.path.join(self.get_path(), 'bin')
         jmx_java_bin = os.path.join(jmx_jar_dir, 'symlinks', 'scylla-jmx')
@@ -195,17 +206,11 @@ class ScyllaNode(Node):
         self._delete_old_pid()
 
         scylla_log = open(log_file, 'a')
-        env_copy = os.environ
+        try:
+            env_copy = self._launch_env
+        except AttributeError:
+            env_copy = os.environ
         env_copy['SCYLLA_HOME'] = self.get_path()
-        dbuild_so_dir = os.environ.get('SCYLLA_DBUILD_SO_DIR')
-        if dbuild_so_dir:
-            # FIXME: this should be removed once we'll support running scylla relocatable package
-            executable = os.path.join(dbuild_so_dir, 'scylla.sh')
-            if not os.path.isfile(executable):
-                with open(executable, 'w+') as f:
-                    f.write('#!/bin/bash\nexec -a scylla ' + ' '.join([os.path.join(dbuild_so_dir, 'ld-linux-x86-64.so.2'), '--library-path', dbuild_so_dir]) + ' "$@" ')
-                os.chmod(executable, 0o0777)
-            args = [executable] + args
         self._process_scylla = subprocess.Popen(args, stdout=scylla_log,
                                                 stderr=scylla_log,
                                                 close_fds=True,
@@ -238,6 +243,52 @@ class ScyllaNode(Node):
             time.sleep(2)
 
         return self._process_scylla
+
+    def _create_agent_config(self):
+        conf_file = os.path.join(self.get_conf_dir(), 'scylla-manager-agent.yaml')
+        ssl_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'scylla_test_ssl')
+
+        data = dict()
+
+        data['scylla_config_file'] = os.path.join(self.get_conf_dir(), common.SCYLLA_CONF)
+        data['https'] = "{}:10001".format(self.address())
+        data['auth_token'] = self.scylla_manager.auth_token
+        data['tls_cert_file'] = os.path.join(ssl_dir, 'scylla-manager-agent.crt')
+        data['tls_key_file'] = os.path.join(ssl_dir, 'scylla-manager-agent.key')
+        data['logger'] = dict(level='debug')
+
+        with open(conf_file, 'w') as f:
+            yaml.safe_dump(data, f, default_flow_style=False)
+        return conf_file
+
+    def _start_scylla_manager_agent(self):
+        agent_bin = os.path.join(self.scylla_manager._get_path(), 'bin', 'scylla-manager-agent')
+        log_file = os.path.join(self.get_path(), 'logs', 'system.log.manager_agent')
+        config_file = self._create_agent_config()
+
+        agent_log = open(log_file, 'a')
+        args = [agent_bin,
+                '--config-file', config_file]
+        self._process_agent = subprocess.Popen(args, stdout=agent_log,
+                                             stderr=agent_log,
+                                             close_fds=True)
+        self._process_agent.poll()
+        # When running on ccm standalone, the waiter thread would block
+        # the create commands. Besides in that mode, waiting is unnecessary,
+        # since the original popen reference is garbage collected.
+        standalone = os.environ.get('SCYLLA_CCM_STANDALONE', None)
+        if standalone is None:
+            self._process_agent_waiter = threading.Thread(target=self._wait_for_agent)
+            self._process_agent_waiter.start()
+        pid_filename = os.path.join(self.get_path(), 'scylla-agent.pid')
+        with open(pid_filename, 'w') as pid_file:
+            pid_file.write(str(self._process_agent.pid))
+
+        api_interface = common.parse_interface(self.address(), 10001)
+        if not common.check_socket_listening(api_interface, timeout=180):
+            raise Exception(
+                "scylla manager agent interface %s:%s is not listening after 180 seconds, scylla manager agent may have failed to start."
+                % (api_interface[0], api_interface[1]))
 
     def _wait_java_up(self, data):
         java_up = False
@@ -321,22 +372,20 @@ class ScyllaNode(Node):
                     common.assert_socket_available(itf)
                 except Exception as msg:
                     print("{}. Looking for offending processes...".format(msg))
-                    #for proc in psutil.process_iter():
-                    #    if any(self.cluster.ipprefix in cmd for cmd in proc.cmdline()):
-                    #        print("name={} pid={} cmdline={}".format(proc.name(), proc.pid, proc.cmdline()));
-                    raise msg
+                    for proc in psutil.process_iter():
+                        print(proc.cmdline())
+                        if any(self.cluster.ipprefix in cmd for cmd in proc.cmdline()):
+                            print("name={} pid={} cmdline={}".format(proc.name(), proc.pid, proc.cmdline()))
 
         marks = []
         if wait_other_notice:
             marks = [(node, node.mark_log()) for node in
-                     list(self.cluster.nodes.values()) if node.is_running()]
+                     list(self.cluster.nodes.values()) if node.is_live()]
 
         self.mark = self.mark_log()
 
         launch_bin = common.join_bin(self.get_path(), 'bin', 'scylla')
         options_file = os.path.join(self.get_path(), 'conf', 'scylla.yaml')
-
-        os.chmod(launch_bin, os.stat(launch_bin).st_mode | stat.S_IEXEC)
 
         # TODO: we do not support forcing specific settings
         # TODO: workaround for api-address as we do not load it
@@ -414,7 +463,8 @@ class ScyllaNode(Node):
             raise NodeError(e_msg, scylla_process)
 
         self.is_running()
-
+        if self.scylla_manager and self.scylla_manager.is_agent_available:
+            self._start_scylla_manager_agent()
         return scylla_process
 
     def start_dse(self,
@@ -446,8 +496,27 @@ class ScyllaNode(Node):
             jvm_args = []
         raise NotImplementedError('ScyllaNode.start_dse')
 
-    def _update_jmx_pid(self):
+    def _update_jmx_pid(self, wait=True):
         pidfile = os.path.join(self.get_path(), 'scylla-jmx.pid')
+
+        start = time.time()
+        while not (os.path.isfile(pidfile) and os.stat(pidfile).st_size > 0):
+            if time.time() - start > 30.0 or not wait:
+                print_("Timed out waiting for pidfile to be filled "
+                       "(current time is %s)" % (datetime.datetime.now()))
+                return
+            else:
+                time.sleep(0.1)
+
+        try:
+            with open(pidfile, 'r') as f:
+                self.jmx_pid = int(f.readline().strip())
+        except IOError as e:
+            raise NodeError('Problem starting node %s scylla-jmx due to %s' %
+                            (self.name, e))
+
+    def _update_scylla_agent_pid(self):
+        pidfile = os.path.join(self.get_path(), 'scylla-agent.pid')
 
         start = time.time()
         while not (os.path.isfile(pidfile) and os.stat(pidfile).st_size > 0):
@@ -460,10 +529,25 @@ class ScyllaNode(Node):
 
         try:
             with open(pidfile, 'r') as f:
-                self.jmx_pid = int(f.readline().strip())
+                self.agent_pid = int(f.readline().strip())
         except IOError as e:
-            raise NodeError('Problem starting node %s scylla-jmx due to %s' %
+            raise NodeError('Problem starting node %s scylla-agent due to %s' %
                             (self.name, e))
+
+    def wait_until_stopped(self, wait_seconds=127):
+        start_time = time.time()
+        wait_time_sec = 1
+        while True:
+            if not self.is_running():
+                return True
+            elapsed = time.time() - start_time
+            if elapsed >= wait_seconds:
+                return False
+            time.sleep(wait_time_sec)
+            if elapsed + wait_time_sec > wait_seconds:
+                wait_time_sec = wait_seconds - elapsed
+            elif wait_time_sec <= 16:
+                wait_time_sec *= 2
 
     def stop(self, wait=True, wait_other_notice=False, signal_event=signal.SIGTERM, **kwargs):
         """
@@ -480,6 +564,7 @@ class ScyllaNode(Node):
         """
         marks = []
         gently = kwargs.get('gently', False)
+        wait_seconds = kwargs.get('wait_seconds', 127)
         other_nodes = kwargs.get('other_nodes', [])
         if self.is_running():
             if wait_other_notice:
@@ -488,58 +573,55 @@ class ScyllaNode(Node):
                 marks = [(node, node.mark_log()) for node in
                          other_nodes if
                          node.is_live() and node is not self]
-            self._update_jmx_pid()
-
-            if self._process_jmx and self._process_scylla:
-                if gently:
-                    try:
-                        self._process_jmx.terminate()
-                    except OSError as e:
-                        pass
-                    try:
-                        self._process_scylla.terminate()
-                    except OSError as e:
-                        pass
-                else:
-                    try:
-                        self._process_jmx.kill()
-                    except OSError as e:
-                        pass
-                    try:
-                        self._process_scylla.kill()
-                    except OSError as e:
-                        pass
+            self._update_jmx_pid(wait=False)
+            if self.scylla_manager and self.scylla_manager.is_agent_available:
+                self._update_scylla_agent_pid()
+            for proc in [self._process_jmx, self._process_scylla, self._process_agent]:
+                if proc:
+                    if gently:
+                        try:
+                            proc.terminate()
+                        except OSError:
+                            pass
+                    else:
+                        try:
+                            proc.kill()
+                        except OSError:
+                            pass
             else:
-                if not gently:
-                    signal_event = signal.SIGKILL
+                signal_mapping = {True: signal.SIGTERM, False: signal.SIGKILL}
+                for pid in [self.jmx_pid, self.pid, self.agent_pid]:
+                    if pid:
+                        try:
+                            os.kill(pid, signal_mapping[gently])
+                        except OSError:
+                            pass
 
-                for pid in [self.jmx_pid, self.pid]:
+            if not wait and not wait_other_notice:
+                return True
+
+            if not self.wait_until_stopped(wait_seconds):
+                if self.jmx_pid:
                     try:
-                        os.kill(pid, signal_event)
+                        os.kill(self.jmx_pid, signal.SIGKILL)
                     except OSError:
                         pass
+
+                if gently and self.pid:
+                    # Aborting is intended to generate a core dump
+                    # so the reason the node didn't stop normally can be studied.
+                    print("{} is still running. Trying to generate coredump using kill({}, SIGQUIT)...".format(self.name, self.pid))
+                    try:
+                        os.kill(self.pid, signal.SIGQUIT)
+                    except OSError:
+                        pass
+                    self.wait_until_stopped(300)
+                if self.is_running():
+                    raise NodeError("Problem stopping node %s" % self.name)
 
             if wait_other_notice:
                 for node, mark in marks:
                     node.watch_log_for_death(self, from_mark=mark)
-            else:
-                time.sleep(.1)
-
-            still_running = self.is_running()
-            if still_running and wait:
-                wait_seconds = kwargs.get('wait_seconds', 127)
-                # The sum of 7 sleeps starting at 1 and doubling each time
-                # is 2**7-1 (=127). So to sleep an arbitrary wait_seconds
-                # we need the first sleep to be wait_seconds/(2**7-1).
-                wait_time_sec = wait_seconds/(2**7-1.0)
-                for i in range(0, 7):
-                    time.sleep(wait_time_sec)
-                    if not self.is_running():
-                        return True
-                    wait_time_sec *= 2
-                raise NodeError("Problem stopping node %s" % self.name)
-            else:
-                return True
         else:
             return False
 
@@ -569,17 +651,18 @@ class ScyllaNode(Node):
     def copy_config_files_dse(self):
         raise NotImplementedError('ScyllaNode.copy_config_files_dse')
 
-    def hard_link_or_copy_dir(self, src_dir, dst_dir):
-        os.makedirs(dst_dir)
-        for f in os.listdir(src_dir):
-            self.hard_link_or_copy(os.path.join(src_dir, f), os.path.join(dst_dir, f))
+    def hard_link_or_copy(self, src, dst, extra_perms=0, always_copy=False):
+        def do_copy(src, dst, extra_perms=0):
+            shutil.copy(src, dst)
+            os.chmod(dst, os.stat(src).st_mode | extra_perms)
 
-    def hard_link_or_copy(self, src, dst):
+        if always_copy:
+            return do_copy(src, dst, extra_perms)
         try:
             os.link(src, dst)
         except OSError as oserror:
             if oserror.errno == errno.EXDEV or oserror.errno == errno.EMLINK:
-                shutil.copy(src, dst)
+                do_copy(src, dst, extra_perms)
             else:
                 raise RuntimeError("Unable to create hard link from %s to %s: %s" % (src, dst, oserror))
 
@@ -612,24 +695,50 @@ class ScyllaNode(Node):
         if scylla_mode == 'reloc':
             relative_repos_root = '../..'
             self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'bin', 'scylla'),
-                                   os.path.join(self.get_bin_dir(), 'scylla'))
-
-            self.hard_link_or_copy_dir(os.path.join(self.get_install_dir(), 'libexec'),
-                       os.path.join(self.get_path(), 'libexec'))
-
-            self.hard_link_or_copy_dir(os.path.join(self.get_install_dir(), 'libreloc'),
-                       os.path.join(self.get_path(), 'libreloc'))
-
+                                   os.path.join(self.get_bin_dir(), 'scylla'),
+                                   stat.S_IEXEC)
         else:
             relative_repos_root = '..'
-            self.hard_link_or_copy(os.path.join(self.get_install_dir(),
-                                                'build', scylla_mode, 'scylla'),
-                                   os.path.join(self.get_bin_dir(), 'scylla'))
+            src = os.path.join(self.get_install_dir(), 'build', scylla_mode, 'scylla')
+            dst = os.path.join(self.get_bin_dir(), 'scylla')
+            dbuild_so_dir = os.environ.get('SCYLLA_DBUILD_SO_DIR')
+            if not dbuild_so_dir:
+                self.hard_link_or_copy(src, dst, stat.S_IEXEC)
+            else:
+                self.hard_link_or_copy(src, dst, stat.S_IEXEC, always_copy=True)
+
+                search_pattern = os.path.join(dbuild_so_dir, 'ld-linux-x86-64.so.*')
+                res = glob.glob(search_pattern)
+                if not res:
+                    raise RuntimeError('{} not found'.format(search_pattern))
+                if len(res) > 1:
+                    raise RuntimeError('{}: found too make matches: {}'.format(search_pattern, res))
+                loader = res[0]
+
+                self._launch_env = dict(os.environ)
+                self._launch_env['LD_LIBRARY_PATH'] = dbuild_so_dir
+
+                patchelf_cmd = [loader, os.path.join(dbuild_so_dir, 'patchelf'), '--set-interpreter', loader, dst]
+                def run_patchelf(patchelf_cmd):
+                    p = subprocess.Popen(patchelf_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=self._launch_env)
+                    (stdout, stderr) = p.communicate()
+                    return (p.returncode, stdout, stderr)
+
+                (returncode, stdout, stderr) = run_patchelf(patchelf_cmd)
+                if returncode != 0:
+                    # Retry after stripping binary if hit
+                    # https://github.com/scylladb/scylla/issues/5245
+                    if stderr == 'read\n':
+                        cmd = ['strip', dst]
+                        subprocess.check_call(cmd)
+                        (returncode, stdout, stderr) = run_patchelf(patchelf_cmd)
+                if returncode != 0:
+                    raise RuntimeError('{} exited with status {}.\nstdout:{}\nstderr:\n{}'.format(patchelf_cmd, returncode, stdout, stderr))
 
         if 'scylla-repository' in self.get_install_dir():
-            self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'jmx', 'scylla-jmx-1.0.jar'),
+            self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'scylla-jmx', 'scylla-jmx-1.0.jar'),
                                    os.path.join(self.get_bin_dir(), 'scylla-jmx-1.0.jar'))
-            self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'jmx', 'scylla-jmx'),
+            self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'scylla-jmx', 'scylla-jmx'),
                                    os.path.join(self.get_bin_dir(), 'scylla-jmx'))
         else:
             self.hard_link_or_copy(os.path.join(self.get_jmx_dir(relative_repos_root), 'target', 'scylla-jmx-1.0.jar'),
@@ -643,7 +752,7 @@ class ScyllaNode(Node):
                                                  'scylla-jmx'))
 
         parent_dir = os.path.dirname(os.path.realpath(__file__))
-        resources_bin_dir = os.path.join(parent_dir, '..', 'resources', 'bin')
+        resources_bin_dir = os.path.join(parent_dir, 'resources', 'bin')
         for name in os.listdir(resources_bin_dir):
             filename = os.path.join(resources_bin_dir, name)
             if os.path.isfile(filename):

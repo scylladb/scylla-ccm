@@ -1,1 +1,4 @@
 include *.md
+include ccmlib/resources/bin/*.sh
+include ccmlib/scylla_test_ssl/scylla-manager-agent.key
+include ccmlib/scylla_test_ssl/scylla-manager-agent.crt
