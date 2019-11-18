@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import re
 import gzip
-import StringIO
+
 from subprocess import Popen, PIPE, STDOUT
 
 import hashlib
@@ -15,9 +15,10 @@ import requests
 
 from six import print_
 from six.moves import urllib
+from six import StringIO
 
 from ccmlib.common import (
-    ArgumentError, get_default_path, rmdirs, validate_install_dir)
+    ArgumentError, get_default_path, rmdirs, validate_install_dir, get_scylla_version)
 from ccmlib.repository import __download
 
 GIT_REPO = "http://github.com/scylladb/scylla.git"
@@ -68,7 +69,7 @@ def setup(version, verbose=True):
 
     setup_scylla_manager()
 
-    return cdir, version
+    return cdir, get_scylla_version(cdir)
 
 
 def setup_scylla_manager():
@@ -82,7 +83,7 @@ def setup_scylla_manager():
 
     if base_url and '--scylla-manager' not in scylla_ext_opts:
         m = hashlib.md5()
-        m.update(base_url)
+        m.update(base_url.encode('utf-8'))
 
         # select a dir to change this version of scylla-manager based on the md5 of the path
         install_dir = directory_name(os.path.join('manager', m.hexdigest()))

@@ -375,7 +375,6 @@ class ScyllaNode(Node):
                 except Exception as msg:
                     print("{}. Looking for offending processes...".format(msg))
                     for proc in psutil.process_iter():
-                        print  proc.cmdline()
                         if any(self.cluster.ipprefix in cmd for cmd in proc.cmdline()):
                             print("name={} pid={} cmdline={}".format(proc.name(), proc.pid, proc.cmdline()))
                     raise msg
