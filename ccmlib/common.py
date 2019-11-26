@@ -367,7 +367,14 @@ def isDse(install_dir):
 
 def isScylla(install_dir):
     if install_dir is None:
-        raise ArgumentError('Undefined installation directory')
+        scylla_version = os.environ.get('SCYLLA_VERSION', None)
+
+        if scylla_version:
+            from ccmlib.scylla_repository import setup
+            cdir, _ = setup(scylla_version)
+            return cdir is not None
+        else:
+            raise ArgumentError('Undefined installation directory')
 
     return (os.path.exists(os.path.join(install_dir, 'scylla')) or
             os.path.exists(os.path.join(install_dir, 'build', 'debug', 'scylla')) or
