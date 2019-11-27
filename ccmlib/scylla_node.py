@@ -695,6 +695,7 @@ class ScyllaNode(Node):
             self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'bin', 'scylla'),
                                    os.path.join(self.get_bin_dir(), 'scylla'),
                                    stat.S_IEXEC)
+            os.environ['GNUTLS_SYSTEM_PRIORITY_FILE'] = os.path.join(self.get_install_dir(), 'scylla-core-package/libreloc/gnutls.config')
         else:
             relative_repos_root = '..'
             src = os.path.join(self.get_install_dir(), 'build', scylla_mode, 'scylla')
