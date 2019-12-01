@@ -256,7 +256,8 @@ class ScyllaNode(Node):
         data['tls_key_file'] = os.path.join(ssl_dir, 'scylla-manager-agent.key')
         data['logger'] = dict(level='debug')
         data['scylla'] = {'api_address': "{}".format(self.address()),
-                          'api_port': 10000 }
+                          'api_port': 10000}
+        data['prometheus'] = "{}:56090".format(self.address())
 
         with open(conf_file, 'w') as f:
             yaml.safe_dump(data, f, default_flow_style=False)

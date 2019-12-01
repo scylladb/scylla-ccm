@@ -229,6 +229,9 @@ class ScyllaManager:
         if not 'logger' in data:
             data['logger'] = {}
         data['logger']['mode'] = 'stderr'
+        data['prometheus'] = "{}:56091".format(self.scylla_cluster.get_node_ip(1))
+        # Changing port to 56091 since the manager and the first node share the same ip and 56090 is already in use
+        # by the first node's manager agent
         if 'ssh' in data:
             del data['ssh']
         with open(conf_file, 'w') as f:
