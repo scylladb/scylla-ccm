@@ -584,9 +584,9 @@ class Node(object):
             if quiet_start and self.cluster.version() >= '2.2.4':
                 args.append('-q')
 
-            process = subprocess.Popen(args, cwd=self.get_bin_dir(), env=env, stdout=stdout_sink, stderr=subprocess.PIPE)
+            process = subprocess.Popen(args, cwd=self.get_bin_dir(), env=env, stdout=stdout_sink, stderr=subprocess.PIPE, universal_newlines=True)
         else:
-            process = subprocess.Popen(args, env=env, stdout=stdout_sink, stderr=subprocess.PIPE)
+            process = subprocess.Popen(args, env=env, stdout=stdout_sink, stderr=subprocess.PIPE, universal_newlines=True)
         # Our modified batch file writes a dirty output with more than just the pid - clean it to get in parity
         # with *nix operation here.
 
@@ -712,10 +712,10 @@ class Node(object):
         args = [nodetool, '-h', host, '-p', str(self.jmx_port)]
         args += cmd.split()
         if capture_output:
-            p = subprocess.Popen(args, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            p = subprocess.Popen(args, universal_newlines=True, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             stdout, stderr = p.communicate()
         else:
-            p = subprocess.Popen(args, env=env)
+            p = subprocess.Popen(args, env=env, universal_newlines=True)
             stdout, stderr = None, None
 
         if wait:
@@ -770,16 +770,16 @@ class Node(object):
         if cmds is None:
             os.execve(cli, [common.platform_binary('cassandra-cli')] + args, env)
         else:
-            p = subprocess.Popen([cli] + args, env=env, stdin=subprocess.PIPE, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+            p = subprocess.Popen([cli] + args, env=env, stdin=subprocess.PIPE, stderr=subprocess.PIPE, stdout=subprocess.PIPE, universal_newlines=True)
             for cmd in cmds.split(';'):
                 p.stdin.write(cmd + ';\n')
             p.stdin.write("quit;\n")
             p.wait()
-            for err in p.stderr:
+            for err in p.stderr.readlines():
                 print_("(EE) ", err, end='')
             if show_output:
                 i = 0
-                for log in p.stdout:
+                for log in p.stdout.readlines():
                     # first four lines are not interesting
                     if i >= 4:
                         print_(log, end='')
@@ -797,7 +797,7 @@ class Node(object):
         sys.stdout.flush()
         if cmds is None:
             if common.is_win():
-                subprocess.Popen([cqlsh] + args, env=env, creationflags=subprocess.CREATE_NEW_CONSOLE)
+                subprocess.Popen([cqlsh] + args, env=env, creationflags=subprocess.CREATE_NEW_CONSOLE, universal_newlines=True)
             else:
                 os.execve(cqlsh, [common.platform_binary('cqlsh')] + args, env)
         else:
@@ -807,9 +807,8 @@ class Node(object):
                 if cmd:
                     p.stdin.write(cmd + ';\n')
             p.stdin.write("quit;\n")
-            p.wait()
 
-            output = (p.stdout.read(), p.stderr.read())
+            output = p.communicate()
 
             for err in output[1].split('\n'):
                 print_("(EE) ", err, end='')
@@ -827,7 +826,7 @@ class Node(object):
         host = self.network_interfaces['thrift'][0]
         port = self.network_interfaces['thrift'][1]
         args = ['-h', host, '-p', str(port), '--jmxport', str(self.jmx_port)]
-        return CliSession(subprocess.Popen([cli] + args, env=env, stdin=subprocess.PIPE, stderr=subprocess.PIPE, stdout=subprocess.PIPE))
+        return CliSession(subprocess.Popen([cli] + args, env=env, stdin=subprocess.PIPE, stderr=subprocess.PIPE, stdout=subprocess.PIPE, universal_newlines=True))
 
     def set_log_level(self, new_level, class_name=None):
         known_level = ['TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'OFF']
@@ -936,7 +935,7 @@ class Node(object):
                 cmd.append('--debug')
             cmd.append(f)
             p = subprocess.Popen(cmd, cwd=os.path.join(self.get_install_dir(), 'resources', 'cassandra', 'bin'),
-                                 env=env, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+                                 env=env, stderr=subprocess.PIPE, stdout=subprocess.PIPE, universal_newlines=True)
             (out, err) = p.communicate()
             rc = p.returncode
             results.append((out, err, rc))
@@ -956,7 +955,7 @@ class Node(object):
         for sstable in sstablefiles:
             cmd = [sstablemetadata, sstable]
             if output_file is None:
-                p = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=env)
+                p = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=env, universal_newlines=True)
                 (out, err) = p.communicate()
                 rc = p.returncode
                 results.append((out, err, rc))
@@ -972,7 +971,7 @@ class Node(object):
         cmd = [sstableexpiredblockers, keyspace, column_family]
         results = []
         if output_file is None:
-            p = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=env)
+            p = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=env, universal_newlines=True)
             (out, err) = p.communicate()
             rc = p.returncode
             results.append((out, err, rc))
@@ -1006,7 +1005,7 @@ class Node(object):
         cmd = [sstablelevelreset, "--really-reset", keyspace, cf]
 
         if output:
-            p = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=env)
+            p = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=env, universal_newlines=True)
             (stdout, stderr) = p.communicate()
             rc = p.returncode
             return (stdout, stderr, rc)
@@ -1024,12 +1023,12 @@ class Node(object):
             cmd = [sstableofflinerelevel, keyspace, cf]
 
         if output:
-            p = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=env)
+            p = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=env, universal_newlines=True)
             (stdout, stderr) = p.communicate()
             rc = p.returncode
             return (stdout, stderr, rc)
         else:
-            return subprocess.call(cmd, env=env)
+            return subprocess.call(cmd, env=env, universal_newlines=True)
 
     def run_sstableverify(self, keyspace, cf, options=None, output=False):
         sstableverify = self.get_tool('sstableverify')
@@ -1040,12 +1039,12 @@ class Node(object):
             cmd[1:1] = options
 
         if output:
-            p = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=env)
+            p = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=env, universal_newlines=True)
             (stdout, stderr) = p.communicate()
             rc = p.returncode
             return (stdout, stderr, rc)
         else:
-            return subprocess.call(cmd, env=env)
+            return subprocess.call(cmd, env=env, universal_newlines=True)
 
     def _find_cmd(self, cmd):
         """
@@ -1107,7 +1106,7 @@ class Node(object):
         if has_limit or has_throttle:
             args = [stress, 'version']
             p = subprocess.Popen(args, cwd=common.parse_path(stress),
-                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True
                                  **kwargs)
             stdout, stderr = p.communicate()
 
@@ -1132,7 +1131,7 @@ class Node(object):
             stdout_handle = kwargs.pop("stdout", subprocess.PIPE)
             stderr_handle = kwargs.pop("stderr", subprocess.PIPE)
             p = subprocess.Popen(args, cwd=common.parse_path(stress),
-                                 stdout=stdout_handle, stderr=stderr_handle,
+                                 stdout=stdout_handle, stderr=stderr_handle, universal_newlines=True,
                                  **kwargs)
             stdout, stderr = p.communicate()
             return_code = p.wait()
@@ -1578,7 +1577,7 @@ class Node(object):
         except ImportError:
             print_("WARN: psutil not installed. Pid tracking functionality will suffer. See README for details.")
             cmd = 'tasklist /fi "PID eq ' + str(self.pid) + '"'
-            proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
+            proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, universal_newlines=True)
 
             for line in proc.stdout:
                 if re.match("Image", line):
@@ -1771,7 +1770,7 @@ class Node(object):
                                                        'bin',
                                                        'jstack'))
         jstack_cmd = [jstack_location, '-J-d64'] + opts + [str(self.pid)]
-        return subprocess.Popen(jstack_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return subprocess.Popen(jstack_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
 
 
 def _get_load_from_info_output(info):
