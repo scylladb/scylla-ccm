@@ -569,11 +569,11 @@ class Cluster(object):
         self._config_options['client_encryption_options'] = ssl_options
         self._update_config()
 
-    def enable_internode_ssl(self, node_ssl_path):
+    def enable_internode_ssl(self, node_ssl_path, internode_encryption='all'):
         shutil.copyfile(os.path.join(node_ssl_path, 'keystore.jks'), os.path.join(self.get_path(), 'internode-keystore.jks'))
         shutil.copyfile(os.path.join(node_ssl_path, 'truststore.jks'), os.path.join(self.get_path(), 'internode-truststore.jks'))
         node_ssl_options = {
-            'internode_encryption': 'all',
+            'internode_encryption': internode_encryption,
             'keystore': os.path.join(self.get_path(), 'internode-keystore.jks'),
             'keystore_password': 'cassandra',
             'truststore': os.path.join(self.get_path(), 'internode-truststore.jks'),
