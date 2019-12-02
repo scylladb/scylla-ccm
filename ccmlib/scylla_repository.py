@@ -101,7 +101,7 @@ def setup_scylla_manager():
             data = requests.get(url).content
 
             # unzip the repo primary listing
-            zf = gzip.GzipFile(fileobj=StringIO.StringIO(data))
+            zf = gzip.GzipFile(fileobj=StringIO(data))
             data = zf.read()
 
             files_to_download = []
