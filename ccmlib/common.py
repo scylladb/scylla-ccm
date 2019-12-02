@@ -579,9 +579,11 @@ def get_version_from_build(install_dir=None, node_path=None):
 
 def get_scylla_version(install_dir):
     if isScylla(install_dir):
-        scylla_version_file = os.path.join(install_dir, 'SCYLLA-VERSION-FILE')
-        if os.path.exists(scylla_version_file):
-            return open(scylla_version_file).read().strip()
+        scylla_version_files = [ os.path.join(install_dir, 'SCYLLA-VERSION-FILE'),
+                                 os.path.join(install_dir, 'scylla-core-package', 'SCYLLA-VERSION-FILE') ]
+        for version_file in scylla_version_files:
+            if os.path.exists(version_file):
+                return open(version_file).read().strip()
         return '3.0'
     else:
         return None
