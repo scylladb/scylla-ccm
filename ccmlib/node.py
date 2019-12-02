@@ -1106,7 +1106,7 @@ class Node(object):
         if has_limit or has_throttle:
             args = [stress, 'version']
             p = subprocess.Popen(args, cwd=common.parse_path(stress),
-                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
                                  **kwargs)
             stdout, stderr = p.communicate()
 
