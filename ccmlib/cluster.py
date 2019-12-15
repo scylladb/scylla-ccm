@@ -20,6 +20,7 @@ class Cluster(object):
         self.name = name
         self.id = 0
         self.ipprefix = None
+        self.ipformat = None
         self.nodes = {}
         self.seeds = []
         self.partitioner = partitioner
@@ -148,9 +149,15 @@ class Cluster(object):
         node._save()
         return self
 
-    def populate(self, nodes, debug=False, tokens=None, use_vnodes=False, ipprefix='127.0.0.', ipformat=None):
-        if self.ipprefix:
-            ipprefix = self.ipprefix
+    def populate(self, nodes, debug=False, tokens=None, use_vnodes=False, ipprefix=None, ipformat=None):
+        if ipprefix:
+            self.ipprefix = ipprefix
+        elif not self.ipprefix:
+            self.ipprefix = '127.0.0.'
+        if ipformat:
+            self.ipformat = ipformat
+        elif not self.ipformat:
+            self.ipformat = self.ipprefix + "%d"
         node_count = nodes
         dcs = []
         self.use_vnodes = use_vnodes
@@ -177,41 +184,58 @@ class Cluster(object):
             else:
                 tokens = self.balanced_tokens_across_dcs(dcs)
 
-        if not ipformat:
-            ipformat = ipprefix + "%d"
-
         for i in xrange(1, node_count + 1):
             tk = None
             if tokens is not None and i - 1 < len(tokens):
                 tk = tokens[i - 1]
             dc = dcs[i - 1] if i - 1 < len(dcs) else None
-
-            binary = None
-            if self.cassandra_version() >= '1.2':
-                binary = (ipformat % i, 9042)
-            node = self.create_node(name='node%s' % i,
-                                    auto_bootstrap=False,
-                                    thrift_interface=(ipformat % i, 9160),
-                                    storage_interface=(ipformat % i, 7000),
-                                    jmx_port=str(7000 + i * 100 + self.id),
-                                    remote_debug_port=str(2000 + i * 100) if debug else str(0),
-                                    initial_token=tk,
-                                    binary_interface=binary)
-            self.add(node, True, dc)
+            self.new_node(i, debug=debug, initial_token=tk, data_center=dc)
             self._update_config()
         return self
+
+    def new_node(self, i, auto_bootstrap=False, debug=False, initial_token=None, add_node=True, is_seed=True, data_center=None):
+        ipformat = self.get_ipformat()
+        binary = None
+        if self.cassandra_version() >= '1.2':
+            binary = self.get_binary_interface(i)
+        node = self.create_node(name='node{}'.format(i),
+                                auto_bootstrap=auto_bootstrap,
+                                thrift_interface=self.get_thrift_interface(i),
+                                storage_interface=self.get_storage_interface(i),
+                                jmx_port=str(self.get_node_jmx_port(i)),
+                                remote_debug_port=str(self.get_debug_port(i) if debug else 0),
+                                initial_token=initial_token,
+                                binary_interface=binary)
+        if add_node:
+            self.add(node, is_seed=is_seed, data_center=data_center)
+        return node
 
     def create_node(self, name, auto_bootstrap, thrift_interface, storage_interface, jmx_port, remote_debug_port, initial_token, save=True, binary_interface=None):
         return Node(name, self, auto_bootstrap, thrift_interface, storage_interface, jmx_port, remote_debug_port, initial_token, save, binary_interface)
 
+    def get_ipprefix(self):
+        return self.ipprefix if self.ipprefix is not None else '127.0.0.'
+
+    def get_ipformat(self):
+        return self.ipformat if self.ipformat is not None else '{}%d'.format(self.get_ipprefix())
+
     def get_node_ip(self,nodeid):
-        ipprefix = "127.0.0.%d"
-        if self.ipprefix:
-            ipprefix = self.ipprefix + "%d"
-        return ipprefix % nodeid
+        return self.get_ipformat() % nodeid
+
+    def get_binary_interface(self, nodeid):
+        return (self.get_node_ip(nodeid), 9042)
+
+    def get_thrift_interface(self, nodeid):
+        return (self.get_node_ip(nodeid), 9160)
+
+    def get_storage_interface(self, nodeid):
+        return (self.get_node_ip(nodeid), 7000)
 
     def get_node_jmx_port(self,nodeid):
         return 7000 + nodeid * 100 + self.id;
+
+    def get_debug_port(self, nodeid):
+        return 2000 + nodeid * 100
 
     def balanced_tokens(self, node_count):
         if self.cassandra_version() >= '1.2' and not self.partitioner:
