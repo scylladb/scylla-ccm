@@ -1678,7 +1678,11 @@ class Node(object):
         start = time.time()
         while not (os.path.isfile(pidfile) and os.stat(pidfile).st_size > 0):
             if (time.time() - start > 30.0):
-                print_("Timed out waiting for pidfile to be filled (current time is %s)" % (datetime.now()))
+                print_("Timed out waiting for pidfile {} to be filled (current time is %s): File {} size={}".format(
+                        pidfile,
+                        datetime.now(),
+                        'exists' if os.path.isfile(pidfile) else 'does not exist' if not os.path.exists(pidfile) else 'is not a file',
+                        os.stat(pidfile).st_size if os.path.exists(pidfile) else -1))
                 break
             else:
                 time.sleep(0.1)

@@ -1,7 +1,7 @@
 # ccm node
 from __future__ import with_statement
 
-import datetime
+from datetime import datetime
 import errno
 import os
 import signal
@@ -506,9 +506,12 @@ class ScyllaNode(Node):
         start = time.time()
         while not (os.path.isfile(pidfile) and os.stat(pidfile).st_size > 0):
             if time.time() - start > 30.0 or not wait:
-                print_("Timed out waiting for pidfile to be filled "
-                       "(current time is %s)" % (datetime.datetime.now()))
-                return
+                print_("Timed out waiting for pidfile {} to be filled (after {} seconds): File {} size={}".format(
+                        pidfile,
+                        0 if not wait else time.time() - start,
+                        'exists' if os.path.isfile(pidfile) else 'does not exist' if not os.path.exists(pidfile) else 'is not a file',
+                        os.stat(pidfile).st_size if os.path.exists(pidfile) else -1))
+                break
             else:
                 time.sleep(0.1)
 
@@ -525,8 +528,11 @@ class ScyllaNode(Node):
         start = time.time()
         while not (os.path.isfile(pidfile) and os.stat(pidfile).st_size > 0):
             if time.time() - start > 30.0:
-                print_("Timed out waiting for pidfile to be filled "
-                       "(current time is %s)" % (datetime.datetime.now()))
+                print_("Timed out waiting for pidfile {} to be filled (current time is %s): File {} size={}".format(
+                        pidfile,
+                        datetime.now(),
+                        'exists' if os.path.isfile(pidfile) else 'does not exist' if not os.path.exists(pidfile) else 'is not a file',
+                        os.stat(pidfile).st_size if os.path.exists(pidfile) else -1))
                 break
             else:
                 time.sleep(0.1)
