@@ -515,6 +515,10 @@ class ScyllaNode(Node):
             else:
                 time.sleep(0.1)
 
+        if not wait:
+            self.jmx_pid = None
+            return
+
         try:
             with open(pidfile, 'r') as f:
                 self.jmx_pid = int(f.readline().strip())
