@@ -85,6 +85,7 @@ class ScyllaNode(Node):
         self.scylla_manager = scylla_manager
         self.jmx_pid = None
         self.agent_pid = None
+        self._create_directory()
 
     def set_smp(self, smp):
         self._smp =  smp
@@ -626,6 +627,7 @@ class ScyllaNode(Node):
 
     def import_config_files(self):
         # TODO: override node - enable logging
+        self._create_directory()
         self._update_config()
         self.copy_config_files()
         self.__update_yaml()

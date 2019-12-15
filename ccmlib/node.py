@@ -111,6 +111,8 @@ class Node(object):
             self.import_bin_files()
             if common.is_win():
                 self.__clean_bat()
+        else:
+            self._create_directory()
 
     @staticmethod
     def load(path, name, cluster):
@@ -1264,6 +1266,7 @@ class Node(object):
         self.nodetool("removenode " + str(hid))
 
     def import_config_files(self):
+        self._create_directory()
         self._update_config()
         self.copy_config_files()
         self.__update_yaml()
@@ -1349,13 +1352,17 @@ class Node(object):
         self.__update_envfile()
         self._update_config()
 
-    def _update_config(self):
+    def _create_directory(self):
         dir_name = self.get_path()
         if not os.path.exists(dir_name):
             os.mkdir(dir_name)
             for dir in self._get_directories():
                 os.mkdir(os.path.join(dir_name, dir))
 
+    def _update_config(self):
+        dir_name = self.get_path()
+        if not os.path.exists(dir_name):
+            return
         filename = os.path.join(dir_name, 'node.conf')
         values = {
             'name': self.name,
