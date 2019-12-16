@@ -313,11 +313,6 @@ class ScyllaNode(Node):
 
         return java_up
 
-    def pause(self):
-        self._process_scylla.send_signal(signal.SIGSTOP)
-
-    def resume(self):
-        self._process_scylla.send_signal(signal.SIGCONT)
 
     # Scylla Overload start
     def start(self, join_ring=True, no_wait=False, verbose=False,
