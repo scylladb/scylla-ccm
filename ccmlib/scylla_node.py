@@ -15,6 +15,7 @@ import threading
 import psutil
 import yaml
 import glob
+import re
 
 from six import print_
 from six.moves import xrange
@@ -198,7 +199,7 @@ class ScyllaNode(Node):
             pid_file.write(str(self._process_jmx.pid))
 
     def _start_scylla(self, args, marks, update_pid, wait_other_notice,
-                      wait_for_binary_proto):
+                      wait_for_binary_proto, ext_env):
         log_file = os.path.join(self.get_path(), 'logs', 'system.log')
         # In case we are restarting a node
         # we risk reading the old cassandra.pid file
@@ -210,6 +211,7 @@ class ScyllaNode(Node):
         except AttributeError:
             env_copy = os.environ
         env_copy['SCYLLA_HOME'] = self.get_path()
+        env_copy.update(ext_env)
         self._process_scylla = subprocess.Popen(args, stdout=scylla_log,
                                                 stderr=scylla_log,
                                                 close_fds=True,
@@ -337,6 +339,14 @@ class ScyllaNode(Node):
             option.
           - replace_address: start the node with the
             -Dcassandra.replace_address option.
+
+        Extra command line options may be passed using the
+        SCYLLA_EXT_OPTS environment variable.
+
+        Extra environment variables for running scylla can be passed using the
+        SCYLLA_EXT_ENV environment variable.
+        Those are represented in a single string comprised of one or more
+        pairs of "var=value" separated by either space or semicolon (';')
         """
         if jvm_args is None:
             jvm_args = []
@@ -455,9 +465,22 @@ class ScyllaNode(Node):
             args += ['--replace-address', replace_address]
         args += ['--unsafe-bypass-fsync', '1']
 
+        ext_env = {}
+        scylla_ext_env = os.getenv('SCYLLA_EXT_ENV', "").strip()
+        if scylla_ext_env:
+            scylla_ext_env = re.split(r'[; ]', scylla_ext_env)
+            for s in scylla_ext_env:
+                try:
+                    [k, v] = s.split('=', 1)
+                except ValueError as e:
+                    print("Bad SCYLLA_EXT_ENV variable: {}: {}", s, e)
+                else:
+                    ext_env[k] = v
+
         scylla_process = self._start_scylla(args, marks, update_pid,
                                             wait_other_notice,
-                                            wait_for_binary_proto)
+                                            wait_for_binary_proto,
+                                            ext_env)
         self._start_jmx(data)
 
         if not self._wait_java_up(data):
