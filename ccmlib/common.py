@@ -469,8 +469,8 @@ def check_socket_listening(itf, timeout=60):
             sock.close()
             return True
         except socket.error:
-            # Try again in another 200ms
-            time.sleep(.2)
+            # Try again in another 100ms
+            time.sleep(0.1)
             continue
 
     return False

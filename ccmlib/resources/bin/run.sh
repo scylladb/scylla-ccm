@@ -11,5 +11,3 @@ export SCYLLA_HOME=$1
 shift
 exec $SCYLLA_HOME/bin/scylla --options-file $SCYLLA_HOME/conf/scylla.yaml "$@" <&- 2>&1 | tee -a "$SCYLLA_HOME/logs/system.log" &
 pkill -9 -f com.sun.management.jmxremote.port=$jmx_port || true
-
-sleep 6

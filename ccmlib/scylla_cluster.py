@@ -96,13 +96,13 @@ class ScyllaCluster(Cluster):
                                profile_options=profile_options)
                 # Let's ensure the nodes start at different times to avoid
                 # race conditions while creating system tables
-                time.sleep(1)
+                time.sleep(0.1)
                 started.append((node, p, mark))
 
         if no_wait and not verbose:
             # waiting 2 seconds to check for early errors and for the
             # pid to be set
-            time.sleep(2)
+            time.sleep(0.1)
         else:
             for node, p, mark in started:
                 start_message = "Starting listening for CQL clients"
@@ -141,7 +141,6 @@ class ScyllaCluster(Cluster):
             for node, _, mark in started:
                 node.watch_log_for("Starting listening for CQL clients",
                                    verbose=verbose, from_mark=mark)
-            time.sleep(0.2)
 
         if self._scylla_manager:
             self._scylla_manager.start()

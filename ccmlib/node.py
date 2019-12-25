@@ -395,7 +395,7 @@ class Node(object):
 
         log_file = os.path.join(self.get_path(), 'logs', filename)
         while not os.path.exists(log_file):
-            time.sleep(.1)
+            time.sleep(0.1)
             if process:
                 process.poll()
                 if process.returncode is not None:
@@ -436,9 +436,9 @@ class Node(object):
                             break
                 else:
                     # yep, it's ugly
-                    time.sleep(0.01)
-                    elapsed = elapsed + 1
-                    if elapsed > 100 * timeout:
+                    time.sleep(0.1)
+                    elapsed = elapsed + 0.1
+                    if elapsed > timeout:
                         raise TimeoutError(time.strftime("%d %b %Y %H:%M:%S", time.gmtime()) + " [" + self.name + "] Missing: " + str(
                             [e.pattern for e in tofind]) + ":\n" + reads[:50] + ".....\nSee {} for remainder".format(filename))
 
@@ -671,15 +671,15 @@ class Node(object):
                 for node, mark in marks:
                     node.watch_log_for_death(self, from_mark=mark)
             else:
-                time.sleep(.1)
+                time.sleep(0.1)
 
             still_running = self.is_running()
             if still_running and wait:
                 # The sum of 7 sleeps starting at 1 and doubling each time
                 # is 2**7-1 (=127). So to sleep an arbitrary wait_seconds
                 # we need the first sleep to be wait_seconds/(2**7-1).
-                wait_time_sec = wait_seconds/(2**7-1.0)
-                for i in xrange(0, 7):
+                wait_time_sec = 0.1
+                while wait_time_sec <= wait_seconds + 0.1:
                     # we'll double the wait time each try and cassandra should
                     # not take more than 1 minute to shutdown
                     time.sleep(wait_time_sec)
@@ -701,7 +701,7 @@ class Node(object):
             output, err = self.nodetool("compactionstats", capture_output=True)
             if pattern.search(output):
                 break
-            time.sleep(10)
+            time.sleep(0.1)
 
     def nodetool(self, cmd, capture_output=True, wait=True):
         """
@@ -1619,7 +1619,7 @@ class Node(object):
                 if (now - start > 15000):
                     raise Exception('Timed out waiting for pid file.')
                 else:
-                    time.sleep(.001)
+                    time.sleep(0.1)
             # Spin for up to 10s waiting for .bat to fill the pid file
             start = common.now_ms()
             while (os.stat(pidfile).st_size == 0):
@@ -1627,7 +1627,7 @@ class Node(object):
                 if (now - start > 10000):
                     raise Exception('Timed out waiting for pid file to be filled.')
                 else:
-                    time.sleep(.001)
+                    time.sleep(0.1)
         else:
             try:
                 # Spin for 500ms waiting for .bat to write the dirty_pid file
@@ -1636,7 +1636,7 @@ class Node(object):
                     if (now - start > 500):
                         raise Exception('Timed out waiting for dirty_pid file.')
                     else:
-                        time.sleep(.001)
+                        time.sleep(0.1)
 
                 with open(self.get_path() + "/dirty_pid.tmp", 'r') as f:
                     found = False
@@ -1657,7 +1657,7 @@ class Node(object):
                                     found = True
                                     pidfile.write(win_pid)
                         else:
-                            time.sleep(.001)
+                            time.sleep(0.1)
                         readEnd = common.now_ms()
                     if not found:
                         raise Exception('Node: %s  Failed to find pid in ' +

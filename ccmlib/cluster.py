@@ -288,7 +288,7 @@ class Cluster(object):
                     removed = True
                 except:
                     tries = tries + 1
-                    time.sleep(.1)
+                    time.sleep(0.1)
                     if tries == 5:
                         raise
 
@@ -337,7 +337,7 @@ class Cluster(object):
                 started.append((node, p, mark))
 
         if no_wait and not verbose:
-            time.sleep(2)  # waiting 2 seconds to check for early errors and for the pid to be set
+            time.sleep(0.1)  # waiting 0.1 seconds to check for early errors and for the pid to be set
         else:
             for node, p, mark in started:
                 try:
