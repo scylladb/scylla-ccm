@@ -25,7 +25,7 @@ from ccmlib.node import Node
 from ccmlib.node import NodeError
 
 
-def wait_for(func, timeout, first=0.0, step=1.0, text=None):
+def wait_for(func, timeout, first=0.0, step=0.1, text=None):
     """
     Wait until func() evaluates to True.
 
@@ -305,7 +305,7 @@ class ScyllaNode(Node):
     def _wait_java_up(self, data):
         java_up = False
         iteration = 0
-        while not java_up and iteration < 30:
+        while not java_up and iteration < 300:
             iteration += 1
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             try:
@@ -318,7 +318,7 @@ class ScyllaNode(Node):
                 s.close()
             except:
                 pass
-            time.sleep(1)
+            time.sleep(0.1)
 
         return java_up
 
@@ -574,7 +574,7 @@ class ScyllaNode(Node):
 
     def wait_until_stopped(self, wait_seconds=127):
         start_time = time.time()
-        wait_time_sec = 1
+        wait_time_sec = 0.1
         while True:
             if not self.is_running():
                 return True

@@ -141,7 +141,6 @@ class ScyllaCluster(Cluster):
             for node, _, mark in started:
                 node.watch_log_for("Starting listening for CQL clients",
                                    verbose=verbose, from_mark=mark)
-            time.sleep(0.2)
 
         if self._scylla_manager:
             self._scylla_manager.start()
