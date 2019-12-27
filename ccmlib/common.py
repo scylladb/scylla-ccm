@@ -313,15 +313,19 @@ def parse_bin(executable):
     tokens = re.split(os.sep, executable)
     return tokens[-1]
 
+def get_tools_java_dir(install_dir):
+    if 'scylla-repository' in install_dir:
+        return os.path.join(install_dir, 'scylla-tools-java')
+    else:
+        return os.environ.get('TOOLS_JAVA_DIR', os.path.join(install_dir, 'resources', 'cassandra'))
 
 def get_stress_bin(install_dir):
     candidates = [
+        os.path.join(get_tools_java_dir(install_dir), 'tools', 'bin', 'cassandra-stress'),
         os.path.join(install_dir, 'contrib', 'stress', 'bin', 'stress'),
         os.path.join(install_dir, 'tools', 'stress', 'bin', 'stress'),
         os.path.join(install_dir, 'tools', 'bin', 'stress'),
         os.path.join(install_dir, 'tools', 'bin', 'cassandra-stress'),
-        os.path.join(install_dir, 'scylla-tools-java', 'tools', 'bin', 'cassandra-stress'),
-        os.path.join(install_dir, 'resources', 'cassandra', 'tools', 'bin', 'cassandra-stress')
     ]
     candidates = [platform_binary(s) for s in candidates]
 
