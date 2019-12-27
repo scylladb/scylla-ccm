@@ -126,7 +126,7 @@ class ClusterCreateCmd(Cmd):
         parser.add_option('--scylla-core-package-uri', type="string", dest="scylla_core_package_uri",
                           help="The path scylla relocatable package", default=None)
 
-        parser.add_option('--scylla-java-tools-package-uri', type="string", dest="scylla_java_tools_package_uri",
+        parser.add_option('--scylla-tools-java-package-uri', type="string", dest="scylla_tools_java_package_uri",
                           help="The path scylla java tools relocatable package", default=None)
 
         parser.add_option('--scylla-jmx-package-uri', type="string", dest="scylla_jmx_package_uri",
@@ -142,7 +142,7 @@ class ClusterCreateCmd(Cmd):
         # create cluster with own versions of each package
         ccm create scylla-reloc-1 -n 1 --scylla --version temp \\
             --scylla-core-package-uri=../scylla/build/release/scylla-package.tar.gz \\ 
-            --scylla-java-tools-package-uri=../scylla-tools-java/temp.tar.gz \\
+            --scylla-tools-java-package-uri=../scylla-tools-java/temp.tar.gz \\
             --scylla-jmx-package-uri=../scylla-jmx/temp.tar.gz
 
         # create cluster with overwriting only one package
@@ -188,8 +188,8 @@ class ClusterCreateCmd(Cmd):
 
         if options.scylla_core_package_uri:
             os.environ['SCYLLA_CORE_PACKAGE'] = options.scylla_core_package_uri
-        if options.scylla_java_tools_package_uri:
-            os.environ['SCYLLA_JAVA_TOOLS_PACKAGE'] = options.scylla_java_tools_package_uri
+        if options.scylla_tools_java_package_uri:
+            os.environ['SCYLLA_TOOLS_JAVA_PACKAGE'] = options.scylla_tools_java_package_uri
         if options.scylla_jmx_package_uri:
             os.environ['SCYLLA_JMX_PACKAGE'] = options.scylla_jmx_package_uri
 
