@@ -668,10 +668,7 @@ class ScyllaNode(Node):
         self.__copy_logback_files()
 
     def get_tools_java_dir(self):
-        if 'scylla-repository' in self.get_install_dir():
-            return os.path.join(self.get_install_dir(), 'scylla-tools-java')
-        else:
-            return os.environ.get('TOOLS_JAVA_DIR', os.path.join(self.get_install_dir(), 'resources', 'cassandra'))
+        return common.get_tools_java_dir(self.get_install_dir())
 
     def get_jmx_dir(self, relative_repos_root):
         return os.environ.get('SCYLLA_JMX_DIR', os.path.join(self.get_install_dir(), relative_repos_root, 'scylla-jmx'))
