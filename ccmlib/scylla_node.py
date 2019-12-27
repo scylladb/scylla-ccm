@@ -97,7 +97,7 @@ class ScyllaNode(Node):
         self._mem_set_during_test = True
 
     def get_install_cassandra_root(self):
-        return self.get_tool_java_dir()
+        return self.get_tools_java_dir()
 
     def get_node_cassandra_root(self):
         return os.path.join(self.get_path())
@@ -109,7 +109,7 @@ class ScyllaNode(Node):
         return os.path.join(self.get_path(), 'conf')
 
     def get_tool(self, toolname):
-        return common.join_bin(self.get_tool_java_dir(), 'bin', toolname)
+        return common.join_bin(self.get_tools_java_dir(), 'bin', toolname)
 
     def get_tool_args(self, toolname):
         raise NotImplementedError('ScyllaNode.get_tool_args')
@@ -667,9 +667,9 @@ class ScyllaNode(Node):
         self.__update_yaml()
         self.__copy_logback_files()
 
-    def get_tool_java_dir(self):
+    def get_tools_java_dir(self):
         if 'scylla-repository' in self.get_install_dir():
-            return os.path.join(self.get_install_dir(), 'scylla-java-tools')
+            return os.path.join(self.get_install_dir(), 'scylla-tools-java')
         else:
             return os.environ.get('TOOLS_JAVA_DIR', os.path.join(self.get_install_dir(), 'resources', 'cassandra'))
 
@@ -677,7 +677,7 @@ class ScyllaNode(Node):
         return os.environ.get('SCYLLA_JMX_DIR', os.path.join(self.get_install_dir(), relative_repos_root, 'scylla-jmx'))
 
     def __copy_logback_files(self):
-        shutil.copy(os.path.join(self.get_tool_java_dir(), 'conf', 'logback-tools.xml'),
+        shutil.copy(os.path.join(self.get_tools_java_dir(), 'conf', 'logback-tools.xml'),
                     os.path.join(self.get_conf_dir(), 'logback-tools.xml'))
 
     def import_dse_config_files(self):
@@ -707,7 +707,7 @@ class ScyllaNode(Node):
         os.makedirs(os.path.join(self.get_path(), 'resources', 'cassandra', 'bin'))
 
         for name in files:
-            self.hard_link_or_copy(os.path.join(self.get_tool_java_dir(),
+            self.hard_link_or_copy(os.path.join(self.get_tools_java_dir(),
                                                 'bin', name),
                                    os.path.join(self.get_path(),
                                                 'resources', 'cassandra',
@@ -719,7 +719,7 @@ class ScyllaNode(Node):
         os.makedirs(os.path.join(self.get_path(), 'resources', 'cassandra',
                                  'tools', 'bin'))
         for name in files:
-            self.hard_link_or_copy(os.path.join(self.get_tool_java_dir(),
+            self.hard_link_or_copy(os.path.join(self.get_tools_java_dir(),
                                                 'tools', 'bin', name),
                                    os.path.join(self.get_path(),
                                                 'resources', 'cassandra',

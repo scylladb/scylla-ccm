@@ -48,11 +48,13 @@ def setup(version, verbose=True):
             s3_url, 'scylla-package.tar.gz'))
         download_version(version, verbose=verbose, url=url, target_dir=os.path.join(
             tmp_download, 'scylla-core-package'))
+        url = os.environ.get("SCYLLA_TOOLS_JAVA_PACKAGE") or
+            # Try the old name for backward compatibility
+            os.environ.get("SCYLLA_JAVA_TOOLS_PACKAGE") or
+            os.path.join(s3_url, 'scylla-tools-package.tar.gz'))
 
-        url = os.environ.get('SCYLLA_JAVA_TOOLS_PACKAGE', os.path.join(
-            s3_url, 'scylla-tools-package.tar.gz'))
         download_version(version, verbose=verbose, url=url, target_dir=os.path.join(
-            tmp_download, 'scylla-java-tools'))
+            tmp_download, 'scylla-tools-java'))
 
         url = os.environ.get('SCYLLA_JMX_PACKAGE', os.path.join(
             s3_url, 'scylla-jmx-package.tar.gz'))
