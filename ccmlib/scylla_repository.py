@@ -15,7 +15,7 @@ import requests
 
 from six import print_
 from six.moves import urllib
-from six import StringIO
+from six import BytesIO
 
 from ccmlib.common import (
     ArgumentError, get_default_path, rmdirs, validate_install_dir, get_scylla_version)
@@ -101,7 +101,7 @@ def setup_scylla_manager():
             data = requests.get(url).content
 
             # unzip the repo primary listing
-            zf = gzip.GzipFile(fileobj=StringIO(data))
+            zf = gzip.GzipFile(fileobj=BytesIO(data))
             data = zf.read()
 
             files_to_download = []
@@ -109,7 +109,7 @@ def setup_scylla_manager():
                 try:
                     f_regex = re.compile(
                         r'="({}.*?x86_64.rpm)"'.format(rpm_file))
-                    f_rpm = f_regex.search(data).groups()[0]
+                    f_rpm = f_regex.search(data.decode('utf-8')).groups()[0]
                     files_to_download.append(f_rpm)
                 except Exception:
                     pass
