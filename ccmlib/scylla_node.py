@@ -194,6 +194,8 @@ class ScyllaNode(Node):
         standalone = os.environ.get('SCYLLA_CCM_STANDALONE', None)
         if standalone is None:
             self._process_jmx_waiter = threading.Thread(target=self._wait_for_jmx)
+            # Don't block the main thread on abnormal shutdown
+            self._process_jmx_waiter.daemon = True
             self._process_jmx_waiter.start()
         pid_filename = os.path.join(self.get_path(), 'scylla-jmx.pid')
         with open(pid_filename, 'w') as pid_file:
@@ -224,6 +226,8 @@ class ScyllaNode(Node):
         standalone = os.environ.get('SCYLLA_CCM_STANDALONE', None)
         if standalone is None:
             self._process_scylla_waiter = threading.Thread(target=self._wait_for_scylla)
+            # Don't block the main thread on abnormal shutdown
+            self._process_scylla_waiter.daemon = True
             self._process_scylla_waiter.start()
         pid_filename = os.path.join(self.get_path(), 'cassandra.pid')
         with open(pid_filename, 'w') as pid_file:
@@ -285,6 +289,8 @@ class ScyllaNode(Node):
         standalone = os.environ.get('SCYLLA_CCM_STANDALONE', None)
         if standalone is None:
             self._process_agent_waiter = threading.Thread(target=self._wait_for_agent)
+            # Don't block the main thread on abnormal shutdown
+            self._process_agent_waiter.daemon = True
             self._process_agent_waiter.start()
         pid_filename = os.path.join(self.get_path(), 'scylla-agent.pid')
         with open(pid_filename, 'w') as pid_file:
