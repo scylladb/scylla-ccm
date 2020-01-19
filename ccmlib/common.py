@@ -411,8 +411,8 @@ def scylla_extract_install_dir_and_mode(install_dir):
     elif install_dir.endswith('build/release') or install_dir.endswith('build/release/'):
         scylla_mode = 'release'
         install_dir = str(os.path.join(install_dir, os.pardir, os.pardir))
-    elif os.path.exists(os.path.join(install_dir, 'scylla-core-package', 'SCYLLA-RELOCATABLE-FILE')):
-        scylla_mode = 'reloc'
+    elif os.path.exists(os.path.join(install_dir, 'scylla-core-package')):
+        scylla_mode = None
     return install_dir, scylla_mode
 
 
