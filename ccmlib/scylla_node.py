@@ -476,6 +476,8 @@ class ScyllaNode(Node):
             args[args.index('--memory') + 1] = '{}M'.format(self._mem_mb_per_cpu * self._smp)
         if '--default-log-level' not in args:
             args += ['--default-log-level', self.__global_log_level]
+        if self.scylla_mode() == 'debug' and '--blocked-reactor-notify-ms' not in args:
+            args += ['--blocked-reactor-notify-ms', '5000']
         # TODO add support for classes_log_level
         if '--collectd' not in args:
             args += ['--collectd', '0']
