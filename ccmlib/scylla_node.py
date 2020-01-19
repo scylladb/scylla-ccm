@@ -301,6 +301,20 @@ class ScyllaNode(Node):
             raise Exception(
                 "scylla manager agent interface %s:%s is not listening after 180 seconds, scylla manager agent may have failed to start."
                 % (api_interface[0], api_interface[1]))
+    
+    def restart_scylla_manager_agent(self, gently):
+        if gently:
+            try:
+                self._process_agent.terminate()
+            except OSError:
+                pass
+        else:
+            try:
+                self._process_agent.kill()
+            except OSError:
+                pass
+        
+        self._start_scylla_manager_agent()
 
     def _wait_java_up(self, data):
         java_up = False

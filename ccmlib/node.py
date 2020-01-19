@@ -1259,6 +1259,17 @@ class Node(object):
         id_line = id_lines[0].replace(":", "").split()
         return id_line[1]
 
+    def get_datacenter_name(self):
+        info = self.nodetool('info', capture_output=True)[0]
+        id_lines = [s for s in info.split('\n')
+                    if s.startswith('Data Center')]
+        if not len(id_lines) == 1:
+            msg = ('Expected output from `nodetool info` to contain exactly 1 '
+                   'line starting with "ID". Found:\n') + info
+            raise RuntimeError(msg)
+        dc_name = id_lines[0].split(":")[1].strip()
+        return dc_name
+
     def removeToken(self, token):
         self.nodetool("removeToken " + str(token))
 
