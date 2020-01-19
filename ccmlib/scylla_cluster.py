@@ -56,7 +56,9 @@ class ScyllaCluster(Cluster):
             self._scylla_manager = ScyllaManager(self,manager)
 
     def load_from_repository(self, version, verbose):
-        return scylla_repository.setup(version, verbose)
+        install_dir, version = scylla_repository.setup(version, verbose)
+        install_dir, self.scylla_mode = common.scylla_extract_install_dir_and_mode(install_dir)
+        return install_dir, version
 
     def create_node(self, name, auto_bootstrap, thrift_interface,
                     storage_interface, jmx_port, remote_debug_port,

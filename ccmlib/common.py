@@ -399,20 +399,42 @@ def isOpscenter(install_dir):
     opscenter_script = os.path.join(bin_dir, 'opscenter')
     return os.path.exists(opscenter_script)
 
+def scylla_extract_mode(path):
+    # path/url examples:
+    #   build/dev
+    #   ../build/release
+    #   /home/foo/scylla/build/debug
+    #   build/dev/
+    #   ../build/release/scylla
+    #   url=../scylla/build/debug/scylla-package.tar.gz
+    m = re.search('(^|/)build/(\w+)(/|$)', path)
+    if m:
+        return m.group(2)
+
+    # path/url examples:
+    #   /jenkins/data/relocatable/unstable/master/202001192256/scylla-package.tar.gz
+    #   url=https://downloads.scylla.com/relocatable/unstable/master/202001192256/scylla-debug-package.tar.gz
+    m = re.search('(^|/)scylla(-(\w+))?-package([./][\w./]+|$)', path)
+    if m:
+        return m.group(3) if m.group(3) else 'release' 
+
+    return None
 
 def scylla_extract_install_dir_and_mode(install_dir):
-    scylla_mode = 'release'
-    if install_dir.endswith('build/debug') or install_dir.endswith('build/debug/'):
-        scylla_mode = 'debug'
+    scylla_mode = scylla_extract_mode(install_dir)
+    if scylla_mode:
         install_dir = str(os.path.join(install_dir, os.pardir, os.pardir))
-    elif install_dir.endswith('build/dev') or install_dir.endswith('build/dev/'):
-        scylla_mode = 'dev'
-        install_dir = str(os.path.join(install_dir, os.pardir, os.pardir))
-    elif install_dir.endswith('build/release') or install_dir.endswith('build/release/'):
+    else:
         scylla_mode = 'release'
-        install_dir = str(os.path.join(install_dir, os.pardir, os.pardir))
-    elif os.path.exists(os.path.join(install_dir, 'scylla-core-package')):
-        scylla_mode = None
+        if os.path.exists(os.path.join(install_dir, 'scylla-core-package')):
+            try:
+                f = open(os.path.join(install_dir, 'scylla-core-package', 'source.txt'), 'r')
+                for l in f.readlines():
+                    if l.startswith('url='):
+                        scylla_mode = scylla_extract_mode(l)
+                f.close()
+            except:
+                pass
     return install_dir, scylla_mode
 
 
