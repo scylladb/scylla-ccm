@@ -88,6 +88,12 @@ class ScyllaNode(Node):
         self.agent_pid = None
         self._create_directory()
 
+    def scylla_mode(self):
+        return self.cluster.get_scylla_mode()
+
+    def is_scylla_reloc(self):
+        return self.cluster.is_scylla_reloc()
+
     def set_smp(self, smp):
         self._smp =  smp
         self._smp_set_during_test = True
@@ -723,8 +729,7 @@ class ScyllaNode(Node):
                                                 'tools', 'bin', name))
 
         # TODO: - currently no scripts only executable - copying exec
-        scylla_mode = self.cluster.get_scylla_mode()
-        if scylla_mode == 'reloc':
+        if self.is_scylla_reloc():
             relative_repos_root = '../..'
             self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'bin', 'scylla'),
                                    os.path.join(self.get_bin_dir(), 'scylla'),
@@ -732,7 +737,7 @@ class ScyllaNode(Node):
             os.environ['GNUTLS_SYSTEM_PRIORITY_FILE'] = os.path.join(self.get_install_dir(), 'scylla-core-package/libreloc/gnutls.config')
         else:
             relative_repos_root = '..'
-            src = os.path.join(self.get_install_dir(), 'build', scylla_mode, 'scylla')
+            src = os.path.join(self.get_install_dir(), 'build', self.scylla_mode(), 'scylla')
             dst = os.path.join(self.get_bin_dir(), 'scylla')
             dbuild_so_dir = os.environ.get('SCYLLA_DBUILD_SO_DIR')
             if not dbuild_so_dir:

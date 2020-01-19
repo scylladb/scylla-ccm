@@ -28,10 +28,12 @@ class ScyllaCluster(Cluster):
 
         cassandra_version = kwargs.get('cassandra_version', version)
         if cassandra_version:
-            self.scylla_mode = 'reloc'
+            self.scylla_reloc = True
+            self.scylla_mode = None
         else:
+            self.scylla_reloc = False
             install_dir, self.scylla_mode = install_func(install_dir)
-            
+
         self.started = False
         self.force_wait_for_cluster_start = force_wait_for_cluster_start
         super(ScyllaCluster, self).__init__(path, name, partitioner,
@@ -155,6 +157,9 @@ class ScyllaCluster(Cluster):
 
     def get_scylla_mode(self):
         return self.scylla_mode
+
+    def is_scylla_reloc(self):
+        return self.scylla_reloc
 
     def enable_internode_ssl(self, node_ssl_path, internode_encryption='all'):
         shutil.copyfile(os.path.join(node_ssl_path, 'trust.pem'), os.path.join(self.get_path(), 'internode-trust.pem'))
