@@ -102,7 +102,7 @@ class ScyllaCluster(Cluster):
                     mark = node.mark_log()
 
                 p = node.start(update_pid=False, jvm_args=jvm_args,
-                               profile_options=profile_options)
+                               profile_options=profile_options, no_wait=True)
                 started.append((node, p, mark))
 
         self.__update_pids(started)
