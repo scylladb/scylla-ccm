@@ -369,9 +369,9 @@ class ScyllaNode(Node):
         pairs of "var=value" separated by either space or semicolon (';')
         """
         if wait_for_binary_proto is None:
-            wait_for_binary_proto = self.cluster.force_wait_for_cluster_start
+            wait_for_binary_proto = self.cluster.force_wait_for_cluster_start and not no_wait
         if wait_other_notice is None:
-            wait_other_notice = self.cluster.force_wait_for_cluster_start
+            wait_other_notice = self.cluster.force_wait_for_cluster_start and not no_wait
         if jvm_args is None:
             jvm_args = []
 
