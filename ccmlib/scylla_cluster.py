@@ -35,7 +35,7 @@ class ScyllaCluster(Cluster):
             install_dir, self.scylla_mode = install_func(install_dir)
 
         self.started = False
-        self.force_wait_for_cluster_start = force_wait_for_cluster_start
+        self.force_wait_for_cluster_start = (force_wait_for_cluster_start != False)
         super(ScyllaCluster, self).__init__(path, name, partitioner,
                                             install_dir, create_directory,
                                             version, verbose,
@@ -72,12 +72,13 @@ class ScyllaCluster(Cluster):
         for node, p, _ in started:
             node._update_pid(p)
 
-    def start_nodes(self, nodes=None, no_wait=False, verbose=False, wait_for_binary_proto=False,
-              wait_other_notice=False, jvm_args=None, profile_options=None,
+    def start_nodes(self, nodes=None, no_wait=False, verbose=False, wait_for_binary_proto=None,
+              wait_other_notice=None, jvm_args=None, profile_options=None,
               quiet_start=False):
-        if not self.started and self.force_wait_for_cluster_start:
-            wait_other_notice=True
-            wait_for_binary_proto=True
+        if wait_for_binary_proto is None:
+            wait_for_binary_proto = self.force_wait_for_cluster_start
+        if wait_other_notice is None:
+            wait_other_notice = self.force_wait_for_cluster_start
         self.started=True
 
         p = None
@@ -124,8 +125,8 @@ class ScyllaCluster(Cluster):
         return started
 
     # override cluster
-    def start(self, no_wait=False, verbose=False, wait_for_binary_proto=False,
-              wait_other_notice=False, jvm_args=None, profile_options=None,
+    def start(self, no_wait=False, verbose=False, wait_for_binary_proto=None,
+              wait_other_notice=None, jvm_args=None, profile_options=None,
               quiet_start=False):
         args = locals()
         del args['self']
