@@ -343,8 +343,8 @@ class ScyllaNode(Node):
 
     # Scylla Overload start
     def start(self, join_ring=True, no_wait=False, verbose=False,
-              update_pid=True, wait_other_notice=False, replace_token=None,
-              replace_address=None, jvm_args=None, wait_for_binary_proto=False,
+              update_pid=True, wait_other_notice=None, replace_token=None,
+              replace_address=None, jvm_args=None, wait_for_binary_proto=None,
               profile_options=None, use_jna=False, quiet_start=False):
         """
         Start the node. Options includes:
@@ -368,6 +368,10 @@ class ScyllaNode(Node):
         Those are represented in a single string comprised of one or more
         pairs of "var=value" separated by either space or semicolon (';')
         """
+        if wait_for_binary_proto is None:
+            wait_for_binary_proto = self.cluster.force_wait_for_cluster_start
+        if wait_other_notice is None:
+            wait_other_notice = self.cluster.force_wait_for_cluster_start
         if jvm_args is None:
             jvm_args = []
 
