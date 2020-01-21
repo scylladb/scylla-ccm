@@ -107,49 +107,22 @@ class ScyllaCluster(Cluster):
                 time.sleep(1)
                 started.append((node, p, mark))
 
-        if no_wait and not verbose:
-            # waiting 2 seconds to check for early errors and for the
-            # pid to be set
-            time.sleep(2)
-        else:
-            for node, p, mark in started:
-                start_message = "Starting listening for CQL clients"
-                try:
-                    # updated code, scylla starts CQL only by default
-                    # process should not be checked for scylla as the
-                    # process is a boot script (that ends after boot)
-                    node.watch_log_for(start_message, timeout=600,
-                                       verbose=verbose, from_mark=mark)
-                except RuntimeError:
-                    raise Exception("Not able to find start "
-                                    "message '%s' in Node '%s'" %
-                                    (start_message, node.name))
-
         self.__update_pids(started)
 
         for node, p, _ in started:
             if not node.is_running():
                 raise NodeError("Error starting {0}.".format(node.name), p)
 
-        if not no_wait and self.cassandra_version() >= "0.8":
-            # 0.7 gossip messages seems less predictable that from 0.8
-            # onwards and I don't care enough
+        if wait_for_binary_proto:
             for node, _, mark in started:
-                for other_node, _, _ in started:
-                    if other_node is not node:
-                        node.watch_log_for_alive(other_node, from_mark=mark)
+                node.watch_log_for("Starting listening for CQL clients",
+                                   verbose=verbose, from_mark=mark)
 
         if wait_other_notice:
             for old_node, mark in marks:
                 for node, _, _ in started:
                     if old_node is not node:
                         old_node.watch_log_for_alive(node, from_mark=mark)
-
-        if wait_for_binary_proto and self.version() >= '1.2':
-            for node, _, mark in started:
-                node.watch_log_for("Starting listening for CQL clients",
-                                   verbose=verbose, from_mark=mark)
-            time.sleep(0.2)
 
         return started
 
