@@ -135,10 +135,36 @@ class ScyllaCluster(Cluster):
 
         return started
 
+    def stop_nodes(self, nodes=None, wait=True, gently=True, wait_other_notice=False, other_nodes=None, wait_seconds=127):
+        if nodes is None:
+            nodes = self.nodes.values()
+        elif isinstance(nodes, ScyllaNode):
+            nodes = [nodes]
+
+        marks = []
+        if wait_other_notice:
+            if not other_nodes:
+                other_nodes = [node for node in self.nodes.values() if not node in nodes]
+            marks = [(node, node.mark_log()) for node in other_nodes if node.is_live()]
+
+        # stop all nodes in parallel
+        stopped = [node for node in nodes if node.is_running()]
+        for node in stopped:
+            node.do_stop(gently=gently)
+
+        # wait for stopped nodes is needed
+        if wait or wait_other_notice:
+            for node in stopped:
+                node.wait_until_stopped(wait_seconds, marks)
+
+        return [node for node in nodes if not node.is_running()]
+
     def stop(self, wait=True, gently=True, wait_other_notice=False, other_nodes=None, wait_seconds=127):
         if self._scylla_manager:
             self._scylla_manager.stop(gently)
-        Cluster.stop(self,wait,gently,wait_seconds=wait_seconds, wait_other_notice=wait_other_notice, other_nodes=other_nodes)
+        args = locals()
+        del args['self']
+        return self.stop_nodes(**args)
 
     def get_scylla_mode(self):
         return self.scylla_mode
