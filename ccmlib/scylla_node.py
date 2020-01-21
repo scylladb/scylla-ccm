@@ -251,8 +251,6 @@ class ScyllaNode(Node):
 
         if wait_for_binary_proto:
             self.wait_for_binary_interface(from_mark=self.mark, process=self._process_scylla)
-        else:
-            time.sleep(2)
 
         return self._process_scylla
 
