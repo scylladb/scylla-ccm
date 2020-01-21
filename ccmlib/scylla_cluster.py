@@ -72,8 +72,7 @@ class ScyllaCluster(Cluster):
         for node, p, _ in started:
             node._update_pid(p)
 
-    # override cluster
-    def start(self, no_wait=False, verbose=False, wait_for_binary_proto=False,
+    def start_nodes(self, nodes=None, no_wait=False, verbose=False, wait_for_binary_proto=False,
               wait_other_notice=False, jvm_args=None, profile_options=None,
               quiet_start=False):
         if not self.started and self.force_wait_for_cluster_start:
@@ -89,8 +88,13 @@ class ScyllaCluster(Cluster):
         if wait_other_notice:
             marks = [(node, node.mark_log()) for node in self.nodes.values()]
 
+        if nodes is None:
+            nodes = self.nodes.values()
+        elif isinstance(nodes, ScyllaNode):
+            nodes = [nodes]
+
         started = []
-        for node in self.nodes.values():
+        for node in nodes:
             if not node.is_running():
                 mark = 0
                 if os.path.exists(node.logfilename()):
@@ -147,6 +151,15 @@ class ScyllaCluster(Cluster):
                                    verbose=verbose, from_mark=mark)
             time.sleep(0.2)
 
+        return started
+
+    # override cluster
+    def start(self, no_wait=False, verbose=False, wait_for_binary_proto=False,
+              wait_other_notice=False, jvm_args=None, profile_options=None,
+              quiet_start=False):
+        args = locals()
+        del args['self']
+        started = self.start_nodes(**args)
         if self._scylla_manager:
             self._scylla_manager.start()
 
