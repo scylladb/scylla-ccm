@@ -592,7 +592,43 @@ class ScyllaNode(Node):
             raise NodeError('Problem starting node %s scylla-agent due to %s' %
                             (self.name, e))
 
-    def wait_until_stopped(self, wait_seconds=127):
+    def do_stop(self, gently=True):
+        """
+        Stop the node.
+          - gently: Let Scylla and Scylla JMX clean up and shut down properly.
+            Otherwise do a 'kill -9' which shuts down faster.
+        """
+
+        if not self.is_running():
+            return False
+
+        self._update_jmx_pid(wait=False)
+        if self.scylla_manager and self.scylla_manager.is_agent_available:
+            self._update_scylla_agent_pid()
+        for proc in [self._process_jmx, self._process_scylla, self._process_agent]:
+            if proc:
+                if gently:
+                    try:
+                        proc.terminate()
+                    except OSError:
+                        pass
+                else:
+                    try:
+                        proc.kill()
+                    except OSError:
+                        pass
+        else:
+            signal_mapping = {True: signal.SIGTERM, False: signal.SIGKILL}
+            for pid in [self.jmx_pid, self.pid, self.agent_pid]:
+                if pid:
+                    try:
+                        os.kill(pid, signal_mapping[gently])
+                    except OSError:
+                        pass
+
+        return True
+
+    def _wait_until_stopped(self, wait_seconds=127):
         start_time = time.time()
         wait_time_sec = 1
         while True:
@@ -607,7 +643,38 @@ class ScyllaNode(Node):
             elif wait_time_sec <= 16:
                 wait_time_sec *= 2
 
-    def stop(self, wait=True, wait_other_notice=False, other_nodes=None, gently=True, wait_seconds=127):
+    def wait_until_stopped(self, wait_seconds=127, marks=[], dump_core=True):
+        """
+        Wait until node is stopped after do_stop was called.
+          - wait_other_notice: return only when the other live nodes of the
+            cluster have marked this node has dead.
+          - marks: optional list of (node, mark) to call watch_log_for_death on.
+        """
+
+        if self.is_running():
+            if not self._wait_until_stopped(wait_seconds):
+                if self.jmx_pid:
+                    try:
+                        os.kill(self.jmx_pid, signal.SIGKILL)
+                    except OSError:
+                        pass
+                if dump_core and self.pid:
+                    # Aborting is intended to generate a core dump
+                    # so the reason the node didn't stop normally can be studied.
+                    print("{} is still running. Trying to generate coredump using kill({}, SIGQUIT)...".format(self.name, self.pid))
+                    try:
+                        os.kill(self.pid, signal.SIGQUIT)
+                    except OSError:
+                        pass
+                    self._wait_until_stopped(300)
+                if self.is_running():
+                    raise NodeError("Problem stopping node %s" % self.name)
+
+        for node, mark in marks:
+            if node != self:
+                node.watch_log_for_death(self, from_mark=mark)
+
+    def stop(self, wait=True, wait_other_notice=False, other_nodes=None, gently=True, wait_seconds=127, marks=[]):
         """
         Stop the node.
           - wait: if True (the default), wait for the Scylla process to be
@@ -617,67 +684,26 @@ class ScyllaNode(Node):
             exception stating it couldn't stop the node.
           - wait_other_notice: return only when the other live nodes of the
             cluster have marked this node has dead.
+          - other_nodes: optional list of nodes to apply wait_other_notice on.
+          - marks: optional list of (node, mark) to call watch_log_for_death on.
           - gently: Let Scylla and Scylla JMX clean up and shut down properly.
             Otherwise do a 'kill -9' which shuts down faster.
         """
-        marks = []
-        if self.is_running():
+        was_running = self.is_running()
+        if was_running:
             if wait_other_notice:
                 if not other_nodes:
                     other_nodes = list(self.cluster.nodes.values())
-                marks = [(node, node.mark_log()) for node in
-                         other_nodes if
-                         node.is_live() and node is not self]
-            self._update_jmx_pid(wait=False)
-            if self.scylla_manager and self.scylla_manager.is_agent_available:
-                self._update_scylla_agent_pid()
-            for proc in [self._process_jmx, self._process_scylla, self._process_agent]:
-                if proc:
-                    if gently:
-                        try:
-                            proc.terminate()
-                        except OSError:
-                            pass
-                    else:
-                        try:
-                            proc.kill()
-                        except OSError:
-                            pass
-            else:
-                signal_mapping = {True: signal.SIGTERM, False: signal.SIGKILL}
-                for pid in [self.jmx_pid, self.pid, self.agent_pid]:
-                    if pid:
-                        try:
-                            os.kill(pid, signal_mapping[gently])
-                        except OSError:
-                            pass
+                if not marks:
+                    marks = [(node, node.mark_log()) for node in
+                             other_nodes if
+                             node.is_live() and node is not self]
+            self.do_stop(gently=gently)
 
-            if not wait and not wait_other_notice:
-                return True
+        if wait or wait_other_notice:
+            self.wait_until_stopped(wait_seconds, marks, dump_core=gently)
 
-            if not self.wait_until_stopped(wait_seconds):
-                if self.jmx_pid:
-                    try:
-                        os.kill(self.jmx_pid, signal.SIGKILL)
-                    except OSError:
-                        pass
-                if gently and self.pid:
-                    # Aborting is intended to generate a core dump
-                    # so the reason the node didn't stop normally can be studied.
-                    print("{} is still running. Trying to generate coredump using kill({}, SIGQUIT)...".format(self.name, self.pid))
-                    try:
-                        os.kill(self.pid, signal.SIGQUIT)
-                    except OSError:
-                        pass
-                    self.wait_until_stopped(300)
-                if self.is_running():
-                    raise NodeError("Problem stopping node %s" % self.name)
-
-            if wait_other_notice:
-                for node, mark in marks:
-                    node.watch_log_for_death(self, from_mark=mark)
-        else:
-            return False
+        return was_running
 
     def import_config_files(self):
         # TODO: override node - enable logging
