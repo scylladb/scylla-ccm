@@ -86,7 +86,7 @@ class ScyllaCluster(Cluster):
 
         marks = []
         if wait_other_notice:
-            marks = [(node, node.mark_log()) for node in self.nodes.values()]
+            marks = [(node, node.mark_log()) for node in self.nodes.values() if node.is_running()]
 
         if nodes is None:
             nodes = self.nodes.values()
