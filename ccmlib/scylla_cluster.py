@@ -102,9 +102,6 @@ class ScyllaCluster(Cluster):
 
                 p = node.start(update_pid=False, jvm_args=jvm_args,
                                profile_options=profile_options)
-                # Let's ensure the nodes start at different times to avoid
-                # race conditions while creating system tables
-                time.sleep(1)
                 started.append((node, p, mark))
 
         self.__update_pids(started)
