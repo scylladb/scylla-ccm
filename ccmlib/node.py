@@ -312,7 +312,7 @@ class Node(object):
     def debuglogfilename(self):
         return os.path.join(self.get_path(), 'logs', 'debug.log')
 
-    def grep_log(self, expr, filter_expr=None, filename='system.log'):
+    def grep_log(self, expr, filter_expr=None, filename='system.log', from_mark=None):
         """
         Returns a list of lines matching the regular expression in parameter
         in the Cassandra log of this node
@@ -324,13 +324,15 @@ class Node(object):
         else:
             filter_pattern = None
         with open(os.path.join(self.get_path(), 'logs', filename)) as f:
+            if from_mark:
+                f.seek(from_mark)
             for line in f:
                 m = pattern.search(line)
                 if m and not (filter_pattern and re.search(filter_pattern, line)):
                     matchings.append((line, m))
         return matchings
 
-    def grep_log_for_errors(self, filename='system.log', distinct_errors=False, search_str=None, case_sensitive=True):
+    def grep_log_for_errors(self, filename='system.log', distinct_errors=False, search_str=None, case_sensitive=True, from_mark=None):
         """
         Returns a list of errors with stack traces
         in the Cassandra log of this node
@@ -342,9 +344,12 @@ class Node(object):
         if not os.path.exists(log_file):
             return []
 
+        if from_mark is None and hasattr(self, 'error_mark'):
+            from_mark = self.error_mark
+
         with open(log_file) as f:
-            if hasattr(self, 'error_mark'):
-                f.seek(self.error_mark)
+            if from_mark:
+                f.seek(from_mark)
             return _grep_log_for_errors(f.read(), distinct_errors=distinct_errors, search_str=search_str, case_sensitive=case_sensitive)
 
     def mark_log_for_errors(self, filename='system.log'):
