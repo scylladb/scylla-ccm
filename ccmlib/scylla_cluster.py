@@ -239,7 +239,6 @@ class ScyllaManager:
         data['database']['hosts'] = [self.scylla_cluster.get_node_ip(1)]
         data['database']['replication_factor'] = 3
         if install_dir:
-            data['database']['keyspace_tpl_file'] = os.path.join(install_dir, 'dist', 'etc', 'create_keyspace.cql.tpl')
             data['database']['migrate_dir'] = os.path.join(install_dir, 'schema', 'cql')
         if 'https' in data:
             del data['https']

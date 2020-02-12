@@ -260,7 +260,6 @@ class ScyllaNode(Node):
 
         data = dict()
 
-        data['scylla_config_file'] = os.path.join(self.get_conf_dir(), common.SCYLLA_CONF)
         data['https'] = "{}:10001".format(self.address())
         data['auth_token'] = self.scylla_manager.auth_token
         data['tls_cert_file'] = os.path.join(ssl_dir, 'scylla-manager-agent.crt')
