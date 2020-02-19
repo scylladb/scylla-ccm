@@ -33,7 +33,7 @@ def run(cmd, cwd=None):
 
 def setup(version, verbose=True):
     s3_url = ''
-    type_n_version = version.split(':')
+    type_n_version = version.split(':', 1)
     if len(type_n_version) == 2:
         s3_version = type_n_version[1]
         s3_url = RELOCATABLE_URLS_BASE.format(type_n_version[0], s3_version)
