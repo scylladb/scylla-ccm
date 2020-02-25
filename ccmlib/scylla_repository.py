@@ -191,7 +191,7 @@ def download_version(version, url=None, verbose=False, target_dir=None):
 
 
 def directory_name(version):
-    return os.path.join(__get_dir(), version)
+    return os.path.join(__get_dir(), version).replace(':', '_')
 
 
 def version_directory(version):
