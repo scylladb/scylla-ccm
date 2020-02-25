@@ -319,7 +319,7 @@ class ScyllaNode(Node):
         
         self._start_scylla_manager_agent()
 
-    def _wait_java_up(self, data):
+    def _wait_java_up(self, ip_addr, jmx_port):
         java_up = False
         iteration = 0
         while not java_up and iteration < 30:
@@ -327,13 +327,13 @@ class ScyllaNode(Node):
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             try:
                 s.settimeout(1.0)
-                s.connect((data['listen_address'], int(self.jmx_port)))
+                s.connect((ip_addr, jmx_port))
                 java_up = True
-            except:
-                java_up = False
-            try:
-                s.close()
-            except:
+                try:
+                    s.close()
+                except:
+                    pass
+            except (socket.timeout, ConnectionRefusedError):
                 pass
             time.sleep(1)
 
@@ -508,9 +508,11 @@ class ScyllaNode(Node):
                                             ext_env)
         self._start_jmx(data)
 
-        if not self._wait_java_up(data):
-            e_msg = ("Error starting node %s: unable to connect to scylla-jmx" %
-                     self.name)
+        ip_addr = data['listen_address']
+        jmx_port = int(self.jmx_port)
+        if not self._wait_java_up(ip_addr, jmx_port):
+            e_msg = "Error starting node {}: unable to connect to scylla-jmx port {}:{}".format(
+                     self.name, ip_addr, jmx_port)
             raise NodeError(e_msg, scylla_process)
 
         self.is_running()
