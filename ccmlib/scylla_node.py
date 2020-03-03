@@ -23,6 +23,7 @@ from six.moves import xrange
 from ccmlib import common
 from ccmlib.node import Node
 from ccmlib.node import NodeError
+from ccmlib.node import TimeoutError
 
 
 def wait_for(func, timeout, first=0.0, step=1.0, text=None):
@@ -207,6 +208,32 @@ class ScyllaNode(Node):
         with open(pid_filename, 'w') as pid_file:
             pid_file.write(str(self._process_jmx.pid))
 
+    # return True iff detected bootstrap message in the log
+    def wait_for_bootstrap_repair(self, from_mark=None, timeout=120):
+        if from_mark is None:
+            from_mark = self.mark_log()
+        process=self._process_scylla
+        starting_message = 'Starting listening for CQL clients'
+        bootstrap_message = 'storage_service - JOINING: getting bootstrap token'
+        if not self.watch_log_for("{}|{}".format(starting_message, bootstrap_message), from_mark=from_mark, timeout=timeout, process=process):
+            return False
+        prev_mark = from_mark
+        prev_mark_time = time.time()
+        sleep_time = 10 if timeout >= 100 else 1
+        while not self.grep_log(starting_message, from_mark=from_mark):
+            process.poll()
+            if process.returncode is not None:
+                self.print_process_output(self.name, process, verbose)
+                if process.returncode != 0:
+                    raise RuntimeError("The process is dead, returncode={}".format(process.returncode))
+            if self.grep_log('repair - Repair \d+ out of \d+ ranges', from_mark=prev_mark):
+                prev_mark = self.mark_log()
+                prev_mark_time = time.time()
+            elif time.time() - prev_mark_time >= timeout:
+                raise TimeoutError
+            time.sleep(sleep_time)
+        return bool(self.grep_log(bootstrap_message, from_mark=from_mark))
+
     def _start_scylla(self, args, marks, update_pid, wait_other_notice,
                       wait_for_binary_proto, ext_env):
         log_file = os.path.join(self.get_path(), 'logs', 'system.log')
@@ -250,7 +277,12 @@ class ScyllaNode(Node):
                 node.watch_log_for_alive(self, from_mark=mark)
 
         if wait_for_binary_proto:
-            self.wait_for_binary_interface(from_mark=self.mark, process=self._process_scylla)
+            try:
+                self.wait_for_binary_interface(from_mark=self.mark, process=self._process_scylla, timeout=120)
+            except TimeoutError as e:
+                if not self.wait_for_bootstrap_repair(from_mark=self.mark):
+                    raise e
+                pass
 
         return self._process_scylla
 
