@@ -214,7 +214,7 @@ class ScyllaNode(Node):
             from_mark = self.mark_log()
         process=self._process_scylla
         starting_message = 'Starting listening for CQL clients'
-        bootstrap_message = 'storage_service - JOINING: getting bootstrap token'
+        bootstrap_message = 'storage_service - JOINING: Starting to bootstrap'
         if not self.watch_log_for("{}|{}".format(starting_message, bootstrap_message), from_mark=from_mark, timeout=timeout, process=process):
             return False
         prev_mark = from_mark
