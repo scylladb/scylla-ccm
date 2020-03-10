@@ -265,6 +265,7 @@ class ScyllaNode(Node):
         data['tls_cert_file'] = os.path.join(ssl_dir, 'scylla-manager-agent.crt')
         data['tls_key_file'] = os.path.join(ssl_dir, 'scylla-manager-agent.key')
         data['logger'] = dict(level='debug')
+        data['debug'] = "{}:56112".format(self.address())
         data['scylla'] = {'api_address': "{}".format(self.address()),
                           'api_port': 10000}
         data['prometheus'] = "{}:56090".format(self.address())
