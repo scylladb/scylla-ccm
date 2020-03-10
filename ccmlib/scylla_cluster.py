@@ -252,6 +252,9 @@ class ScyllaManager:
         data['prometheus'] = "{}:56091".format(self.scylla_cluster.get_node_ip(1))
         # Changing port to 56091 since the manager and the first node share the same ip and 56090 is already in use
         # by the first node's manager agent
+        data["debug"] = "{}:5611".format(self.scylla_cluster.get_node_ip(1))
+        # Since both the manager server and the first node use the same address, the manager can't use port
+        # 56112, as node 1's agent already seized it
         if 'ssh' in data:
             del data['ssh']
         with open(conf_file, 'w') as f:
