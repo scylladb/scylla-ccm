@@ -278,7 +278,7 @@ class ScyllaNode(Node):
 
         if wait_for_binary_proto:
             try:
-                self.wait_for_binary_interface(from_mark=self.mark, process=self._process_scylla, timeout=120)
+                self.wait_for_binary_interface(from_mark=self.mark, process=self._process_scylla, timeout=420)
             except TimeoutError as e:
                 if not self.wait_for_bootstrap_repair(from_mark=self.mark):
                     raise e
