@@ -753,6 +753,13 @@ class ScyllaNode(Node):
         self.__update_yaml()
         self.__copy_logback_files()
 
+    def copy_config_files(self):
+        Node.copy_config_files(self)
+        conf_pattern = os.path.join(self.get_tools_java_dir(), 'conf', "jvm*.options")
+        for filename in glob.glob(conf_pattern):
+            if os.path.isfile(filename):
+                shutil.copy(filename, self.get_conf_dir())
+
     def get_tools_java_dir(self):
         return common.get_tools_java_dir(self.get_install_dir())
 
