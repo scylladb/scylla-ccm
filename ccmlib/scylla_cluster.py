@@ -249,6 +249,9 @@ class ScyllaManager:
         if not 'logger' in data:
             data['logger'] = {}
         data['logger']['mode'] = 'stderr'
+        if not 'repair' in data:
+            data['repair'] = {}
+        data['repair']['segments_per_repair'] = 16
         data['prometheus'] = "{}:56091".format(self.scylla_cluster.get_node_ip(1))
         # Changing port to 56091 since the manager and the first node share the same ip and 56090 is already in use
         # by the first node's manager agent
