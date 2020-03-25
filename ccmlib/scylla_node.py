@@ -301,7 +301,7 @@ class ScyllaNode(Node):
         data['scylla'] = {'api_address': "{}".format(self.address()),
                           'api_port': 10000}
         data['prometheus'] = "{}:56090".format(self.address())
-        data['s3'] = {"endpoint": os.getenv("AWS_S3_ENDPOINT")}
+        data['s3'] = {"endpoint": os.getenv("AWS_S3_ENDPOINT"), "provider": "Minio"}
 
         with open(conf_file, 'w') as f:
             yaml.safe_dump(data, f, default_flow_style=False)
