@@ -950,6 +950,8 @@ class ScyllaNode(Node):
                 except KeyError:
                     data[name] = full_options[name]
 
+        if 'alternator_port' in data or 'alternator_https_port' in data:
+            data['alternator_address'] = data['listen_address']
         with open(conf_file, 'w') as f:
             yaml.safe_dump(data, f, default_flow_style=False)
 
