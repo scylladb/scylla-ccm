@@ -426,19 +426,16 @@ class Node(object):
                 line = f.readline()
                 if line:
                     reads = reads + line
-                    for e in tofind:
+                    search = tofind
+                    for e in search:
                         m = e.search(line)
                         if m:
                             matchings.append((line, m))
-
-                            # This is bogus! - One should not modify the list from inside the loop which iterates on
-                            # that list.
-                            # However since we are going to break from the loop a few lines below that should be ok.
                             tofind.remove(e)
 
-                            if len(tofind) == 0:
-                                return matchings[0] if isinstance(exprs, string_types) else matchings
-                            break
+                    if len(tofind) == 0:
+                        return matchings[0] if isinstance(exprs, string_types) else matchings
+                    break
                 else:
                     # yep, it's ugly
                     time.sleep(0.01)
