@@ -1081,7 +1081,7 @@ class Node(object):
         keyspaces.remove('system_schema')
         return keyspaces
 
-    def get_sstables(self, keyspace, column_family):
+    def get_sstables(self, keyspace, column_family, ignore_unsealed=True, cleanup_unsealed=False):
         keyspace_dir = os.path.join(self.get_path(), 'data', keyspace)
         cf_glob = '*'
         if column_family:
@@ -1102,6 +1102,14 @@ class Node(object):
             files = glob.glob(os.path.join(keyspace_dir, cf_glob, "*big-Data.db"))
         for f in files:
             if os.path.exists(f.replace('Data.db', 'Compacted')):
+                files.remove(f)
+            if (ignore_unsealed or cleanup_unsealed) and os.path.exists(f.replace('Data.db', 'TOC.txt.tmp')):
+                if cleanup_unsealed:
+                    print_("get_sstables: Cleaning up unsealed SSTable: {}".format(f))
+                    for i in glob.glob(f.replace('Data.db', '*')):
+                        os.remove(i)
+                else:
+                    print_("get_sstables: Ignoring unsealed SSTable: {}".format(f))
                 files.remove(f)
         return files
 
