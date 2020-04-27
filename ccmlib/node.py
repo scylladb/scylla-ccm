@@ -1014,6 +1014,7 @@ class Node(object):
         cdir = self.get_install_dir()
         sstablelevelreset = self._find_cmd('sstablelevelreset')
         env = self.get_env()
+        sstablefiles = self.__cleanup_sstables(keyspace, cf)
 
         cmd = [sstablelevelreset, "--really-reset", keyspace, cf]
 
@@ -1029,6 +1030,7 @@ class Node(object):
         cdir = self.get_install_dir()
         sstableofflinerelevel = self._find_cmd('sstableofflinerelevel')
         env = self.get_env()
+        sstablefiles = self.__cleanup_sstables(keyspace, cf)
 
         if dry_run:
             cmd = [sstableofflinerelevel, "--dry-run", keyspace, cf]
@@ -1046,6 +1048,7 @@ class Node(object):
     def run_sstableverify(self, keyspace, cf, options=None, output=False):
         sstableverify = self.get_tool('sstableverify')
         env = self.get_env()
+        sstablefiles = self.__cleanup_sstables(keyspace, cf)
 
         cmd = [sstableverify, keyspace, cf]
         if options is not None:
@@ -1759,6 +1762,14 @@ class Node(object):
                     files.append(datafile)
 
         return files
+
+    def __cleanup_sstables(self, keyspace, cf):
+        if keyspace != 'system_schema':
+            self.get_sstables('system_schema', '', cleanup_unsealed=True)
+        try:
+            return self.get_sstables(keyspace, cf, cleanup_unsealed=True)
+        except common.ArgumentError:
+            return []
 
     def _clean_win_jmx(self):
         if self.get_base_cassandra_version() >= 2.1:
