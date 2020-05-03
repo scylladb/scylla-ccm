@@ -230,7 +230,7 @@ class ScyllaNode(Node):
                 prev_mark = self.mark_log()
                 prev_mark_time = time.time()
             elif time.time() - prev_mark_time >= timeout:
-                raise TimeoutError
+                raise TimeoutError("{}: Timed out waiting for '{}'".format(self.name, starting_message))
             time.sleep(sleep_time)
         return bool(self.grep_log(bootstrap_message, from_mark=from_mark))
 
