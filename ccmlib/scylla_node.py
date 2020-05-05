@@ -226,7 +226,9 @@ class ScyllaNode(Node):
                 self.print_process_output(self.name, process, verbose)
                 if process.returncode != 0:
                     raise RuntimeError("The process is dead, returncode={}".format(process.returncode))
-            if self.grep_log('repair - Repair \d+ out of \d+ ranges', from_mark=prev_mark):
+            repair_pattern = r'repair - Repair \d+ out of \d+ ranges'
+            streaming_pattern = r'range_streamer - Bootstrap .* streaming .* ranges'
+            if self.grep_log("{}|{}".format(repair_pattern, streaming_pattern), from_mark=prev_mark):
                 prev_mark = self.mark_log()
                 prev_mark_time = time.time()
             elif time.time() - prev_mark_time >= timeout:
