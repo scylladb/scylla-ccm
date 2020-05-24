@@ -7,6 +7,8 @@ import shutil
 import subprocess
 import re
 import gzip
+import sys
+import glob
 
 from subprocess import Popen, PIPE, STDOUT
 
@@ -68,7 +70,6 @@ def setup(version, verbose=True):
         # install using scylla install.sh
         run_scylla_install_script(os.path.join(
             cdir, 'scylla-core-package'), cdir)
-
     setup_scylla_manager()
 
     return cdir, get_scylla_version(cdir)
@@ -172,6 +173,22 @@ def download_version(version, url=None, verbose=False, target_dir=None):
         tar = tarfile.open(target)
         tar.extractall(path=target_dir)
         tar.close()
+
+        # if relocatable package format >= 2, need to extract files under subdir
+        package_version_file = "{}/.relocatable_package_version".format(target_dir)
+        if os.path.exists(package_version_file):
+            with open(package_version_file) as f:
+                package_version = f.read().strip()
+            if package_version != '2':
+                print('Unknown relocatable package format version: ' + package_version)
+                sys.exit(1)
+            print('Relocatable package format version 2 detected.')
+            pkg_dir = glob.glob('{}/*/'.format(target_dir))[0]
+            shutil.move(str(pkg_dir), target_dir + '.new')
+            shutil.rmtree(target_dir)
+            shutil.move(target_dir + '.new', target_dir)
+        else:
+            print('Legacy relocatable package format detected.')
 
         # add breadcrumb so we could list the origin of each part easily for debugging
         # for example listing all the version we have in ccm scylla-repository
