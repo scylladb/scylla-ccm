@@ -581,9 +581,8 @@ def get_version_from_build(install_dir=None, node_path=None):
     if install_dir is None and node_path is not None:
         install_dir = get_install_dir_from_cluster_conf(node_path)
     if install_dir is not None:
-        scylla_version = get_scylla_version(install_dir)
-        if (scylla_version is not None):
-            return scylla_version
+        if isScylla(install_dir):
+            return '3.0'    # return cassandra-compatible version
         # Binary cassandra installs will have a 0.version.txt file
         version_file = os.path.join(install_dir, '0.version.txt')
         if os.path.exists(version_file):
