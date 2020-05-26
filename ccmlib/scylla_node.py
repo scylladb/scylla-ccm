@@ -307,7 +307,7 @@ class ScyllaNode(Node):
             yaml.safe_dump(data, f, default_flow_style=False)
         return conf_file
 
-    def _start_scylla_manager_agent(self):
+    def start_scylla_manager_agent(self):
         agent_bin = os.path.join(self.scylla_manager._get_path(), 'bin', 'scylla-manager-agent')
         log_file = os.path.join(self.get_path(), 'logs', 'system.log.manager_agent')
         config_file = self._create_agent_config()
@@ -339,6 +339,11 @@ class ScyllaNode(Node):
                 % (api_interface[0], api_interface[1]))
     
     def restart_scylla_manager_agent(self, gently):
+        self.stop_scylla_manager_agent(gently=gently)
+        
+        self.start_scylla_manager_agent()
+
+    def stop_scylla_manager_agent(self, gently):
         if gently:
             try:
                 self._process_agent.terminate()
@@ -349,8 +354,6 @@ class ScyllaNode(Node):
                 self._process_agent.kill()
             except OSError:
                 pass
-        
-        self._start_scylla_manager_agent()
 
     def _wait_java_up(self, ip_addr, jmx_port):
         java_up = False
@@ -550,7 +553,7 @@ class ScyllaNode(Node):
 
         self.is_running()
         if self.scylla_manager and self.scylla_manager.is_agent_available:
-            self._start_scylla_manager_agent()
+            self.start_scylla_manager_agent()
         return scylla_process
 
     def start_dse(self,
