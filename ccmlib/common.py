@@ -12,6 +12,7 @@ import stat
 import subprocess
 import sys
 import time
+import tempfile
 
 import yaml
 from six import print_
@@ -128,17 +129,21 @@ def replace_in_file(file, regexp, replace):
     replaces_in_file(file, [(regexp, replace)])
 
 
-def replaces_in_file(file, replacement_list):
+def replaces_in_files(src, dst, replacement_list):
     rs = [(re.compile(regexp), repl) for (regexp, repl) in replacement_list]
-    file_tmp = file + ".tmp"
-    with open(file, 'r') as f:
-        with open(file_tmp, 'w') as f_tmp:
+    with open(src, 'r') as f:
+        with open(dst, 'w') as f_tmp:
             for line in f:
                 for r, replace in rs:
                     match = r.search(line)
                     if match:
                         line = replace + "\n"
                 f_tmp.write(line)
+
+
+def replaces_in_file(file, replacement_list):
+    file_tmp = file + ".tmp"
+    replaces_in_files(file, file_tmp, replacement_list)
     shutil.move(file_tmp, file)
 
 
@@ -186,10 +191,13 @@ def make_cassandra_env(install_dir, node_path, update_conf=True):
         sh_file = os.path.join(BIN_DIR, CASSANDRA_SH)
     orig = os.path.join(install_dir, sh_file)
     dst = os.path.join(node_path, sh_file)
-    if not os.path.exists(dst):
-        shutil.copy(orig, dst)
 
-    if update_conf:
+    if not update_conf and not os.path.exists(dst):
+        time.sleep(1)
+        if not os.path.exists(dst):
+            print("Warning: make_cassandra_env: install_dir={} node_path={} missing {}. Recreating...".format(install_dir, node_path, dst))
+
+    if not os.path.exists(dst):
         replacements = ""
         if is_win() and get_version_from_build(node_path=node_path) >= '2.1':
             replacements = [
@@ -202,17 +210,20 @@ def make_cassandra_env(install_dir, node_path, update_conf=True):
                 ('CASSANDRA_HOME=', '\tCASSANDRA_HOME=%s' % install_dir),
                 ('CASSANDRA_CONF=', '\tCASSANDRA_CONF=%s' % os.path.join(node_path, 'conf'))
             ]
-        replaces_in_file(dst, replacements)
+        (fd, tmp) = tempfile.mkstemp(dir=node_path)
+        replaces_in_files(orig, tmp, replacements)
 
-    # If a cluster-wide cassandra.in.sh file exists in the parent
-    # directory, append it to the node specific one:
-    cluster_sh_file = os.path.join(node_path, os.path.pardir, 'cassandra.in.sh')
-    if os.path.exists(cluster_sh_file):
-        append = open(cluster_sh_file).read()
-        with open(dst, 'a') as f:
-            f.write('\n\n### Start Cluster wide config ###\n')
-            f.write(append)
-            f.write('\n### End Cluster wide config ###\n\n')
+        # If a cluster-wide cassandra.in.sh file exists in the parent
+        # directory, append it to the node specific one:
+        cluster_sh_file = os.path.join(node_path, os.path.pardir, 'cassandra.in.sh')
+        if os.path.exists(cluster_sh_file):
+            append = open(cluster_sh_file).read()
+            with open(tmp, 'a') as f:
+                f.write('\n\n### Start Cluster wide config ###\n')
+                f.write(append)
+                f.write('\n### End Cluster wide config ###\n\n')
+
+        os.rename(tmp, dst)
 
     env = os.environ.copy()
     env['CASSANDRA_INCLUDE'] = os.path.join(dst)
