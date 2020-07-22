@@ -9,6 +9,7 @@ import uuid
 import datetime
 
 from six import print_
+from distutils.version import LooseVersion
 
 from ccmlib import common
 from ccmlib.cluster import Cluster
@@ -221,9 +222,16 @@ class ScyllaManager:
         else:
             self._update_pid()
 
+    def _version(self):
+        stdout, _ = self.sctool(["version"], ignore_exit_status=True)
+        version_string = stdout[stdout.find(": ") + 2:].strip()  # Removing unnecessary information
+        version_code = LooseVersion(version_string)
+        return version_code
+
     def _install(self, install_dir):
         self._copy_config_files(install_dir)
         self._copy_bin_files(install_dir)
+        self.version = self._version()
         self._update_config(install_dir)
 
     def _get_api_address(self):
@@ -251,7 +259,8 @@ class ScyllaManager:
         data['logger']['mode'] = 'stderr'
         if not 'repair' in data:
             data['repair'] = {}
-        data['repair']['segments_per_repair'] = 16
+        if self.version < LooseVersion("2.2"):
+            data['repair']['segments_per_repair'] = 16
         data['prometheus'] = "{}:56091".format(self.scylla_cluster.get_node_ip(1))
         # Changing port to 56091 since the manager and the first node share the same ip and 56090 is already in use
         # by the first node's manager agent
@@ -260,6 +269,12 @@ class ScyllaManager:
         # 56112, as node 1's agent already seized it
         if 'ssh' in data:
             del data['ssh']
+        keys_to_delete = []
+        for key in data:
+            if not data[key]:
+                keys_to_delete.append(key)  # can't delete from dict during loop
+        for key in keys_to_delete:
+            del data[key]
         with open(conf_file, 'w') as f:
             yaml.safe_dump(data, f, default_flow_style=False)
 
@@ -377,13 +392,13 @@ class ScyllaManager:
                 except OSError:
                     pass
 
-    def sctool(self, cmd):
+    def sctool(self, cmd, ignore_exit_status=False):
         sctool = os.path.join(self._get_path(), 'bin', 'sctool')
         args = [sctool, '--api-url', "http://%s/api/v1" % self._get_api_address()]
         args += cmd
         p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         stdout, stderr = p.communicate()
         exit_status = p.wait()
-        if exit_status != 0:
+        if exit_status != 0 and not ignore_exit_status:
             raise Exception(" ".join(args), exit_status, stdout, stderr)
         return stdout, stderr
