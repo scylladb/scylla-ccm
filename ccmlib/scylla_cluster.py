@@ -235,7 +235,7 @@ class ScyllaManager:
         self._update_config(install_dir)
 
     def _get_api_address(self):
-        return "%s:9090" % self.scylla_cluster.get_node_ip(1)
+        return "%s:5080" % self.scylla_cluster.get_node_ip(1)
 
     def _update_config(self, install_dir=None):
         conf_file = os.path.join(self._get_path(), common.SCYLLAMANAGER_CONF)
@@ -365,7 +365,7 @@ class ScyllaManager:
         with open(self._get_pid_file(), 'w') as pid_file:
             pid_file.write(str(self._process_scylla_manager.pid))
 
-        api_interface = common.parse_interface(self._get_api_address(), 9090)
+        api_interface = common.parse_interface(self._get_api_address(), 5080)
         if not common.check_socket_listening(api_interface,timeout=180):
             raise Exception("scylla manager interface %s:%s is not listening after 180 seconds, scylla manager may have failed to start."
                           % (api_interface[0], api_interface[1]))
