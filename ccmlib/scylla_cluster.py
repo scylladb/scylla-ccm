@@ -100,7 +100,7 @@ class ScyllaCluster(Cluster):
             if not node.is_running():
                 if started:
                     last_node, _, last_mark = started[-1]
-                    last_node.watch_log_for("Schema version changed",
+                    last_node.watch_log_for("node is now in normal status|Starting listening for CQL clients",
                                             verbose=verbose, from_mark=last_mark)
                 mark = 0
                 if os.path.exists(node.logfilename()):
