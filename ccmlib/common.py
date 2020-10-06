@@ -593,7 +593,7 @@ def get_version_from_build(install_dir=None, node_path=None):
         install_dir = get_install_dir_from_cluster_conf(node_path)
     if install_dir is not None:
         if isScylla(install_dir):
-            return '3.0'    # return cassandra-compatible version
+            return _get_scylla_version(install_dir)
         # Binary cassandra installs will have a 0.version.txt file
         version_file = os.path.join(install_dir, '0.version.txt')
         if os.path.exists(version_file):
@@ -613,14 +613,17 @@ def get_version_from_build(install_dir=None, node_path=None):
     raise CCMError("Cannot find version")
 
 
+def _get_scylla_version(install_dir):
+    scylla_version_files = [ os.path.join(install_dir, 'build', 'SCYLLA-VERSION-FILE'),
+                                os.path.join(install_dir, 'scylla-core-package', 'SCYLLA-VERSION-FILE') ]
+    for version_file in scylla_version_files:
+        if os.path.exists(version_file):
+            return open(version_file).read().strip()
+    return '3.0'
+
 def get_scylla_version(install_dir):
     if isScylla(install_dir):
-        scylla_version_files = [ os.path.join(install_dir, 'build', 'SCYLLA-VERSION-FILE'),
-                                 os.path.join(install_dir, 'scylla-core-package', 'SCYLLA-VERSION-FILE') ]
-        for version_file in scylla_version_files:
-            if os.path.exists(version_file):
-                return open(version_file).read().strip()
-        return '3.0'
+        return _get_scylla_version(install_dir)
     else:
         return None
 
