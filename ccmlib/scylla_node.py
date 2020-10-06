@@ -130,7 +130,7 @@ class ScyllaNode(Node):
 
     def get_cassandra_version(self):
         # TODO: Handle versioning
-        return '2.2'
+        return '3.0'
 
     def set_log_level(self, new_level, class_name=None):
         known_level = {'TRACE' : 'trace', 'DEBUG' : 'debug', 'INFO' : 'info', 'WARN' : 'warn', 'ERROR' : 'error', 'OFF' : 'info'}
