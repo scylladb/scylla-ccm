@@ -1442,7 +1442,7 @@ class Node(object):
         data['data_file_directories'] = [os.path.join(self.get_path(), 'data')]
         data['commitlog_directory'] = os.path.join(self.get_path(), 'commitlogs')
         data['saved_caches_directory'] = os.path.join(self.get_path(), 'saved_caches')
-        if self.get_cassandra_version() > '3.0' and 'hints_directory' in yaml_text:
+        if parse_version(self.get_cassandra_version()) > parse_version('3.0') and 'hints_directory' in yaml_text:
             data['hints_directory'] = os.path.join(self.get_path(), 'data', 'hints')
 
         if self.cluster.partitioner:
@@ -1502,7 +1502,7 @@ class Node(object):
 
     def __update_logback_loglevel(self, conf_file):
         # Setting the right log level - 2.2.2 introduced new debug log
-        if self.get_cassandra_version() >= '2.2.2' and self.__global_log_level:
+        if parse_version(self.get_cassandra_version()) >= parse_version('2.2.2') and self.__global_log_level:
             if self.__global_log_level in ['DEBUG', 'TRACE']:
                 root_log_level = self.__global_log_level
                 cassandra_log_level = self.__global_log_level
@@ -1553,7 +1553,7 @@ class Node(object):
             remote_debug_port_pattern = '((-Xrunjdwp:)|(-agentlib:jdwp=))transport=dt_socket,server=y,suspend=n,address='
             common.replace_in_file(conf_file, remote_debug_port_pattern, remote_debug_options)
 
-        if self.get_cassandra_version() < '2.0.1':
+        if parse_version(self.get_cassandra_version()) < parse_version('2.0.1'):
             common.replace_in_file(conf_file, "-Xss", '    JVM_OPTS="$JVM_OPTS -Xss228k"')
 
         for itf in list(self.network_interfaces.values()):
