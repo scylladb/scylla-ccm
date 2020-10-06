@@ -15,6 +15,7 @@ import time
 import warnings
 from datetime import datetime
 import locale
+from pkg_resources import parse_version
 
 import yaml
 from six import iteritems, print_, string_types
@@ -490,7 +491,7 @@ class Node(object):
 
         Emits a warning if not listening after 10 seconds.
         """
-        if self.cluster.version() >= '1.2':
+        if parse_version(self.cluster.version()) >= parse_version('1.2'):
             self.watch_log_for("Starting listening for CQL clients", **kwargs)
 
         binary_itf = self.network_interfaces['binary']
