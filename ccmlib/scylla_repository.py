@@ -238,8 +238,8 @@ def __get_dir():
 def run_scylla_install_script(install_dir, target_dir, package_version):
     scylla_target_dir = os.path.join(target_dir, 'scylla')
 
-    # FIXME: remove this hack once scylladb/scylla#4949 is fixed and merged
-    run('''sed 's|"$prefix|"$root/$prefix|' -i install.sh''', cwd=install_dir)
+    run('''{0}/install.sh --prefix {1}/opt/scylladb --nonroot'''.format(
+        install_dir, scylla_target_dir), cwd=install_dir)
 
     if package_version <= packaging.version.parse('2'):
         # leave this for compatibility
