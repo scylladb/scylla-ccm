@@ -19,6 +19,8 @@ from six import print_
 from six.moves import urllib
 from six import BytesIO
 
+import packaging.version
+
 from ccmlib.common import (
     ArgumentError, get_default_path, rmdirs, validate_install_dir, get_scylla_version)
 from ccmlib.repository import __download
@@ -48,7 +50,7 @@ def setup(version, verbose=True):
 
         url = os.environ.get('SCYLLA_CORE_PACKAGE', os.path.join(
             s3_url, 'scylla-package.tar.gz'))
-        download_version(version, verbose=verbose, url=url, target_dir=os.path.join(
+        package_version = download_version(version, verbose=verbose, url=url, target_dir=os.path.join(
             tmp_download, 'scylla-core-package'))
         # Try the old name for backward compatibility
         url = os.environ.get("SCYLLA_TOOLS_JAVA_PACKAGE") or \
@@ -69,7 +71,7 @@ def setup(version, verbose=True):
 
         # install using scylla install.sh
         run_scylla_install_script(os.path.join(
-            cdir, 'scylla-core-package'), cdir)
+            cdir, 'scylla-core-package'), cdir, package_version)
     setup_scylla_manager()
 
     return cdir, get_scylla_version(cdir)
@@ -178,16 +180,17 @@ def download_version(version, url=None, verbose=False, target_dir=None):
         package_version_file = "{}/.relocatable_package_version".format(target_dir)
         if os.path.exists(package_version_file):
             with open(package_version_file) as f:
-                package_version = f.read().strip()
-            if package_version != '2':
-                print('Unknown relocatable package format version: ' + package_version)
+                package_version = packaging.version.parse(f.read().strip())
+            if package_version > packaging.version.parse('2.1'):
+                print(f'Unknown relocatable package format version: {package_version}')
                 sys.exit(1)
-            print('Relocatable package format version 2 detected.')
+            print(f'Relocatable package format version {package_version} detected.')
             pkg_dir = glob.glob('{}/*/'.format(target_dir))[0]
             shutil.move(str(pkg_dir), target_dir + '.new')
             shutil.rmtree(target_dir)
             shutil.move(target_dir + '.new', target_dir)
         else:
+            package_version = packaging.version.parse('1')
             print('Legacy relocatable package format detected.')
 
         # add breadcrumb so we could list the origin of each part easily for debugging
@@ -198,6 +201,7 @@ def download_version(version, url=None, verbose=False, target_dir=None):
             f.write("version=%s\n" % version)
             f.write("url=%s\n" % url)
 
+        return package_version
     except urllib.error.URLError as e:
         msg = "Invalid version %s" % version if url is None else "Invalid url %s" % url
         msg = msg + " (underlying error is: %s)" % str(e)
@@ -231,17 +235,22 @@ def __get_dir():
     return repo
 
 
-def run_scylla_install_script(install_dir, target_dir):
+def run_scylla_install_script(install_dir, target_dir, package_version):
     scylla_target_dir = os.path.join(target_dir, 'scylla')
 
     # FIXME: remove this hack once scylladb/scylla#4949 is fixed and merged
     run('''sed 's|"$prefix|"$root/$prefix|' -i install.sh''', cwd=install_dir)
 
-    # FIXME: remove systemctl command from install.sh, since they won't work inside docker, and they are not needed
-    run('''sed -i '/systemctl --user/d' install.sh''', cwd=install_dir)
+    if package_version <= packaging.version.parse('2'):
+        # leave this for compatibility
+        run('''sed -i '/systemctl --user/d' install.sh''', cwd=install_dir)
+        install_opt = ''
+    else:
+        # on relocatable package format 2.1 or later, use --packaging instead of sed
+        install_opt = ' --packaging'
 
-    run('''{0}/install.sh --root {1} --prefix {1} --prefix /opt/scylladb --nonroot'''.format(
-        install_dir, scylla_target_dir), cwd=install_dir)
+    run('''{0}/install.sh --root {1} --prefix {1} --prefix /opt/scylladb --nonroot{2}'''.format(
+        install_dir, scylla_target_dir, install_opt), cwd=install_dir)
     run('''mkdir -p {0}/conf; cp ./conf/scylla.yaml {0}/conf'''.format(
         scylla_target_dir), cwd=install_dir)
     run('''ln -s {}/opt/scylladb/bin .'''.format(scylla_target_dir), cwd=target_dir)
