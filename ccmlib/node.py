@@ -717,6 +717,10 @@ class Node(object):
         When wait=True, timeout may be set to a number, in seconds,
         to limit how long the function will wait for nodetool to complete.
         """
+        log_params = "" if capture_output else " capture_output=False"
+        log_params += "" if wait else " wait=False"
+        log_params += "" if timeout is None else f" timeout={timeout}"
+        self.debug(f"Running nodetool {cmd}{log_params}")
         if capture_output and not wait:
             raise common.ArgumentError("Cannot set capture_output while wait is False.")
         env = self.get_env()
