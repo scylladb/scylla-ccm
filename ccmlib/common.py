@@ -13,6 +13,7 @@ import subprocess
 import sys
 import time
 import tempfile
+import logging
 
 import yaml
 from six import print_
@@ -39,6 +40,7 @@ CASSANDRA_SH = "cassandra.in.sh"
 CONFIG_FILE = "config"
 CCM_CONFIG_DIR = "CCM_CONFIG_DIR"
 
+logger = logging.getLogger('ccm')
 
 class CCMError(Exception):
     pass
