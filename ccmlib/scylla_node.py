@@ -1109,7 +1109,7 @@ class ScyllaNode(Node):
 
     def _wait_no_pending_flushes(self, wait_timeout=60):
         def no_pending_flushes():
-            stdout, _ = self.nodetool('cfstats')
+            stdout, _ = self.nodetool('cfstats', timeout=wait_timeout)
             pending_flushes = False
             for line in stdout.splitlines():
                 line = line.strip()
