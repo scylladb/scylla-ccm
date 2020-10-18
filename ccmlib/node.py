@@ -709,11 +709,13 @@ class Node(object):
                 break
             time.sleep(10)
 
-    def nodetool(self, cmd, capture_output=True, wait=True):
+    def nodetool(self, cmd, capture_output=True, wait=True, timeout=None):
         """
         Setting wait=False makes it impossible to detect errors,
         if capture_output is also False. wait=False allows us to return
         while nodetool is still running.
+        When wait=True, timeout may be set to a number, in seconds,
+        to limit how long the function will wait for nodetool to complete.
         """
         if capture_output and not wait:
             raise common.ArgumentError("Cannot set capture_output while wait is False.")
@@ -733,7 +735,7 @@ class Node(object):
             stdout, stderr = None, None
 
         if wait:
-            exit_status = p.wait()
+            exit_status = p.wait(timeout=timeout)
             if exit_status != 0:
                 raise NodetoolError(" ".join(args), exit_status, stdout, stderr)
 
