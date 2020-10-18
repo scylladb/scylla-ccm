@@ -540,6 +540,9 @@ class ScyllaNode(Node):
                 else:
                     ext_env[k] = v
 
+        message = "Starting scylla: args={} wait_other_notice={} wait_for_binary_proto={}".format(args, wait_other_notice, wait_for_binary_proto)
+        self.debug(message)
+
         scylla_process = self._start_scylla(args, marks, update_pid,
                                             wait_other_notice,
                                             wait_for_binary_proto,

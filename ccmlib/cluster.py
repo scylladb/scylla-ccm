@@ -72,6 +72,7 @@ class Cluster(object):
             if create_directory:
                 common.rmdirs(self.get_path())
             raise
+        self.debug("Started cluster '{}' version {} installed in {}".format(self.name, self.__version, self.__install_dir))
 
     def load_from_repository(self, version, verbose):
         return repository.setup(version, verbose)
