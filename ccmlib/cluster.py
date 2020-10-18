@@ -13,6 +13,7 @@ from six.moves import xrange
 
 from ccmlib import common, repository
 from ccmlib.node import Node, NodeError
+from ccmlib.common import logger
 
 
 class Cluster(object):
@@ -607,3 +608,16 @@ class Cluster(object):
 
         self._config_options['server_encryption_options'] = node_ssl_options
         self._update_config()
+
+
+    def debug(self, message):
+        logger.debug(message)
+
+    def info(self, message):
+        logger.info(message)
+
+    def warning(self, message):
+        logger.warning(message)
+
+    def error(self, message):
+        logger.error(message)
