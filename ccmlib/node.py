@@ -1267,8 +1267,8 @@ class Node(object):
         self.status = Status.DECOMMISSIONED
         self._update_config()
 
-    def hostid(self):
-        info = self.nodetool('info', capture_output=True)[0]
+    def hostid(self, timeout=60):
+        info = self.nodetool('info', capture_output=True, timeout=timeout)[0]
         id_lines = [s for s in info.split('\n')
                     if s.startswith('ID')]
         if not len(id_lines) == 1:
