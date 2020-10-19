@@ -208,14 +208,18 @@ class ScyllaNode(Node):
         with open(pid_filename, 'w') as pid_file:
             pid_file.write(str(self._process_jmx.pid))
 
-    # return True iff detected bootstrap message in the log
-    def wait_for_bootstrap_repair(self, from_mark=None, timeout=120):
+    # Wait for a starting node until is starts listening for CQL.
+    # Possibly poll the log for long-running offline processes, like
+    # bootstrap or resharding.
+    # Return True iff detected bootstrap or resharding processes in the log
+    def wait_for_starting(self, from_mark=None, timeout=120):
         if from_mark is None:
             from_mark = self.mark_log()
         process=self._process_scylla
         starting_message = 'Starting listening for CQL clients'
         bootstrap_message = 'storage_service - JOINING: Starting to bootstrap'
-        if not self.watch_log_for("{}|{}".format(starting_message, bootstrap_message), from_mark=from_mark, timeout=timeout, process=process):
+        resharding_message = r'(compaction|database) -.*Resharding'
+        if not self.watch_log_for("{}|{}|{}".format(starting_message, bootstrap_message, resharding_message), from_mark=from_mark, timeout=timeout, process=process):
             return False
         prev_mark = from_mark
         prev_mark_time = time.time()
@@ -228,13 +232,14 @@ class ScyllaNode(Node):
                     raise RuntimeError("The process is dead, returncode={}".format(process.returncode))
             repair_pattern = r'repair - Repair \d+ out of \d+ ranges'
             streaming_pattern = r'range_streamer - Bootstrap .* streaming .* ranges'
-            if self.grep_log("{}|{}".format(repair_pattern, streaming_pattern), from_mark=prev_mark):
+            resharding_pattern = r'(compaction|database) -.*Resharded'
+            if self.grep_log("{}|{}|{}".format(repair_pattern, streaming_pattern, resharding_pattern), from_mark=prev_mark):
                 prev_mark = self.mark_log()
                 prev_mark_time = time.time()
             elif time.time() - prev_mark_time >= timeout:
                 raise TimeoutError("{}: Timed out waiting for '{}'".format(self.name, starting_message))
             time.sleep(sleep_time)
-        return bool(self.grep_log(bootstrap_message, from_mark=from_mark))
+        return bool(self.grep_log("{}|{}".format(bootstrap_message, resharding_message), from_mark=from_mark))
 
     def _start_scylla(self, args, marks, update_pid, wait_other_notice,
                       wait_for_binary_proto, ext_env):
@@ -282,7 +287,7 @@ class ScyllaNode(Node):
             try:
                 self.wait_for_binary_interface(from_mark=self.mark, process=self._process_scylla, timeout=420)
             except TimeoutError as e:
-                if not self.wait_for_bootstrap_repair(from_mark=self.mark):
+                if not self.wait_for_starting(from_mark=self.mark):
                     raise e
                 pass
 
