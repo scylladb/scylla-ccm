@@ -20,10 +20,10 @@ setup(
     name="ccm",
     version="2.0.5",
     description="Cassandra Cluster Manager",
+    long_description_content_type="text/markdown",
     long_description=long_description,
     author="Balalis Shlomo, Bykov Aleksandr, Efraimov Oren, Fruchter Israel, Gelcer Fabio, Janković Aleksandar and"
            "Kaikov Yaron",
-    package_data={"": ["*"]},
     url="https://github.com/scylladb/scylla-ccm",
     packages=["ccmlib", "ccmlib.cmds"],
     scripts=[ccm_script],
