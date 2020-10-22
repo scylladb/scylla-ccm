@@ -183,6 +183,33 @@ class ScyllaDockerNode(ScyllaNode):
         else:
             return res.stdout.decode('utf-8').split()[1]
 
+    def show(self, only_status=False, show_cluster=True):
+        """
+        Print infos on this node configuration.
+        """
+        self.__update_status()
+        indent = ''.join([" " for i in range(0, len(self.name) + 2)])
+        print("%s: %s" % (self.name, self.__get_status_string()))
+        if not only_status:
+            if show_cluster:
+                print("%s%s=%s" % (indent, 'cluster', self.cluster.name))
+            print("%s%s=%s" % (indent, 'auto_bootstrap', self.auto_bootstrap))
+            print("%s%s=%s" % (indent, 'thrift', self.network_interfaces['thrift']))
+            if self.network_interfaces['binary'] is not None:
+                print("%s%s=%s" % (indent, 'binary', self.network_interfaces['binary']))
+            print("%s%s=%s" % (indent, 'storage', self.network_interfaces['storage']))
+            print("%s%s=%s" % (indent, 'jmx_port', self.jmx_port))
+            print("%s%s=%s" % (indent, 'remote_debug_port', self.remote_debug_port))
+            print("%s%s=%s" % (indent, 'initial_token', self.initial_token))
+            if self.pid:
+                print("%s%s=%s" % (indent, 'pid', self.pid))
+
+    def __get_status_string(self):
+        if self.status == Status.UNINITIALIZED:
+            return "%s (%s)" % (Status.DOWN, "Not initialized")
+        else:
+            return self.status
+
     def _update_config(self):
         dir_name = self.get_path()
         if not os.path.exists(dir_name):
@@ -254,7 +281,7 @@ class ScyllaDockerNode(ScyllaNode):
 
         run(['bash', '-c', f'docker rm --volumes -f {self.pid}'], stdout=PIPE, stderr=PIPE)
         if self.log_thread:
-            self.log_thread.stop()
+            self.log_thread.stop(10)
         super(ScyllaDockerNode, self).clear(*args, **kwargs)
 
     def _start_jmx(self, data):
