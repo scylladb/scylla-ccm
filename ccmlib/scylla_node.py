@@ -945,10 +945,10 @@ class ScyllaNode(Node):
 
     def _save(self):
         # TODO: - overwrite node
-        self.__update_yaml()
+        self.update_yaml()
         self._update_config()
 
-    def __update_yaml(self):
+    def update_yaml(self):
         # TODO: copied from node.py
         conf_file = os.path.join(self.get_conf_dir(), common.SCYLLA_CONF)
         with open(conf_file, 'r') as f:
