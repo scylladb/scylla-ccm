@@ -26,18 +26,15 @@ class TestScyllaDockerCluster:
 
         ]
         """
-        keys = ["status", "address", "size", "dimension"]
+        keys = ["status", "address"]
         nodes_statuses = []
         line_re = re.compile(
-            r"(?P<status>[UND]{2}?)\s+(?P<address>[\d]{1,3}\.[\d]{1,3}\.[\d]{1,3}\.[\d]{1,3}?)\s+(?P<size>[\d]+\.[\d]+?)\s(?P<dimension>[KMGT]B)")
+            r"(?P<status>[UNDJ]{2}?)\s+(?P<address>[\d]{1,3}\.[\d]{1,3}\.[\d]{1,3}\.[\d]{1,3}?)\s")
         for line in lines:
             node_status = {}
             res = line_re.search(line)
             if res:
                 for key in keys:
-                    if key == "size":
-                        node_status[key] = float(res[key])
-                        continue
                     node_status[key] = res[key]
                 nodes_statuses.append(node_status)
         return nodes_statuses

@@ -547,7 +547,7 @@ class ScyllaNode(Node):
                                             ext_env)
         self._start_jmx(data)
 
-        ip_addr = data['listen_address']
+        ip_addr, _ = self.network_interfaces['thrift']
         jmx_port = int(self.jmx_port)
         if not self._wait_java_up(ip_addr, jmx_port):
             e_msg = "Error starting node {}: unable to connect to scylla-jmx port {}:{}".format(
