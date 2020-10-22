@@ -4,9 +4,11 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from tests.test_config import RESULTS_DIR, TEST_ID, SCYLLA_DOCKER_IMAGE
+from tests.test_config import RESULTS_DIR, TEST_ID, SCYLLA_DOCKER_IMAGE, SCYLLA_RELOCATABLE_VERSION
 
 from ccmlib.scylla_docker_cluster import ScyllaDockerCluster
+from .ccmcluster import CCMCluster
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -53,3 +55,20 @@ def docker_cluster(test_dir, test_id):
         yield cluster
     finally:
         cluster.clear()
+
+
+@pytest.fixture(scope="session")
+def ccm_docker_cluster():
+    cluster = CCMCluster(test_id="docker", docker_image=SCYLLA_DOCKER_IMAGE)
+    return cluster
+
+
+@pytest.fixture(scope="session")
+def ccm_reloc_cluster():
+    cluster = CCMCluster(test_id="reloc", relocatable_version=SCYLLA_RELOCATABLE_VERSION)
+    return cluster
+
+
+@pytest.fixture(scope="session")
+def cluster_under_test(request):
+    return request.getfixturevalue(request.param)
