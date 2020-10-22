@@ -6,9 +6,11 @@ from pathlib import Path
 import pytest
 from tests.test_config import RESULTS_DIR, TEST_ID, SCYLLA_DOCKER_IMAGE
 
+from ccmlib.scylla_cluster import ScyllaCluster
 from ccmlib.scylla_docker_cluster import ScyllaDockerCluster
 
 LOGGER = logging.getLogger(__name__)
+SCYLLA_VERSION = 'unstable/branch-4.1:2020-10-02T06:39:11Z'  # official 4.1 unstable release
 
 
 @pytest.fixture(scope="session")
@@ -53,3 +55,48 @@ def docker_cluster(test_dir, test_id):
         yield cluster
     finally:
         cluster.clear()
+
+
+@pytest.fixture(scope="session")
+def simple_cluster(test_dir, test_id):
+    cluster = ScyllaCluster(str(test_dir), f"simple_{test_id}", cassandra_version=SCYLLA_VERSION,
+                            force_wait_for_cluster_start=True)
+    cluster_id = 0
+    cluster.set_id(cluster_id)
+    cluster.set_ipprefix(f"127.0.{cluster_id}.")  # So we will be able to run multiple clusters at the same time
+    cluster.populate(3)
+    cluster.start()
+    try:
+        yield cluster
+    finally:
+        cluster.remove()
+
+
+@pytest.fixture(scope="session")
+def multi_dc_cluster(test_dir, test_id):
+    cluster = ScyllaCluster(str(test_dir), f"multi_dc_{test_id}", cassandra_version=SCYLLA_VERSION,
+                            force_wait_for_cluster_start=True)
+    cluster_id = 1
+    cluster.set_id(cluster_id)
+    cluster.set_ipprefix(f"127.0.{cluster_id}.")  # So we will be able to run multiple clusters at the same time
+    cluster.populate([1, 2])
+    cluster.start()
+    try:
+        yield cluster
+    finally:
+        cluster.remove()
+
+
+@pytest.fixture(scope="function")
+def disposable_cluster(test_dir, test_id):
+    cluster = ScyllaCluster(str(test_dir), f"disposable_{test_id}", cassandra_version=SCYLLA_VERSION,
+                            force_wait_for_cluster_start=True)
+    cluster_id = 2
+    cluster.set_id(cluster_id)
+    cluster.set_ipprefix(f"127.0.{cluster_id}.")  # So we will be able to run multiple clusters at the same time
+    cluster.populate(3)
+    cluster.start()
+    try:
+        yield cluster
+    finally:
+        cluster.remove()
