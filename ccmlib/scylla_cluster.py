@@ -28,8 +28,13 @@ class ScyllaCluster(Cluster):
         install_func = common.scylla_extract_install_dir_and_mode
 
         cassandra_version = kwargs.get('cassandra_version', version)
+        docker_image = kwargs.get('docker_image')
+
         if cassandra_version:
             self.scylla_reloc = True
+            self.scylla_mode = None
+        elif docker_image:
+            self.scylla_reloc = False
             self.scylla_mode = None
         else:
             self.scylla_reloc = False
@@ -40,7 +45,8 @@ class ScyllaCluster(Cluster):
         super(ScyllaCluster, self).__init__(path, name, partitioner,
                                             install_dir, create_directory,
                                             version, verbose,
-                                            snitch=SNITCH, cassandra_version=cassandra_version)
+                                            snitch=SNITCH, cassandra_version=cassandra_version,
+                                            docker_image=docker_image)
 
         self._scylla_manager=None
         if not manager:
@@ -133,9 +139,9 @@ class ScyllaCluster(Cluster):
     def start(self, no_wait=True, verbose=False, wait_for_binary_proto=None,
               wait_other_notice=None, jvm_args=None, profile_options=None,
               quiet_start=False):
-        args = locals()
-        del args['self']
-        started = self.start_nodes(**args)
+        kwargs = dict(**locals())
+        del kwargs['self']
+        started = self.start_nodes(**kwargs)
         if self._scylla_manager:
             self._scylla_manager.start()
 
@@ -168,9 +174,9 @@ class ScyllaCluster(Cluster):
     def stop(self, wait=True, gently=True, wait_other_notice=False, other_nodes=None, wait_seconds=127):
         if self._scylla_manager:
             self._scylla_manager.stop(gently)
-        args = locals()
-        del args['self']
-        return self.stop_nodes(**args)
+        kwargs = dict(**locals())
+        del kwargs['self']
+        return self.stop_nodes(**kwargs)
 
     def get_scylla_mode(self):
         return self.scylla_mode

@@ -42,13 +42,18 @@ class Cluster(object):
 
         # This is incredibly important for
         # backwards compatibility.
-        if 'cassandra_version' in kwargs:
-            version = kwargs['cassandra_version']
-        if 'cassandra_dir' in kwargs:
-            install_dir = kwargs['cassandra_dir']
+        version = kwargs.get('cassandra_version', version)
+        install_dir = kwargs.get('cassandra_dir', install_dir)
+        docker_image = kwargs.get('docker_image')
         if create_directory:
             # we create the dir before potentially downloading to throw an error sooner if need be
             os.mkdir(self.get_path())
+
+        if docker_image:
+            self.__install_dir = None
+            self.__version = '3.0'
+            self._update_config()
+            return
 
         try:
             if version is None:
