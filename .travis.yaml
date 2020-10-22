@@ -1,0 +1,20 @@
+language: python
+
+virtualenv:
+  system_site_packages: true
+
+# command to install dependencies
+install:
+  - pip install -r requirements.txt
+jobs:
+  # Integration tests
+  - name: "Ubuntu 16.04.7 LTS - Integration Test #1"
+    os: linux
+    dist: xenial
+    python:
+      - "2.7"
+      - "3.8"
+    script:
+      - python -m unittest discover $$TRAVIS_BUILD_DIR/tests -p 'test_*.py'
+    if: type = pull_request
+
