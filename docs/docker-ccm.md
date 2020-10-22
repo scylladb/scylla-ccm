@@ -30,12 +30,27 @@ nosetest ...
 * Running CI for PRs - which we don't have now
 
 ## Open questions
+
+Yaron, Fabio, Israel 
+## Cluster/Node implementation 
 * should we use docker command line ? or using a python package for that ?
-* where we install run manager server ?
 * how we change configuration ? mount files ? in place changes/replaces ?
-* how we collect all the relevant docker instances, to cleanup the test  
 * from where do we collect logs ? from specific files ? using docker logs ?
+* how we collect all the relevant docker instances, to cleanup the test ?
+
+Alex.B, Shlomo
+### Test
+* unittest - 
+* integration test - pull a docker, like latest, crate
+
+Oren,
+### CI 
 * which CI we should use - our own jenkins ? travis/circle-ci/github actions ?
+
+### other/extra tools
+* cassandra-stress - is it part of the official docker ? should we run it in a separate docker ? 
+* where we install run manager server ? do use the official docker of manager ?
+* how we support manager-agent in the docker nodes.
 
 ## How we would work
 
