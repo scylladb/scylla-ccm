@@ -200,7 +200,8 @@ class ClusterCreateCmd(Cmd):
     def run(self):
         try:
             if self.options.scylla:
-                cluster = ScyllaCluster(self.path, self.name, install_dir=self.options.install_dir, version=self.options.version, verbose=True,manager=self.options.scyllamanager)
+                cluster = ScyllaCluster(self.path, self.name, install_dir=self.options.install_dir, version=self.options.version, verbose=True,
+                                        manager_install_dir=self.options.scyllamanager)
             elif self.options.dse or (not self.options.version and common.isDse(self.options.install_dir)):
                 cluster = DseCluster(self.path, self.name, install_dir=self.options.install_dir, version=self.options.version, dse_username=self.options.dse_username, dse_password=self.options.dse_password, opscenter=self.options.opscenter, verbose=True)
             else:
@@ -1026,7 +1027,7 @@ class ClusterJconsoleCmd(Cmd):
             sys.exit(1)
 
 class ClusterSctoolCmd(Cmd):
-    usage = "usage: ccm node_name nodetool [options]"
+    usage = "usage: ccm node_name sctool [options]"
     descr_text = "Run nodetool (connecting to node name)"
 
 

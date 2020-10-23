@@ -2,15 +2,16 @@ import os
 
 import yaml
 
-from ccmlib import common, repository
+from ccmlib import common
+from ccmlib import repository
 from ccmlib.cluster import Cluster
 from ccmlib.dse_cluster import DseCluster
 from ccmlib.scylla_cluster import ScyllaCluster
-from ccmlib import repository
+from ccliib.docker_cluster import DockerCluster
 from ccmlib.node import Node
 
 
-class ClusterFactory():
+class ClusterFactory:
 
     @staticmethod
     def load(path, name):
@@ -27,8 +28,13 @@ class ClusterFactory():
                 install_dir = data['cassandra_dir']
                 repository.validate(install_dir)
 
+            docker_cluster = False
+            if 'docker_cluster' in data:
+                docker_cluster = data['docker_cluster']
+
             if common.isScylla(install_dir):
-                cluster = ScyllaCluster(path, data['name'], install_dir=install_dir, create_directory=False)
+                cluster = ScyllaCluster(path, data['name'], install_dir=install_dir, create_directory=False,
+                                        docker_cluster=docker_cluster)
             elif common.isDse(install_dir):
                 cluster = DseCluster(path, data['name'], install_dir=install_dir, create_directory=False)
             else:
