@@ -12,13 +12,13 @@ class TestScyllaDockerCluster(TestCase):
         cluster = ScyllaDockerCluster(test_path, name='test_cluster01',
                                       docker_image='scylladb/scylla-nightly:666.development-0.20201015.8068272b466')
         self.addCleanup(lambda: cluster.clear())
-        cluster.populate(1)
+        cluster.populate(3)
         cluster.start(wait_for_binary_proto=True)
-        [node1] = cluster.nodelist()
+        [node1, node2, node3] = cluster.nodelist()
 
         node1.run_cqlsh(
             '''
-            CREATE KEYSPACE ks WITH replication = { 'class' :'SimpleStrategy', 'replication_factor': 1};
+            CREATE KEYSPACE ks WITH replication = { 'class' :'SimpleStrategy', 'replication_factor': 3};
             USE ks;
             CREATE TABLE test (key int PRIMARY KEY);
             INSERT INTO test (key) VALUES (1);
@@ -27,5 +27,3 @@ class TestScyllaDockerCluster(TestCase):
         for s in ['(1 rows)', 'key', '1']:
             self.assertIn(s, rv[0])
         self.assertEqual(rv[1], '')
-
-
