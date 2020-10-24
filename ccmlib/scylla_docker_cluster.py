@@ -46,6 +46,15 @@ class ScyllaDockerNode(ScyllaNode):
     def create_docker(self):
         res = run(['bash', '-c', f"docker run -v {self.local_yaml_path}:/etc/scylla/ --name {self.docker_name} -d {self.cluster.docker_image} --smp 1"], stdout=PIPE, stderr=PIPE)
         self.pid = res.stdout.decode('utf-8').strip() if res.stdout else None
+        self.log_thread = DockerLogger(self,  os.path.join(self.get_path(), 'logs', 'system.log'))
+        self.log_thread.start()
+
+        # TODO: to move to it's own function, since it's need to be called also for commandline when we'll have on the docker id
+        # replace addresses
+        network = run(['bash', '-c', f"docker inspect --format='{{{{ .NetworkSettings.IPAddress }}}}' {self.pid}"], stdout=PIPE, stderr=PIPE)
+        address = network.stdout.decode('utf-8').strip() if res.stdout else None
+        self.network_interfaces = {k: (address, v[1]) for k, v in self.network_interfaces.items()}
+
         return res.returncode == 0, res.stdout, res.stderr
 
     def service_start(self, service_name):
@@ -93,6 +102,7 @@ class ScyllaDockerNode(ScyllaNode):
         rc, out, err = self.create_docker()
         if not rc:
             raise BaseException(f'failed to create docker {self.docker_name}')
+
         time.sleep(5)
         scylla_status = self.service_status('scylla')
         if scylla_status and scylla_status.upper() != 'RUNNING':
@@ -112,7 +122,7 @@ class ScyllaDockerNode(ScyllaNode):
 
     def clear(self, *args, **kwargs):
         res = run(['bash', '-c', f'docker rm -f {self.pid}'], stdout=PIPE, stderr=PIPE)
-        print(res)
+        self.log_thread.stop()
         super(ScyllaDockerNode, self).clear(*args, **kwargs)
 
     def _start_jmx(self, data):
@@ -155,7 +165,44 @@ class ScyllaDockerNode(ScyllaNode):
         pass
 
     def get_tool(self, toolname):
-        return ['bash', '-c', f'docker exec {self.pid} {toolname}']
+        return ['docker',  'exec', '-i',  f'{self.pid}', f'{toolname}']
 
     def get_env(self):
         return os.environ.copy()
+
+
+import subprocess
+from threading import Thread, Event as ThreadEvent
+
+
+class DockerLogger:
+    _child_process = None
+
+    def __init__(self, node, target_log_file: str):
+        self._node = node
+        self._target_log_file = target_log_file
+        self._thread = Thread(target=self._thread_body, daemon=True)
+        self._termination_event = ThreadEvent()
+
+    @property
+    def _logger_cmd(self) -> str:
+        return f'docker logs -f {self._node.pid} >>{self._target_log_file} 2>&1'
+
+    def _thread_body(self):
+        while not self._termination_event.wait(0.1):
+            try:
+                self._child_process = subprocess.Popen(self._logger_cmd, shell=True)
+                self._child_process.wait()
+            except Exception as ex:  # pylint: disable=bare-except
+                print(ex)
+                raise
+
+    def start(self):
+        self._termination_event.clear()
+        self._thread.start()
+
+    def stop(self, timeout=None):
+        self._termination_event.set()
+        if self._child_process:
+            self._child_process.kill()
+        self._thread.join(timeout)
