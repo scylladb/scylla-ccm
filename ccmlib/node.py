@@ -803,6 +803,8 @@ class Node(object):
 
     def run_cqlsh(self, cmds=None, show_output=False, cqlsh_options=[], return_output=False):
         cqlsh = self.get_tool('cqlsh')
+        if not isinstance(cqlsh, list):
+            cqlsh = [cqlsh]
         env = self.get_env()
         host = self.network_interfaces['thrift'][0]
         if self.get_base_cassandra_version() >= 2.1:
@@ -813,11 +815,11 @@ class Node(object):
         sys.stdout.flush()
         if cmds is None:
             if common.is_win():
-                subprocess.Popen([cqlsh] + args, env=env, creationflags=subprocess.CREATE_NEW_CONSOLE, universal_newlines=True)
+                subprocess.Popen(cqlsh + args, env=env, creationflags=subprocess.CREATE_NEW_CONSOLE, universal_newlines=True)
             else:
                 os.execve(cqlsh, [common.platform_binary('cqlsh')] + args, env)
         else:
-            p = subprocess.Popen([cqlsh] + args, env=env, stdin=subprocess.PIPE, stderr=subprocess.PIPE, stdout=subprocess.PIPE, universal_newlines=True)
+            p = subprocess.Popen(cqlsh + args, env=env, stdin=subprocess.PIPE, stderr=subprocess.PIPE, stdout=subprocess.PIPE, universal_newlines=True)
             for cmd in cmds.split(';'):
                 cmd = cmd.strip()
                 if cmd:
