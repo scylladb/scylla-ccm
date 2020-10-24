@@ -1,7 +1,7 @@
 from ccmlib.cluster import Cluster
 from ccmlib.node import Node
-from . import TEST_DIR
-from . import ccmtest
+from tests import TEST_DIR
+from tests.old import ccmtest
 
 CLUSTER_PATH = TEST_DIR
 

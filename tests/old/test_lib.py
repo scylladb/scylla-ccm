@@ -3,8 +3,8 @@ sys.path = [".."] + sys.path
 
 import decimal
 
-from . import TEST_DIR
-from . import ccmtest
+from tests import TEST_DIR
+from tests.old import ccmtest
 from ccmlib.cluster import Cluster
 import ccmlib
 from six import StringIO

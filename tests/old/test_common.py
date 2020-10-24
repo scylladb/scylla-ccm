@@ -1,7 +1,7 @@
 import unittest
 
 from ccmlib import common
-from . import ccmtest
+from tests.old import ccmtest
 
 
 class TestCommon(ccmtest.Tester):
