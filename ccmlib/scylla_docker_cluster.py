@@ -1,9 +1,10 @@
+import time
 import os
-import random
 from subprocess import run, PIPE
 
 from ccmlib.scylla_cluster import ScyllaCluster
 from ccmlib.scylla_node import ScyllaNode
+from ccmlib.node import Status
 
 
 class ScyllaDockerCluster(ScyllaCluster):
@@ -44,29 +45,30 @@ class ScyllaDockerNode(ScyllaNode):
 
     def create_docker(self):
         res = run(['bash', '-c', f"docker run -v {self.local_yaml_path}:/etc/scylla/ --name {self.docker_name} -d {self.cluster.docker_image} --smp 1"], stdout=PIPE, stderr=PIPE)
-        self.docker_id = res.stdout.decode('utf-8').strip() if res.stdout else None
+        self.pid = res.stdout.decode('utf-8').strip() if res.stdout else None
         return res.returncode == 0, res.stdout, res.stderr
 
     def service_start(self, service_name):
-        res = run(['docker', 'exec', self.docker_name, 'supervisorctl', 'start', service_name],
+        res = run(['bash', '-c', f'docker exec {self.pid} /bin/bash -c "supervisorctl start {service_name}"'],
                   stdout=PIPE, stderr=PIPE)
         if res.returncode != 0:
             print(res.stdout)
             print(f'service {service_name} failed to start with error\n{res.stderr}')
 
     def service_stop(self, service_name):
-        res = run(['docker', 'exec', self.docker_name, 'supervisorctl', 'stop', service_name],
+        res = run(['bash', '-c', f'docker exec {self.pid} /bin/bash -c "supervisorctl stop {service_name}"'],
                   stdout=PIPE, stderr=PIPE)
         if res.returncode != 0:
             print(res.stdout)
             print(f'service {service_name} failed to stop with error\n{res.stderr}')
 
     def service_status(self, service_name):
-        res = run(['docker', 'exec', self.docker_name, 'supervisorctl', 'status', service_name],
+        res = run(['bash', '-c', f'docker exec {self.pid} /bin/bash -c "supervisorctl status {service_name}"'],
                   stdout=PIPE, stderr=PIPE)
         if res.returncode != 0:
             print(res.stdout)
             print(f'service {service_name} failed to stop with error\n{res.stderr}')
+            return "DOWN"
         else:
             return res.stdout.decode('utf-8').split()[1]
 
@@ -79,11 +81,7 @@ class ScyllaDockerNode(ScyllaNode):
         #           stdout=PIPE, stderr=PIPE)
         # if not res.returncode:
         #     print(f'Failed to copy scylla.yaml to {self.local_yaml_path}\n{res.stderr}')
-        rc, out, err = self.create_docker()
-        if not rc:
-            raise BaseException(f'failed to create docker {self.docker_name}')
-        super(ScyllaDockerNode, self).start(*args, **kwargs)
-        return random.randint(100, 10000)
+        return super(ScyllaDockerNode, self).start(*args, **kwargs)
 
     def _start_scylla(self, args, marks, update_pid, wait_other_notice,
                       wait_for_binary_proto, ext_env):
@@ -91,12 +89,73 @@ class ScyllaDockerNode(ScyllaNode):
         # TODO: mount of the data dir
         # TODO: pass down the full command line params, since the docker ones doesn't support all of them ?
         # TODO: pass down a unique tag, with the cluster name, or id, if we have such in ccm, like test_id in SCT ?
+
+        rc, out, err = self.create_docker()
+        if not rc:
+            raise BaseException(f'failed to create docker {self.docker_name}')
+        time.sleep(5)
         scylla_status = self.service_status('scylla')
         if scylla_status and scylla_status.upper() != 'RUNNING':
             self.service_start('scylla')
-        return random.randint(100, 10000)
+
+    def do_stop(self, gently=True):
+        """
+        Stop the node.
+          - gently: Let Scylla and Scylla JMX clean up and shut down properly.
+            Otherwise do a 'kill -9' which shuts down faster.
+        """
+        if gently:
+            self.service_stop('scylla-jmx')
+            self.service_stop('scylla')
+        else:
+            raise NotImplementedError()
+
+    def clear(self, *args, **kwargs):
+        res = run(['bash', '-c', f'docker rm -f {self.pid}'], stdout=PIPE, stderr=PIPE)
+        print(res)
+        super(ScyllaDockerNode, self).clear(*args, **kwargs)
 
     def _start_jmx(self, data):
         jmx_status = self.service_status('scylla-jmx')
         if not jmx_status and jmx_status.upper() == 'RUNNING':
             self.service_start('scylla-jmx')
+
+    def is_running(self):
+        """
+        Return true if the node is running
+        """
+        self.__update_status()
+        return self.status == Status.UP or self.status == Status.DECOMMISSIONED
+
+    def is_live(self):
+        """
+        Return true if the node is live (it's run and is not decommissioned).
+        """
+        self.__update_status()
+        return self.status == Status.UP
+
+    def __update_status(self):
+        if self.pid is None:
+            if self.status == Status.UP or self.status == Status.DECOMMISSIONED:
+                self.status = Status.DOWN
+            return
+
+        old_status = self.status
+
+        scylla_status = self.service_status('scylla')
+        if scylla_status and scylla_status.upper() == 'RUNNING':
+            self.status = Status.UP
+        else:
+            self.status = Status.DOWN
+
+    def _wait_java_up(self, ip_addr, jmx_port):
+        return True
+
+    def _update_pid(self, process):
+        pass
+
+    def get_tool(self, toolname):
+        return ['bash', '-c', f'docker exec {self.pid} {toolname}']
+
+    def get_env(self):
+        return os.environ.copy()
