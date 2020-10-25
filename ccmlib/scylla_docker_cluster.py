@@ -29,6 +29,7 @@ class ScyllaDockerNode(ScyllaNode):
         kwargs['save'] = False
         super(ScyllaDockerNode, self).__init__(*args, **kwargs)
         self.docker_id = None
+        self.local_data_path = os.path.join(self.get_path(), 'data')
         self.local_yaml_path = os.path.join(self.get_path(), 'conf')
         self.docker_name = f'{self.cluster.name}-{self.name}'
         self.jmx_port = 7199
@@ -42,6 +43,13 @@ class ScyllaDockerNode(ScyllaNode):
     @staticmethod
     def get_docker_name():
         return run(["docker", "ps", "-a"], stdout=PIPE).stdout.decode('utf-8').split()[-1]
+
+    def is_scylla(self):
+        return True
+
+    @staticmethod
+    def is_docker():
+        return True
 
     def update_yaml(self):
         if not os.path.exists(f'{self.local_yaml_path}/scylla.yaml'):
@@ -64,12 +72,13 @@ class ScyllaDockerNode(ScyllaNode):
         # TODO: mount of the data dir
         # TODO: pass down the full command line params, since the docker ones doesn't support all of them ?
         # TODO: pass down a unique tag, with the cluster name, or id, if we have such in ccm, like test_id in SCT ?
+        # TODO: add volume map to: hints, ...
         node1 = self.cluster.nodelist()[0]
         if not self.name == node1.name:
             seeds = f"--seeds {node1.network_interfaces['thrift'][0]}"
         else:
             seeds = ''
-        res = run(['bash', '-c', f"docker run -v {self.local_yaml_path}/scylla.yaml:/etc/scylla/scylla.yaml:ro --name {self.docker_name} -d {self.cluster.docker_image} --smp 1 {seeds}"], stdout=PIPE, stderr=PIPE)
+        res = run(['bash', '-c', f"docker run -v {self.local_yaml_path}/scylla.yaml:/etc/scylla/scylla.yaml -v {self.local_data_path}:/usr/lib/scylla/data --name {self.docker_name} -d {self.cluster.docker_image} --smp 1 {seeds}"], stdout=PIPE, stderr=PIPE)
         self.pid = res.stdout.decode('utf-8').strip() if res.stdout else None
         self.log_thread = DockerLogger(self,  os.path.join(self.get_path(), 'logs', 'system.log'))
         self.log_thread.start()
