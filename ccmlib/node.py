@@ -1133,14 +1133,20 @@ class Node(object):
         else:
             stress_options = stress_options[:]
 
-        stress = common.get_stress_bin(self.get_install_dir())
+        if self.is_docker():
+            stress = self.get_tool("cassandra-stress")
+            cmd = None
+        else:
+            stress = common.get_stress_bin(self.get_install_dir())
+            cmd = common.parse_path(stress)
+            stress = [stress]
 
         # handle cassandra-stress >= 3.11 parameters
         has_limit = any(['limit=' in o for o in stress_options])
         has_throttle = any(['throttle=' in o for o in stress_options])
         if has_limit or has_throttle:
-            args = [stress, 'version']
-            p = subprocess.Popen(args, cwd=common.parse_path(stress),
+            args = stress + ['version']
+            p = subprocess.Popen(args, cwd=cmd,
                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
                                  **kwargs)
             stdout, stderr = p.communicate()
@@ -1161,11 +1167,12 @@ class Node(object):
             # specify used jmx port if not already set
             if not [opt for opt in stress_options if opt.startswith('jmx=')]:
                 stress_options.extend(['-port', 'jmx=' + self.jmx_port])
-        args = [stress] + stress_options
+
+        args = stress + stress_options
         try:
             stdout_handle = kwargs.pop("stdout", subprocess.PIPE)
             stderr_handle = kwargs.pop("stderr", subprocess.PIPE)
-            p = subprocess.Popen(args, cwd=common.parse_path(stress),
+            p = subprocess.Popen(args, cwd=cmd,
                                  stdout=stdout_handle, stderr=stderr_handle, universal_newlines=True,
                                  **kwargs)
             stdout, stderr = p.communicate()
