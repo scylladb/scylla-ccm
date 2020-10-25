@@ -755,7 +755,7 @@ class ScyllaNode(Node):
         self._create_directory()
         self._update_config()
         self.copy_config_files()
-        self.__update_yaml()
+        self.update_yaml()
         self.__copy_logback_files()
 
     def copy_config_files(self):

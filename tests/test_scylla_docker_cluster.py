@@ -1,29 +1,42 @@
 import os.path
 from subprocess import run
-from unittest import TestCase
+
+import pytest
 
 from ccmlib.scylla_docker_cluster import ScyllaDockerCluster
 
 
-class TestScyllaDockerCluster(TestCase):
-    def test_01(self):
-        test_path = os.path.expanduser("~/.test")
-        run(["bash", "-c", f"rm -rf {test_path}/test_cluster01"])
-        cluster = ScyllaDockerCluster(test_path, name='test_cluster01',
-                                      docker_image='scylladb/scylla-nightly:666.development-0.20201015.8068272b466')
-        self.addCleanup(lambda: cluster.clear())
-        cluster.populate(3)
-        cluster.start(wait_for_binary_proto=True)
-        [node1, node2, node3] = cluster.nodelist()
+@pytest.fixture(scope="module")
+def test_path():
+    p = os.path.expanduser("~/.test")
+    yield p
+    run(["bash", "-c", f"rm -rf {p}/test_cluster01"])
 
-        node1.run_cqlsh(
-            '''
-            CREATE KEYSPACE ks WITH replication = { 'class' :'SimpleStrategy', 'replication_factor': 3};
-            USE ks;
-            CREATE TABLE test (key int PRIMARY KEY);
-            INSERT INTO test (key) VALUES (1);
-            ''')
-        rv = node1.run_cqlsh('SELECT * from ks.test', return_output=True)
-        for s in ['(1 rows)', 'key', '1']:
-            self.assertIn(s, rv[0])
-        self.assertEqual(rv[1], '')
+
+@pytest.fixture(scope="module")
+def docker_cluster(test_path):
+    cluster = ScyllaDockerCluster(test_path, name='test_cluster01',
+                                  docker_image='scylladb/scylla-nightly:666.development-0.20201015.8068272b466')
+    yield cluster
+
+    cluster.clear()
+
+
+def test_01_cqlsh(docker_cluster):
+
+    docker_cluster.populate(3)
+    docker_cluster.start(wait_for_binary_proto=True)
+    [node1, node2, node3] = docker_cluster.nodelist()
+
+    node1.run_cqlsh(
+        '''
+        CREATE KEYSPACE ks WITH replication = { 'class' :'SimpleStrategy', 'replication_factor': 3};
+        USE ks;
+        CREATE TABLE test (key int PRIMARY KEY);
+        INSERT INTO test (key) VALUES (1);
+        ''')
+    rv = node1.run_cqlsh('SELECT * from ks.test', return_output=True)
+    for s in ['(1 rows)', 'key', '1']:
+        assert s in rv[0]
+    assert rv[1] == ''
+
