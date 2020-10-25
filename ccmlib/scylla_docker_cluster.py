@@ -57,19 +57,23 @@ class ScyllaDockerNode(ScyllaNode):
     def is_docker():
         return True
 
+    def read_scylla_yaml(self):
+        conf_file = os.path.join(self.get_conf_dir(), common.SCYLLA_CONF)
+        with open(conf_file, 'r') as f:
+            return yaml.safe_load(f)
+
     def update_yaml(self):
         if not os.path.exists(f'{self.local_yaml_path}/scylla.yaml'):
             run(['bash', '-c', f'docker run --rm --entrypoint cat {self.cluster.docker_image} /etc/scylla/scylla.yaml > {self.local_yaml_path}/scylla.yaml'])
         super(ScyllaDockerNode, self).update_yaml()
 
         conf_file = os.path.join(self.get_conf_dir(), common.SCYLLA_CONF)
-        with open(conf_file, 'r') as f:
-            data = yaml.safe_load(f)
-        # HACK: to enable correct order of seed, if we are the first, we set it as seed
-        seed_address, _ = self.cluster.nodelist()[0].network_interfaces['thrift']
-        data['seed_provider'][0]['parameters'][0]['seeds'] = [seed_address]
+        data = self.read_scylla_yaml()
 
         data['api_address'] = '127.0.0.1'
+        if 'alternator_port' in data or 'alternator_https_port' in data:
+            data['alternator_address'] = "0.0.0.0"
+
         with open(conf_file, 'w') as f:
             yaml.safe_dump(data, f, default_flow_style=False)
 
@@ -86,8 +90,16 @@ class ScyllaDockerNode(ScyllaNode):
                 seeds = f"--seeds {node1.network_interfaces['thrift'][0]}"
             else:
                 seeds = ''
+            scylla_yaml = self.read_scylla_yaml()
+            ports = ""
+            if 'alternator_port' in scylla_yaml:
+                ports += f" -v {scylla_yaml['alternator_port']}"
+            if 'alternator_https_port' in scylla_yaml:
+                ports += f" -v {scylla_yaml['alternator_https_port']}"
 
-            res = run(['bash', '-c', f"docker run -v {self.local_yaml_path}/scylla.yaml:/etc/scylla/scylla.yaml -v {self.local_data_path}:/usr/lib/scylla/data --name {self.docker_name} -d {self.cluster.docker_image} --smp 1 {seeds}"], stdout=PIPE, stderr=PIPE)
+            res = run(['bash', '-c', f"docker run {ports} -v {self.local_yaml_path}/scylla.yaml:/etc/scylla/scylla.yaml "
+                                     f"-v {self.local_data_path}:/usr/lib/scylla/data --name {self.docker_name} "
+                                     f"-d {self.cluster.docker_image} --smp 1 {seeds}"], stdout=PIPE, stderr=PIPE)
             self.pid = res.stdout.decode('utf-8').strip()
 
             if not res.returncode == 0:
