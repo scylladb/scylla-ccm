@@ -48,7 +48,7 @@ class ScyllaCluster(Cluster):
                                             snitch=SNITCH, cassandra_version=cassandra_version,
                                             docker_image=docker_image)
 
-        self._scylla_manager=None
+        self._scylla_manager = None
         if not manager:
             scylla_ext_opts = os.getenv('SCYLLA_EXT_OPTS', "").split()
             opts_i = 0
