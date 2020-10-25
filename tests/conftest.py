@@ -28,7 +28,7 @@ def test_id():
 
 @pytest.fixture(scope="session")
 def test_dir(test_id, results_dir):
-    max_test_dirs, dir_count = 1, 100
+    max_test_dirs, dir_count = 100, 1
     test_dir = results_dir / Path("ccm-" + test_id)
     while test_dir.exists() and dir_count <= max_test_dirs:
         test_dir = results_dir / Path("ccm-{}-{}".format(test_id, dir_count))
