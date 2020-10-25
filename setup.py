@@ -25,6 +25,7 @@ setup(
     packages=['ccmlib', 'ccmlib.cmds'],
     scripts=[ccmscript],
     install_requires=['pyYaml', 'psutil', 'six >=1.4.1', 'requests'],
+    tests_require=['pytest'],
     classifiers=[
         "License :: OSI Approved :: Apache Software License",
         "Programming Language :: Python",
