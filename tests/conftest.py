@@ -15,7 +15,7 @@ LOGGER = logging.getLogger(__name__)
 def results_dir():
     LOGGER.info("Creating test directory...")
     dir_name = "tests" / Path(RESULTS_DIR)
-    dir_name.mkdir(exist_ok=True)
+    dir_name.mkdir(parents=True, exist_ok=True)
     return dir_name
 
 
