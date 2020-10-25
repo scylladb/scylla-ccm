@@ -468,16 +468,17 @@ class ScyllaNode(Node):
         if self.is_running():
             raise NodeError("%s is already running" % self.name)
 
-        for itf in list(self.network_interfaces.values()):
-            if itf is not None and replace_address is None:
-                try:
-                    common.check_socket_available(itf)
-                except Exception as msg:
-                    print("{}. Looking for offending processes...".format(msg))
-                    for proc in psutil.process_iter():
-                        if any(self.cluster.ipprefix in cmd for cmd in proc.cmdline()):
-                            print("name={} pid={} cmdline={}".format(proc.name(), proc.pid, proc.cmdline()))
-                    raise msg
+        if not self.is_docker():
+            for itf in list(self.network_interfaces.values()):
+                if itf is not None and replace_address is None:
+                    try:
+                        common.check_socket_available(itf)
+                    except Exception as msg:
+                        print("{}. Looking for offending processes...".format(msg))
+                        for proc in psutil.process_iter():
+                            if any(self.cluster.ipprefix in cmd for cmd in proc.cmdline()):
+                                print("name={} pid={} cmdline={}".format(proc.name(), proc.pid, proc.cmdline()))
+                        raise msg
 
         marks = []
         if wait_other_notice:
