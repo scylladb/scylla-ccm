@@ -723,10 +723,6 @@ class Node(object):
         When wait=True, timeout may be set to a number, in seconds,
         to limit how long the function will wait for nodetool to complete.
         """
-        log_params = "" if capture_output else " capture_output=False"
-        log_params += "" if wait else " wait=False"
-        log_params += "" if timeout is None else f" timeout={timeout}"
-        self.debug(f"Running nodetool {cmd}{log_params}")
         if capture_output and not wait:
             raise common.ArgumentError("Cannot set capture_output while wait is False.")
         env = self.get_env()
@@ -738,7 +734,7 @@ class Node(object):
         args = [nodetool, '-h', host, '-p', str(self.jmx_port)]
         args += cmd.split()
         if capture_output:
-            p = subprocess.Popen(args, universal_newlines=True, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            p = subprocess.Popen(nodetool, universal_newlines=True, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             stdout, stderr = p.communicate(timeout=timeout)
         else:
             p = subprocess.Popen(args, env=env, universal_newlines=True)
