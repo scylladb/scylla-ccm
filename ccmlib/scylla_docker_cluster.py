@@ -2,10 +2,12 @@ import time
 import os
 from subprocess import run, PIPE
 
+import yaml
+
 from ccmlib.scylla_cluster import ScyllaCluster
 from ccmlib.scylla_node import ScyllaNode
 from ccmlib.node import Status
-
+from ccmlib import common
 
 class ScyllaDockerCluster(ScyllaCluster):
     def __init__(self, *args, **kwargs):
@@ -46,14 +48,28 @@ class ScyllaDockerNode(ScyllaNode):
             run(['bash', '-c', f'docker run --rm --entrypoint cat {self.cluster.docker_image} /etc/scylla/scylla.yaml > {self.local_yaml_path}/scylla.yaml'])
         super(ScyllaDockerNode, self).update_yaml()
 
+        conf_file = os.path.join(self.get_conf_dir(), common.SCYLLA_CONF)
+        with open(conf_file, 'r') as f:
+            data = yaml.safe_load(f)
+        # HACK: to enable correct order of seed, if we are the first, we set it as seed
+        seed_address, _ = self.cluster.nodelist()[0].network_interfaces['thrift']
+        data['seed_provider'][0]['parameters'][0]['seeds'] = [seed_address]
+
+        data['api_address'] = '127.0.0.1'
+        with open(conf_file, 'w') as f:
+            yaml.safe_dump(data, f, default_flow_style=False)
+
     def create_docker(self):
         # TODO: handle smp correctly via the correct param/api (or only via commandline params)
         # TODO: mount of the data dir
         # TODO: pass down the full command line params, since the docker ones doesn't support all of them ?
         # TODO: pass down a unique tag, with the cluster name, or id, if we have such in ccm, like test_id in SCT ?
-        self.update_yaml()
-
-        res = run(['bash', '-c', f"docker run -v {self.local_yaml_path}/scylla.yaml:/etc/scylla/scylla.yaml:ro --name {self.docker_name} -d {self.cluster.docker_image} --smp 1"], stdout=PIPE, stderr=PIPE)
+        node1 = self.cluster.nodelist()[0]
+        if not self.name == node1.name:
+            seeds = f"--seeds {node1.network_interfaces['thrift'][0]}"
+        else:
+            seeds = ''
+        res = run(['bash', '-c', f"docker run -v {self.local_yaml_path}/scylla.yaml:/etc/scylla/scylla.yaml:ro --name {self.docker_name} -d {self.cluster.docker_image} --smp 1 {seeds}"], stdout=PIPE, stderr=PIPE)
         self.pid = res.stdout.decode('utf-8').strip() if res.stdout else None
         self.log_thread = DockerLogger(self,  os.path.join(self.get_path(), 'logs', 'system.log'))
         self.log_thread.start()
@@ -63,7 +79,6 @@ class ScyllaDockerNode(ScyllaNode):
         address = network.stdout.decode('utf-8').strip() if res.stdout else None
         self.network_interfaces = {k: (address, v[1]) for k, v in self.network_interfaces.items()}
 
-        self.update_yaml()
         return res.returncode == 0, res.stdout, res.stderr
 
     def service_start(self, service_name):
@@ -99,7 +114,7 @@ class ScyllaDockerNode(ScyllaNode):
         if not rc:
             raise BaseException(f'failed to create docker {self.docker_name}')
 
-        time.sleep(2)
+        time.sleep(5)
         scylla_status = self.service_status('scylla')
         if scylla_status and scylla_status.upper() != 'RUNNING':
             self.service_start('scylla')
