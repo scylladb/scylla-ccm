@@ -13,3 +13,9 @@ class TestScyllaDockerCluster:
         for s in ['(1 rows)', 'key', '1']:
             assert s in rv[0]
         assert rv[1] == ''
+
+    def test_stop_ungently(self, docker_cluster):
+        [node1, node2, node3] = docker_cluster.nodelist()
+
+        node3.stop(gently=False)
+        node3.start()
