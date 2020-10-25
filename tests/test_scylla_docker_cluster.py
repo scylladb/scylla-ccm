@@ -69,3 +69,7 @@ class TestScyllaDockerCluster:
 
         node3.stop(gently=False)
         node3.start()
+
+    def test_node_stress(self, docker_cluster):
+        node1, *_ = docker_cluster.nodelist()
+        node1.stress(['write', 'n=1000000'])
