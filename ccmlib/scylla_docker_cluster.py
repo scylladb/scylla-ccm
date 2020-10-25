@@ -1,6 +1,7 @@
 import time
 import os
 from subprocess import run, PIPE
+import logging
 
 import yaml
 
@@ -8,6 +9,10 @@ from ccmlib.scylla_cluster import ScyllaCluster
 from ccmlib.scylla_node import ScyllaNode
 from ccmlib.node import Status
 from ccmlib import common
+
+
+LOGGER = logging.getLogger("ccm")
+
 
 class ScyllaDockerCluster(ScyllaCluster):
     def __init__(self, *args, **kwargs):
@@ -33,6 +38,7 @@ class ScyllaDockerNode(ScyllaNode):
         self.local_yaml_path = os.path.join(self.get_path(), 'conf')
         self.docker_name = f'{self.cluster.name}-{self.name}'
         self.jmx_port = 7199
+        self.log_thread = None
 
     def _get_directories(self):
         dirs = {}
@@ -73,57 +79,76 @@ class ScyllaDockerNode(ScyllaNode):
         # TODO: pass down the full command line params, since the docker ones doesn't support all of them ?
         # TODO: pass down a unique tag, with the cluster name, or id, if we have such in ccm, like test_id in SCT ?
         # TODO: add volume map to: hints, ...
-        node1 = self.cluster.nodelist()[0]
-        if not self.name == node1.name:
-            seeds = f"--seeds {node1.network_interfaces['thrift'][0]}"
-        else:
-            seeds = ''
-        res = run(['bash', '-c', f"docker run -v {self.local_yaml_path}/scylla.yaml:/etc/scylla/scylla.yaml -v {self.local_data_path}:/usr/lib/scylla/data --name {self.docker_name} -d {self.cluster.docker_image} --smp 1 {seeds}"], stdout=PIPE, stderr=PIPE)
-        self.pid = res.stdout.decode('utf-8').strip() if res.stdout else None
-        self.log_thread = DockerLogger(self,  os.path.join(self.get_path(), 'logs', 'system.log'))
-        self.log_thread.start()
+
+        if not self.pid:
+            node1 = self.cluster.nodelist()[0]
+            if not self.name == node1.name:
+                seeds = f"--seeds {node1.network_interfaces['thrift'][0]}"
+            else:
+                seeds = ''
+
+            res = run(['bash', '-c', f"docker run -v {self.local_yaml_path}/scylla.yaml:/etc/scylla/scylla.yaml -v {self.local_data_path}:/usr/lib/scylla/data --name {self.docker_name} -d {self.cluster.docker_image} --smp 1 {seeds}"], stdout=PIPE, stderr=PIPE)
+            self.pid = res.stdout.decode('utf-8').strip()
+
+            if not res.returncode == 0:
+                LOGGER.error(res)
+                raise BaseException(f'failed to create docker {self.docker_name}')
+
+            if not self.log_thread:
+                self.log_thread = DockerLogger(self, os.path.join(self.get_path(), 'logs', 'system.log'))
+                self.log_thread.start()
+
+            self.watch_log_for("supervisord started with", from_mark=0, timeout=10)
+
+            # disable autorestart on scylla and scylla-jmx
+            run(['bash', '-c',
+                 f"docker exec {self.pid} bash -c 'echo \"autorestart=false\" >> /etc/supervisord.conf.d/scylla-server.conf'"],
+                stdout=PIPE, stderr=PIPE)
+            run(['bash', '-c',
+                 f"docker exec {self.pid} bash -c 'echo \"autorestart=false\" >> /etc/supervisord.conf.d/scylla-jmx.conf'"],
+                stdout=PIPE, stderr=PIPE)
+            reread = run(['bash', '-c', f"docker exec {self.pid} supervisorctl update"], stdout=PIPE,
+                         stderr=PIPE)
+
+            LOGGER.debug(reread)
+
+        if not self.log_thread:
+            self.log_thread = DockerLogger(self, os.path.join(self.get_path(), 'logs', 'system.log'))
+            self.log_thread.start()
 
         # replace addresses
         network = run(['bash', '-c', f"docker inspect --format='{{{{ .NetworkSettings.IPAddress }}}}' {self.pid}"], stdout=PIPE, stderr=PIPE)
-        address = network.stdout.decode('utf-8').strip() if res.stdout else None
+        address = network.stdout.decode('utf-8').strip() if network.stdout else None
         self.network_interfaces = {k: (address, v[1]) for k, v in self.network_interfaces.items()}
-
-        return res.returncode == 0, res.stdout, res.stderr
 
     def service_start(self, service_name):
         res = run(['bash', '-c', f'docker exec {self.pid} /bin/bash -c "supervisorctl start {service_name}"'],
                   stdout=PIPE, stderr=PIPE)
         if res.returncode != 0:
-            print(res.stdout)
-            print(f'service {service_name} failed to start with error\n{res.stderr}')
+            LOGGER.debug(res.stdout)
+            LOGGER.error(f'service {service_name} failed to start with error\n{res.stderr}')
 
     def service_stop(self, service_name):
         res = run(['bash', '-c', f'docker exec {self.pid} /bin/bash -c "supervisorctl stop {service_name}"'],
                   stdout=PIPE, stderr=PIPE)
         if res.returncode != 0:
-            print(res.stdout)
-            print(f'service {service_name} failed to stop with error\n{res.stderr}')
+            LOGGER.debug(res.stdout)
+            LOGGER.error(f'service {service_name} failed to stop with error\n{res.stderr}')
 
     def service_status(self, service_name):
         res = run(['bash', '-c', f'docker exec {self.pid} /bin/bash -c "supervisorctl status {service_name}"'],
                   stdout=PIPE, stderr=PIPE)
         if res.returncode != 0:
-            print(res.stdout)
-            print(f'service {service_name} failed to stop with error\n{res.stderr}')
+            LOGGER.debug(res.stdout)
+            LOGGER.error(f'service {service_name} failed to stop with error\n{res.stderr}')
             return "DOWN"
         else:
             return res.stdout.decode('utf-8').split()[1]
 
-    # def start(self, *args, **kwargs):
-    #    return super(ScyllaDockerNode, self).start(*args, **kwargs)
-
     def _start_scylla(self, args, marks, update_pid, wait_other_notice,
                       wait_for_binary_proto, ext_env):
-        rc, out, err = self.create_docker()
-        if not rc:
-            raise BaseException(f'failed to create docker {self.docker_name}')
+        self.create_docker()
 
-        time.sleep(5)
         scylla_status = self.service_status('scylla')
         if scylla_status and scylla_status.upper() != 'RUNNING':
             self.service_start('scylla')
@@ -150,7 +175,12 @@ class ScyllaDockerNode(ScyllaNode):
             self.service_stop('scylla-jmx')
             self.service_stop('scylla')
         else:
-            raise NotImplementedError()
+            res = run(['bash', '-c', f"docker exec {self.pid} bash -c 'kill -9 `supervisorctl pid scylla`'"],
+                      stdout=PIPE, stderr=PIPE)
+            LOGGER.debug(res)
+            res = run(['bash', '-c', f"docker exec {self.pid} bash -c 'kill -9 `supervisorctl pid scylla-jmx`'"],
+                      stdout=PIPE, stderr=PIPE)
+            LOGGER.debug(res)
 
     def clear(self, *args, **kwargs):
         res = run(['bash', '-c', f'docker rm -f {self.pid}'], stdout=PIPE, stderr=PIPE)
