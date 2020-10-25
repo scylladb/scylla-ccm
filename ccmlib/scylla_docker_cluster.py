@@ -36,7 +36,7 @@ class ScyllaDockerNode(ScyllaNode):
         self.docker_id = None
         self.local_data_path = os.path.join(self.get_path(), 'data')
         self.local_yaml_path = os.path.join(self.get_path(), 'conf')
-        self.docker_name = f'{self.cluster.name}-{self.name}'
+        self.docker_name = f'{self.cluster.get_path().split("/")[-2]}-{self.cluster.name}-{self.name}'
         self.jmx_port = 7199
         self.log_thread = None
 
