@@ -278,11 +278,9 @@ class Cluster(object):
             if node in self.seeds:
                 self.seeds.remove(node)
             self._update_config()
-            node.stop(gently=False, wait_other_notice=wait_other_notice, other_nodes=other_nodes)
-            self.remove_dir_with_retry(node.get_path())
+            self.clear(wait_other_notice=wait_other_notice, other_nodes=other_nodes)
         else:
-            self.stop(gently=False, wait_other_notice=wait_other_notice, other_nodes=other_nodes)
-            self.remove_dir_with_retry(self.get_path())
+            self.clear(wait_other_notice=wait_other_notice, other_nodes=other_nodes)
 
     # We can race w/shutdown on Windows and get Access is denied attempting to delete node logs.
     # see CASSANDRA-10075
@@ -300,10 +298,11 @@ class Cluster(object):
                     if tries == 5:
                         raise
 
-    def clear(self):
-        self.stop()
+    def clear(self, wait_other_notice=False, other_nodes=None):
+        self.stop(gently=False, wait_other_notice=wait_other_notice, other_nodes=other_nodes)
         for node in list(self.nodes.values()):
             node.clear()
+        self.remove_dir_with_retry(self.get_path())
 
     def get_path(self):
         return os.path.join(self.__path, self.name)

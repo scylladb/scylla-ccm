@@ -1,5 +1,5 @@
 class TestScyllaDockerCluster:
-    def test_01(self, docker_cluster):
+    def test_cqlsh(self, docker_cluster):
         [node1, node2, node3] = docker_cluster.nodelist()
 
         node1.run_cqlsh(
