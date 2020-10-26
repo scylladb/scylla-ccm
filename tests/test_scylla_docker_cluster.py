@@ -72,4 +72,6 @@ class TestScyllaDockerCluster:
 
     def test_node_stress(self, docker_cluster):
         node1, *_ = docker_cluster.nodelist()
-        node1.stress(['write', 'n=1000000'])
+        stdout, _ = node1.stress(['write', 'n=1000000'], capture_output=True)
+        assert 'Total partitions          :  1,000,000 [WRITE: 1,000,000]' in stdout
+        assert 'END' in stdout

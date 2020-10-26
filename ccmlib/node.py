@@ -1095,6 +1095,14 @@ class Node(object):
         keyspaces.remove('system_schema')
         return keyspaces
 
+    def unlink(self, file_path):
+        """
+        unlink a file/directory while changing to the needed ppermissions as needed
+        :param file_path: file to unlink
+        :return:
+        """
+        os.unlink(file_path)
+
     def get_sstables(self, keyspace, column_family, ignore_unsealed=True, cleanup_unsealed=False):
         keyspace_dir = os.path.join(self.get_path(), 'data', keyspace)
         cf_glob = '*'

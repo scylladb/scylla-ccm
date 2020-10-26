@@ -179,9 +179,9 @@ def replaces_or_add_into_file_tail(file, replacement_list):
 def rmdirs(path):
     if is_win():
         # Handle Windows 255 char limit
-        shutil.rmtree(u"\\\\?\\" + path)
+        shutil.rmtree(u"\\\\?\\" + path, ignore_errors=True)
     else:
-        shutil.rmtree(path)
+        shutil.rmtree(path, ignore_errors=True)
 
 
 def make_cassandra_env(install_dir, node_path, update_conf=True):
