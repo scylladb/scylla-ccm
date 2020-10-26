@@ -6,6 +6,7 @@ from ccmlib import common, repository
 from ccmlib.cluster import Cluster
 from ccmlib.dse_cluster import DseCluster
 from ccmlib.scylla_cluster import ScyllaCluster
+from ccmlib.scylla_docker_cluster import ScyllaDockerCluster
 from ccmlib import repository
 from ccmlib.node import Node
 
@@ -20,14 +21,16 @@ class ClusterFactory():
             data = yaml.safe_load(f)
         try:
             install_dir = None
-            if 'install_dir' in data:
+            if 'install_dir' in data and 'docker_image' not in data:
                 install_dir = data['install_dir']
                 repository.validate(install_dir)
             if install_dir is None and 'cassandra_dir' in data:
                 install_dir = data['cassandra_dir']
                 repository.validate(install_dir)
-
-            if common.isScylla(install_dir):
+            if 'docker_image' in data and data['docker_image']:
+                cluster = ScyllaDockerCluster(path, data['name'], docker_image=data['docker_image'],
+                                              install_dir=install_dir, create_directory=False)
+            elif common.isScylla(install_dir):
                 cluster = ScyllaCluster(path, data['name'], install_dir=install_dir, create_directory=False)
             elif common.isDse(install_dir):
                 cluster = DseCluster(path, data['name'], install_dir=install_dir, create_directory=False)
