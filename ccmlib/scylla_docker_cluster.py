@@ -27,16 +27,32 @@ class ScyllaDockerCluster(ScyllaCluster):
                                 initial_token, save=save, binary_interface=binary_interface,
                                 scylla_manager=self._scylla_manager)
 
+    def _update_config(self):
+        node_list = [node.name for node in list(self.nodes.values())]
+        seed_list = [node.name for node in self.seeds]
+        filename = os.path.join(self.get_path(), 'cluster.conf')
+        docker_image = self.docker_image
+        with open(filename, 'w') as f:
+            yaml.safe_dump({
+                'name': self.name,
+                'nodes': node_list,
+                'seeds': seed_list,
+                'partitioner': self.partitioner,
+                'config_options': self._config_options,
+                'id': self.id,
+                'ipprefix': self.ipprefix,
+                'docker_image': docker_image
+            }, f)
+
 
 class ScyllaDockerNode(ScyllaNode):
     def __init__(self, *args, **kwargs):
         kwargs['save'] = False
         super(ScyllaDockerNode, self).__init__(*args, **kwargs)
-        self.docker_id = None
         self.base_data_path = '/usr/lib/scylla'
         self.local_base_data_path = os.path.join(self.get_path(), 'data')
         self.local_yaml_path = os.path.join(self.get_path(), 'conf')
-        self.docker_name = f'{self.cluster.get_path().split("/")[-2]}-{self.cluster.name}-{self.name}'
+        self.docker_name = f'{self.cluster.get_path().split("/")[-1]}-{self.cluster.name}-{self.name}'
         self.jmx_port = "7199"  # The old CCM code expected to get a string and not int
         self.log_thread = None
 
@@ -167,6 +183,34 @@ class ScyllaDockerNode(ScyllaNode):
         else:
             return res.stdout.decode('utf-8').split()[1]
 
+    def _update_config(self):
+        dir_name = self.get_path()
+        if not os.path.exists(dir_name):
+            return
+        filename = os.path.join(dir_name, 'node.conf')
+        docker_id = self.pid if self.pid else None
+        docker_name = self.docker_name if self.docker_name else ''
+        values = {
+            'name': self.name,
+            'status': self.status,
+            'auto_bootstrap': self.auto_bootstrap,
+            'interfaces': self.network_interfaces,
+            'jmx_port': self.jmx_port,
+            'docker_id': docker_id,
+            'docker_name': docker_name,
+            'install_dir': '',
+        }
+        if self.initial_token:
+            values['initial_token'] = self.initial_token
+        if self.remote_debug_port:
+            values['remote_debug_port'] = self.remote_debug_port
+        if self.data_center:
+            values['data_center'] = self.data_center
+        if self.workload is not None:
+            values['workload'] = self.workload
+        with open(filename, 'w') as f:
+            yaml.safe_dump(values, f)
+
     def _start_scylla(self, args, marks, update_pid, wait_other_notice,
                       wait_for_binary_proto, ext_env):
         self.create_docker()
@@ -209,7 +253,8 @@ class ScyllaDockerNode(ScyllaNode):
         run(['bash', '-c', f'docker run -v {self.get_path()}:/node busybox chmod -R 777 /node'], stdout=PIPE, stderr=PIPE)
 
         run(['bash', '-c', f'docker rm --volumes -f {self.pid}'], stdout=PIPE, stderr=PIPE)
-        self.log_thread.stop()
+        if self.log_thread:
+            self.log_thread.stop()
         super(ScyllaDockerNode, self).clear(*args, **kwargs)
 
     def _start_jmx(self, data):
@@ -244,6 +289,7 @@ class ScyllaDockerNode(ScyllaNode):
             self.status = Status.UP
         else:
             self.status = Status.DOWN
+        self._update_config()
 
     def _wait_java_up(self, ip_addr, jmx_port):
         return True

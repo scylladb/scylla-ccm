@@ -11,6 +11,7 @@ from ccmlib.cmds.command import Cmd, PlainHelpFormatter
 from ccmlib.common import ArgumentError
 from ccmlib.dse_cluster import DseCluster
 from ccmlib.scylla_cluster import ScyllaCluster
+from ccmlib.scylla_docker_cluster import ScyllaDockerCluster, ScyllaDockerNode
 from ccmlib.scylla_node import ScyllaNode
 from ccmlib.dse_node import DseNode
 from ccmlib.node import Node, NodeError
@@ -74,6 +75,8 @@ class ClusterCreateCmd(Cmd):
                           help="Set the cluster partitioner class")
         parser.add_option('-v', "--version", type="string", dest="version",
                           help="Download and use provided cassandra or dse version. If version is of the form 'git:<branch name>', then the specified cassandra branch will be downloaded from the git repo and compiled. (takes precedence over --install-dir)", default=None)
+        parser.add_option('--docker-image', type="string", dest="docker_image",
+                          help="The dockerhub image to deploy as Scylla nodes")
         parser.add_option('-o', "--opsc", type="string", dest="opscenter",
                           help="Download and use provided opscenter version to install with DSE. Will have no effect on cassandra installs)", default=None)
         parser.add_option("--dse", action="store_true", dest="dse",
@@ -173,7 +176,7 @@ class ClusterCreateCmd(Cmd):
             parser.print_help()
             sys.exit(1)
 
-        if not options.version:
+        if not options.version and not options.docker_image:
             try:
                 common.validate_install_dir(options.install_dir)
             except ArgumentError:
@@ -200,7 +203,10 @@ class ClusterCreateCmd(Cmd):
     def run(self):
         try:
             if self.options.scylla:
-                cluster = ScyllaCluster(self.path, self.name, install_dir=self.options.install_dir, version=self.options.version, verbose=True,manager=self.options.scyllamanager)
+                if self.options.docker_image:
+                    cluster = ScyllaDockerCluster(self.path, self.name, docker_image=self.options.docker_image)
+                else:
+                    cluster = ScyllaCluster(self.path, self.name, install_dir=self.options.install_dir, version=self.options.version, verbose=True, manager=self.options.scyllamanager)
             elif self.options.dse or (not self.options.version and common.isDse(self.options.install_dir)):
                 cluster = DseCluster(self.path, self.name, install_dir=self.options.install_dir, version=self.options.version, dse_username=self.options.dse_username, dse_password=self.options.dse_password, opscenter=self.options.opscenter, verbose=True)
             else:
