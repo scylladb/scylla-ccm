@@ -264,6 +264,10 @@ class ScyllaDockerNode(ScyllaNode):
         # no need to import any config file, since we are running in docker, and everything is available inside it
         pass
 
+    def unlink(self, file_path):
+        run(['bash', '-c', f'docker run -v {self.get_path()}:/node busybox chmod -R 777 /node'], stdout=PIPE, stderr=PIPE)
+        super(ScyllaDockerNode, self).unlink(file_path)
+
 
 import subprocess
 from threading import Thread, Event as ThreadEvent
