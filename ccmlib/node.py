@@ -913,12 +913,14 @@ class Node(object):
         if out_file is None:
             out_file = sys.stdout
         sstable2json = self._find_cmd('sstabledump')
+        if not isinstance(sstable2json, list):
+            sstable2json = [sstable2json]
         env = self.get_env()
         sstablefiles = self.__gather_sstables(datafiles, keyspace, column_families)
         print_(sstablefiles)
         for sstablefile in sstablefiles:
             print_("-- {0} -----".format(os.path.basename(sstablefile)))
-            args = [sstable2json, sstablefile]
+            args = sstable2json + [sstablefile]
             if enumerate_keys:
                 args = args + ["-e"]
             subprocess.call(args, env=env, stdout=out_file)
