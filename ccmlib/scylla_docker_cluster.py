@@ -1,4 +1,3 @@
-import time
 import os
 from subprocess import run, PIPE
 import logging
@@ -74,6 +73,16 @@ class ScyllaDockerNode(ScyllaNode):
         if 'alternator_port' in data or 'alternator_https_port' in data:
             data['alternator_address'] = "0.0.0.0"
 
+        data_path = '/usr/lib/scylla/data'
+
+        data['data_file_directories'] = [data_path]
+        data['commitlog_directory'] = os.path.join(data_path,
+                                                   'commitlogs')
+        data['hints_directory'] = os.path.join(data_path, 'hints')
+        data['saved_caches_directory'] = os.path.join(data_path,
+                                                      'saved_caches')
+        data['view_hints_directory'] = os.path.join(data_path, 'view_hints')
+
         with open(conf_file, 'w') as f:
             yaml.safe_dump(data, f, default_flow_style=False)
 
@@ -98,7 +107,7 @@ class ScyllaDockerNode(ScyllaNode):
                 ports += f" -v {scylla_yaml['alternator_https_port']}"
 
             res = run(['bash', '-c', f"docker run {ports} -v {self.local_yaml_path}/scylla.yaml:/etc/scylla/scylla.yaml "
-                                     f"-v {self.local_data_path}:/usr/lib/scylla/data --name {self.docker_name} "
+                                     f"-v {self.local_data_path}:/usr/lib/scylla/data --name {self.docker_name} -v /tmp:/tmp "
                                      f"-d {self.cluster.docker_image} --smp 1 {seeds}"], stdout=PIPE, stderr=PIPE)
             self.pid = res.stdout.decode('utf-8').strip()
 
@@ -195,7 +204,10 @@ class ScyllaDockerNode(ScyllaNode):
             LOGGER.debug(res)
 
     def clear(self, *args, **kwargs):
-        res = run(['bash', '-c', f'docker rm -f {self.pid}'], stdout=PIPE, stderr=PIPE)
+        # change file permissions so it can be deleted
+        run(['bash', '-c', f'docker run -v {self.get_path()}:/node busybox chmod -R 777 /node'], stdout=PIPE, stderr=PIPE)
+
+        run(['bash', '-c', f'docker rm -f {self.pid}'], stdout=PIPE, stderr=PIPE)
         self.log_thread.stop()
         super(ScyllaDockerNode, self).clear(*args, **kwargs)
 
@@ -243,6 +255,14 @@ class ScyllaDockerNode(ScyllaNode):
 
     def get_env(self):
         return os.environ.copy()
+
+    def copy_config_files(self):
+        # no need to copy any config file, since we are running in docker, and everything is available inside it
+        pass
+
+    def import_config_files(self):
+        # no need to import any config file, since we are running in docker, and everything is available inside it
+        pass
 
 
 import subprocess
