@@ -49,6 +49,7 @@ class Cluster(object):
             os.mkdir(self.get_path())
 
         if docker_image:
+            self.docker_image = docker_image
             self.__install_dir = None
             self.__version = '3.0'
             self._update_config()
@@ -538,8 +539,8 @@ class Cluster(object):
                 'dse_config_options': self._dse_config_options,
                 'log_level': self.__log_level,
                 'use_vnodes': self.use_vnodes,
-                'id' : self.id,
-                'ipprefix' : self.ipprefix
+                'id': self.id,
+                'ipprefix': self.ipprefix
             }, f)
 
     def __update_pids(self, started):

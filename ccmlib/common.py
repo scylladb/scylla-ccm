@@ -383,7 +383,6 @@ def isDse(install_dir):
 def isScylla(install_dir):
     if install_dir is None:
         scylla_version = os.environ.get('SCYLLA_VERSION', None)
-
         if scylla_version:
             from ccmlib.scylla_repository import setup
             cdir, _ = setup(scylla_version)

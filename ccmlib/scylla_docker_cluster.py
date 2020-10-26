@@ -17,6 +17,7 @@ class ScyllaDockerCluster(ScyllaCluster):
     def __init__(self, *args, **kwargs):
         super(ScyllaDockerCluster, self).__init__(*args, **kwargs)
         self.docker_image = kwargs['docker_image']
+        self._update_config()
 
     def create_node(self, name, auto_bootstrap, thrift_interface,
                     storage_interface, jmx_port, remote_debug_port,
@@ -27,6 +28,78 @@ class ScyllaDockerCluster(ScyllaCluster):
                                 initial_token, save=save, binary_interface=binary_interface,
                                 scylla_manager=self._scylla_manager)
 
+    def _update_config(self):
+        node_list = [node.name for node in list(self.nodes.values())]
+        seed_list = [node.name for node in self.seeds]
+        filename = os.path.join(self.get_path(), 'cluster.conf')
+        docker_image = self.docker_image
+        with open(filename, 'w') as f:
+            yaml.safe_dump({
+                'name': self.name,
+                'nodes': node_list,
+                'seeds': seed_list,
+                'partitioner': self.partitioner,
+                'config_options': self._config_options,
+                'id': self.id,
+                'ipprefix': self.ipprefix,
+                'docker_image': docker_image
+            }, f)
+
+    def populate(self, nodes, debug=False, tokens=None, use_vnodes=False, ipprefix=None, ipformat=None):
+        node_count = nodes
+        dcs = []
+        if isinstance(nodes, list):
+            node_count = 0
+            i = 0
+            for c in nodes:
+                i = i + 1
+                node_count = node_count + c
+                for x in range(0, c):
+                    dcs.append('dc%d' % i)
+
+        if node_count < 1:
+            raise common.ArgumentError('invalid node count %s' % nodes)
+
+        for i in range(1, node_count + 1):
+            if 'node%s' % i in list(self.nodes.values()):
+                raise common.ArgumentError('Cannot create existing node node%s' % i)
+
+        for i in range(1, node_count + 1):
+            tk = None
+            if tokens is not None and i - 1 < len(tokens):
+                tk = tokens[i - 1]
+            dc = dcs[i - 1] if i - 1 < len(dcs) else None
+            self.new_node(i, debug=debug, initial_token=tk, data_center=dc)
+            self._update_config()
+        return self
+
+    def new_node(self, i, auto_bootstrap=False, debug=False, initial_token=None, add_node=True, is_seed=True, data_center=None):
+        node = self.create_node(name='node{}'.format(i),
+                                auto_bootstrap=auto_bootstrap,
+                                thrift_interface=self.get_thrift_interface(i),
+                                storage_interface=self.get_storage_interface(i),
+                                jmx_port=str(self.get_node_jmx_port(i)),
+                                remote_debug_port=str(self.get_debug_port(i) if debug else 0),
+                                initial_token=initial_token)
+        if add_node:
+            self.add(node, is_seed=is_seed, data_center=data_center)
+        return node
+
+    def add(self, node, is_seed, data_center=None):
+        if node.name in self.nodes:
+            raise common.ArgumentError('Cannot create existing node %s' % node.name)
+        self.nodes[node.name] = node
+        if is_seed:
+            self.seeds.append(node)
+        self._update_config()
+        node.data_center = data_center
+
+        if data_center is not None:
+            self.__update_topology_files()
+        node.update_yaml()
+        node.create_docker()
+        return self
+
 
 class ScyllaDockerNode(ScyllaNode):
     def __init__(self, *args, **kwargs):
@@ -35,7 +108,8 @@ class ScyllaDockerNode(ScyllaNode):
         self.docker_id = None
         self.local_data_path = os.path.join(self.get_path(), 'data')
         self.local_yaml_path = os.path.join(self.get_path(), 'conf')
-        self.docker_name = f'{self.cluster.get_path().split("/")[-2]}-{self.cluster.name}-{self.name}'
+        self.docker_name = f'{self.cluster.get_path().split("/")[-1]}-{self.cluster.name}-{self.name}'
+        print(f'######################################################################\n{self.docker_name}\n######################################################################')
         self.jmx_port = "7199"  # The old CCM code expected to get a string and not int
         self.log_thread = None
 
@@ -165,6 +239,34 @@ class ScyllaDockerNode(ScyllaNode):
             return "DOWN"
         else:
             return res.stdout.decode('utf-8').split()[1]
+
+    def _update_config(self):
+        dir_name = self.get_path()
+        if not os.path.exists(dir_name):
+            return
+        filename = os.path.join(dir_name, 'node.conf')
+        docker_id = self.docker_id if self.docker_id else ''
+        docker_name = self.docker_name if self.docker_name else ''
+        values = {
+            'name': self.name,
+            'status': self.status,
+            'auto_bootstrap': self.auto_bootstrap,
+            'interfaces': self.network_interfaces,
+            'jmx_port': self.jmx_port,
+            'docker_id': docker_id,
+            'docker_name': docker_name,
+            'install_dir': '',
+        }
+        if self.initial_token:
+            values['initial_token'] = self.initial_token
+        if self.remote_debug_port:
+            values['remote_debug_port'] = self.remote_debug_port
+        if self.data_center:
+            values['data_center'] = self.data_center
+        if self.workload is not None:
+            values['workload'] = self.workload
+        with open(filename, 'w') as f:
+            yaml.safe_dump(values, f)
 
     def _start_scylla(self, args, marks, update_pid, wait_other_notice,
                       wait_for_binary_proto, ext_env):
