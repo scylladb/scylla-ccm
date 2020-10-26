@@ -141,6 +141,8 @@ class Node(object):
             node.status = data['status']
             if 'pid' in data:
                 node.pid = int(data['pid'])
+            if 'docker_id' in data:
+                node.pid = data['docker_id']
             if 'install_dir' in data:
                 node.__install_dir = data['install_dir']
             if 'config_options' in data:

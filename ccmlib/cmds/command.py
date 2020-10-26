@@ -73,6 +73,8 @@ class Cmd(object):
             self.name = args[0]
 
         if load_cluster:
+            # FIXME: here must take info from cluster.cfg
+            # TODO: from scylla_docker_cluster.py we need to save all data into cluster.cfg (and also node.cfg)
             self.cluster = self._load_current_cluster()
             if node_name and load_node:
                 try:
