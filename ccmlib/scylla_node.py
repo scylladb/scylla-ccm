@@ -636,16 +636,15 @@ class ScyllaNode(Node):
             else:
                 time.sleep(0.1)
 
-        if not wait:
+        if os.path.isfile(pidfile) and os.stat(pidfile).st_size > 0:
+            try:
+                with open(pidfile, 'r') as f:
+                    self.jmx_pid = int(f.readline().strip())
+            except IOError as e:
+                raise NodeError('Problem starting node %s scylla-jmx due to %s' %
+                                (self.name, e))
+        else:
             self.jmx_pid = None
-            return
-
-        try:
-            with open(pidfile, 'r') as f:
-                self.jmx_pid = int(f.readline().strip())
-        except IOError as e:
-            raise NodeError('Problem starting node %s scylla-jmx due to %s' %
-                            (self.name, e))
 
     def _update_scylla_agent_pid(self):
         pidfile = os.path.join(self.get_path(), 'scylla-agent.pid')
