@@ -1,4 +1,5 @@
 import os
+from shutil import copyfile
 from subprocess import run, PIPE
 import logging
 
@@ -65,6 +66,8 @@ class ScyllaDockerCluster(ScyllaCluster):
 class ScyllaDockerNode(ScyllaNode):
     def __init__(self, *args, **kwargs):
         kwargs['save'] = False
+        # This line should appear before the "super" method
+        self.share_directories = ['data', 'commitlogs', 'hints', 'view_hints', 'saved_caches', 'keys', 'logs']
         super(ScyllaDockerNode, self).__init__(*args, **kwargs)
         self.base_data_path = '/usr/lib/scylla'
         self.local_base_data_path = os.path.join(self.get_path(), 'data')
@@ -76,8 +79,8 @@ class ScyllaDockerNode(ScyllaNode):
 
     def _get_directories(self):
         dirs = {}
-        for i in ['data', 'commitlogs', 'conf', 'logs', 'hints', 'view_hints', 'saved_caches']:
-            dirs[i] = os.path.join(self.get_path(), i)
+        for dir_name in self.share_directories + ['conf']:  # conf dir is handle in other way in `update_yaml()`
+            dirs[dir_name] = os.path.join(self.get_path(), dir_name)
         return dirs
 
     @staticmethod
@@ -118,6 +121,14 @@ class ScyllaDockerNode(ScyllaNode):
         for directory in ['hints', 'view_hints', 'saved_caches']:
             data[f'{directory}_directory'] = os.path.join(self.base_data_path, directory)
 
+        server_encryption_options = data.get("server_encryption_options", {})
+        if server_encryption_options:
+            keys_dir_path = os.path.join(self.get_path(), "keys")
+            for key, file_path in server_encryption_options.items():
+                if os.path.isfile(file_path):
+                    file_name = os.path.split(file_path)[1]
+                    copyfile(src=file_path, dst=os.path.join(keys_dir_path, file_name))
+                    server_encryption_options[key] = os.path.join(self.base_data_path, "keys", file_name)
         with open(conf_file, 'w') as f:
             yaml.safe_dump(data, f, default_flow_style=False)
 
@@ -141,13 +152,15 @@ class ScyllaDockerNode(ScyllaNode):
             if 'alternator_https_port' in scylla_yaml:
                 ports += f" -v {scylla_yaml['alternator_https_port']}"
 
-            mount_points = []
-            for directory in ['data', 'commitlogs', 'hints', 'view_hints', 'saved_caches']:
-                mount_points.append(
-                    f'-v {os.path.join(self.get_path(),directory)}:{os.path.join(self.base_data_path, directory)}')
+            mount_points = [f'-v {self.local_yaml_path}:/etc/scylla',
+                            '-v /tmp:/tmp']
+            mount_points += [
+                f'-v {os.path.join(self.get_path(),directory)}:{os.path.join(self.base_data_path, directory)}' for directory in self.share_directories
+            ]
+            mount_points = ' '.join(mount_points)
 
-            res = run(['bash', '-c', f"docker run {ports} -v {self.local_yaml_path}:/etc/scylla "
-                                     f"{' '.join(mount_points)} --name {self.docker_name} -v /tmp:/tmp "
+            res = run(['bash', '-c', f"docker run {ports} "
+                                     f"{mount_points} --name {self.docker_name}  "
                                      f"-d {self.cluster.docker_image} --smp 1 {seeds}"], stdout=PIPE, stderr=PIPE, universal_newlines=True)
             self.pid = res.stdout.strip()
 
