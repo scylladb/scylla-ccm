@@ -52,18 +52,16 @@ class CCMCluster:
         self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         return self.process
 
-    def validate_command_result(self):
-        self.process.wait()
-        stdout, stderr = self.process.communicate()
+    def validate_command_result(self, expected_status_code=0):
+        stdout, stderr = self.process.communicate(timeout=600)
+        status_code = self.process.wait()
         try:
             stdout = stdout.strip()
             stderr = stderr.strip()
 
-            if not stderr.count("\n") and stderr.startswith("pydev debugger"):
-                return (stdout, stderr)
             LOGGER.debug("[OUT] %s" % stdout)
-            assert len(stderr) == 0
-            return (stdout, stderr)
+            assert status_code == expected_status_code
+            return stdout, stderr
         except AssertionError:
             LOGGER.error("[ERROR] %s" % stderr.strip())
             raise
