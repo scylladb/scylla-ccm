@@ -7,5 +7,10 @@ python:
 script:
   - python -m pytest $TRAVIS_BUILD_DIR/tests
 
+addons:
+  apt:
+    packages:
+      - oracle-java8-set-default
+
 before_install:
   - python setup.py install
