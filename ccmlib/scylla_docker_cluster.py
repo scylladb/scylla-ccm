@@ -52,7 +52,8 @@ class ScyllaDockerNode(ScyllaNode):
         self.base_data_path = '/usr/lib/scylla'
         self.local_base_data_path = os.path.join(self.get_path(), 'data')
         self.local_yaml_path = os.path.join(self.get_path(), 'conf')
-        self.docker_name = f'{self.cluster.get_path().split("/")[-1]}-{self.cluster.name}-{self.name}'
+        dir_name = self.cluster.get_path().split("/")[-2].lstrip('.')
+        self.docker_name = f'{dir_name}-{self.cluster.name}-{self.name}'
         self.jmx_port = "7199"  # The old CCM code expected to get a string and not int
         self.log_thread = None
 
