@@ -33,7 +33,8 @@ class ScyllaDockerNode(ScyllaNode):
         kwargs['save'] = False
         super(ScyllaDockerNode, self).__init__(*args, **kwargs)
         self.docker_id = None
-        self.local_data_path = os.path.join(self.get_path(), 'data')
+        self.base_data_path = '/usr/lib/scylla'
+        self.local_base_data_path = os.path.join(self.get_path(), 'data')
         self.local_yaml_path = os.path.join(self.get_path(), 'conf')
         self.docker_name = f'{self.cluster.get_path().split("/")[-2]}-{self.cluster.name}-{self.name}'
         self.jmx_port = "7199"  # The old CCM code expected to get a string and not int
@@ -41,7 +42,7 @@ class ScyllaDockerNode(ScyllaNode):
 
     def _get_directories(self):
         dirs = {}
-        for i in ['data', 'commitlogs', 'conf', 'logs', 'hints', 'view_hints']:
+        for i in ['data', 'commitlogs', 'conf', 'logs', 'hints', 'view_hints', 'saved_caches']:
             dirs[i] = os.path.join(self.get_path(), i)
         return dirs
 
@@ -73,15 +74,10 @@ class ScyllaDockerNode(ScyllaNode):
         if 'alternator_port' in data or 'alternator_https_port' in data:
             data['alternator_address'] = "0.0.0.0"
 
-        data_path = '/usr/lib/scylla/data'
-
-        data['data_file_directories'] = [data_path]
-        data['commitlog_directory'] = os.path.join(data_path,
-                                                   'commitlogs')
-        data['hints_directory'] = os.path.join(data_path, 'hints')
-        data['saved_caches_directory'] = os.path.join(data_path,
-                                                      'saved_caches')
-        data['view_hints_directory'] = os.path.join(data_path, 'view_hints')
+        data['data_file_directories'] = [os.path.join(self.base_data_path, 'data')]
+        data[f'commitlog_directory'] = os.path.join(self.base_data_path, 'commitlogs')
+        for directory in ['hints', 'view_hints', 'saved_caches']:
+            data[f'{directory}_directory'] = os.path.join(self.base_data_path, directory)
 
         with open(conf_file, 'w') as f:
             yaml.safe_dump(data, f, default_flow_style=False)
@@ -106,8 +102,13 @@ class ScyllaDockerNode(ScyllaNode):
             if 'alternator_https_port' in scylla_yaml:
                 ports += f" -v {scylla_yaml['alternator_https_port']}"
 
+            mount_points = []
+            for directory in ['data', 'commitlogs', 'hints', 'view_hints', 'saved_caches']:
+                mount_points.append(
+                    f'-v {os.path.join(self.get_path(),directory)}:{os.path.join(self.base_data_path, directory)}')
+
             res = run(['bash', '-c', f"docker run {ports} -v {self.local_yaml_path}/scylla.yaml:/etc/scylla/scylla.yaml "
-                                     f"-v {self.local_data_path}:/usr/lib/scylla/data --name {self.docker_name} -v /tmp:/tmp "
+                                     f"{' '.join(mount_points)} --name {self.docker_name} -v /tmp:/tmp "
                                      f"-d {self.cluster.docker_image} --smp 1 {seeds}"], stdout=PIPE, stderr=PIPE)
             self.pid = res.stdout.decode('utf-8').strip()
 
@@ -207,7 +208,7 @@ class ScyllaDockerNode(ScyllaNode):
         # change file permissions so it can be deleted
         run(['bash', '-c', f'docker run -v {self.get_path()}:/node busybox chmod -R 777 /node'], stdout=PIPE, stderr=PIPE)
 
-        run(['bash', '-c', f'docker rm -f {self.pid}'], stdout=PIPE, stderr=PIPE)
+        run(['bash', '-c', f'docker rm --volumes -f {self.pid}'], stdout=PIPE, stderr=PIPE)
         self.log_thread.stop()
         super(ScyllaDockerNode, self).clear(*args, **kwargs)
 
@@ -274,6 +275,11 @@ class ScyllaDockerNode(ScyllaNode):
     def unlink(self, file_path):
         run(['bash', '-c', f'docker run -v {self.get_path()}:/node busybox chmod -R 777 /node'], stdout=PIPE, stderr=PIPE)
         super(ScyllaDockerNode, self).unlink(file_path)
+
+    def chmod(self, file_path, permissions):
+        path_inside_docker = file_path.replace(self.get_path(), self.base_data_path)
+        run(['bash', '-c', f'docker run -v {file_path}:{path_inside_docker} busybox chmod -R {permissions} {path_inside_docker}'],
+            stdout=PIPE, stderr=PIPE)
 
 
 import subprocess

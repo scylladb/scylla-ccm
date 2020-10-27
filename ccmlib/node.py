@@ -1099,11 +1099,20 @@ class Node(object):
 
     def unlink(self, file_path):
         """
-        unlink a file/directory while changing to the needed ppermissions as needed
+        unlink a file/directory while changing to the needed permissions as needed
         :param file_path: file to unlink
         :return:
         """
         os.unlink(file_path)
+
+    def chmod(self, file_path, permissions):
+        """
+        unlink a file/directory while changing to the needed permissions as needed
+        :param file_path: file to unlink
+        :param permissions: the new permissions
+        :return:
+        """
+        os.chmod(file_path, permissions)
 
     def get_sstables(self, keyspace, column_family, ignore_unsealed=True, cleanup_unsealed=False):
         keyspace_dir = os.path.join(self.get_path(), 'data', keyspace)
