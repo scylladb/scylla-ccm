@@ -28,7 +28,7 @@ class CCMCluster:
         elif not self.use_scylla and self.docker_image:
             cmd_args = ["--docker", self.docker_image]
         else:
-            cmd_args += ["-v", "2.0.10"]
+            cmd_args += ["-v", "3.11.4"]
 
         if args:
             cmd_args += args
@@ -45,7 +45,10 @@ class CCMCluster:
         return [self.ccm_bin, "status"]
 
     def get_start_cmd(self):
-        return [self.ccm_bin, "start", "--no-wait"]
+        return [self.ccm_bin, "start", "--wait-for-binary-proto"]
+
+    def get_updateconf_cmd(self):
+        return [self.ccm_bin, "updateconf", "read_request_timeout_in_ms:10000"]
 
     def run_command(self, cmd):
         LOGGER.info(cmd)
