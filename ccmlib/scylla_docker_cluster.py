@@ -278,10 +278,7 @@ class ScyllaDockerNode(ScyllaNode):
     def clear(self, *args, **kwargs):
         # change file permissions so it can be deleted
         run(['bash', '-c', f'docker run -v {self.get_path()}:/node busybox chmod -R 777 /node'], stdout=PIPE, stderr=PIPE)
-
         run(['bash', '-c', f'docker rm --volumes -f {self.pid}'], stdout=PIPE, stderr=PIPE)
-        if self.log_thread:
-            self.log_thread.stop(10)
         super(ScyllaDockerNode, self).clear(*args, **kwargs)
 
     def _start_jmx(self, data):
@@ -309,8 +306,6 @@ class ScyllaDockerNode(ScyllaNode):
                 self.status = Status.DOWN
             return
 
-        old_status = self.status
-
         scylla_status = self.service_status('scylla')
         if scylla_status and scylla_status.upper() == 'RUNNING':
             self.status = Status.UP
@@ -319,6 +314,7 @@ class ScyllaDockerNode(ScyllaNode):
         self._update_config()
 
     def _wait_java_up(self, ip_addr, jmx_port):
+        # TODO: do a better implementation of it
         return True
 
     def _update_pid(self, process):
@@ -356,37 +352,17 @@ class ScyllaDockerNode(ScyllaNode):
 
 
 import subprocess
-from threading import Thread, Event as ThreadEvent
 
 
 class DockerLogger:
-    _child_process = None
-
     def __init__(self, node, target_log_file: str):
         self._node = node
         self._target_log_file = target_log_file
-        self._thread = Thread(target=self._thread_body, daemon=True)
-        self._termination_event = ThreadEvent()
 
     @property
     def _logger_cmd(self) -> str:
-        return f'docker logs -f {self._node.pid} >>{self._target_log_file} 2>&1'
-
-    def _thread_body(self):
-        while not self._termination_event.wait(0.1):
-            try:
-                self._child_process = subprocess.Popen(self._logger_cmd, shell=True)
-                self._child_process.wait()
-            except Exception as ex:  # pylint: disable=bare-except
-                print(ex)
-                raise
+        return f'docker logs -f {self._node.pid} >> {self._target_log_file} 2>&1 &'
 
     def start(self):
-        self._termination_event.clear()
-        self._thread.start()
+        subprocess.check_call(['bash', '-c', self._logger_cmd])
 
-    def stop(self, timeout=None):
-        self._termination_event.set()
-        if self._child_process:
-            self._child_process.kill()
-        self._thread.join(timeout)
