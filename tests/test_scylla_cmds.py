@@ -91,7 +91,7 @@ class TestCCMClusterStart:
         cluster_under_test.run_command(cluster_under_test.get_create_cmd())
         cluster_under_test.validate_command_result()
         cluster_under_test.run_command(cluster_under_test.get_start_cmd())
-        stdout, stderr = cluster_under_test.validate_command_result()
+        stdout, stderr = cluster_under_test.validate_command_result(expected_status_code=1)
         assert "No node in this cluster yet. Use the populate command before starting" in stdout
 
     def test_create_and_start_cluster_with_nodes(self, cluster_under_test):
