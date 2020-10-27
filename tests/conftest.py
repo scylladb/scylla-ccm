@@ -49,6 +49,14 @@ def test_dir(test_id, results_dir):
 def docker_cluster(test_dir, test_id):
     cluster_name = f"regular_cluster_{test_id}"
     cluster = ScyllaDockerCluster(str(test_dir), name=cluster_name, docker_image=SCYLLA_DOCKER_IMAGE)
+    timeout = 10000
+    cluster.set_configuration_options(values={
+        'read_request_timeout_in_ms': timeout,
+        'range_request_timeout_in_ms': timeout,
+        'write_request_timeout_in_ms': timeout,
+        'truncate_request_timeout_in_ms': timeout,
+        'request_timeout_in_ms': timeout
+    })
     cluster.populate(3)
     cluster.start(wait_for_binary_proto=True)
     try:
@@ -70,5 +78,12 @@ def ccm_reloc_cluster():
 
 
 @pytest.fixture(scope="session")
+def ccm_cassandra_cluster():
+    cluster = CCMCluster(test_id="cassandra")
+    return cluster
+
+
+@pytest.fixture(scope="session")
 def cluster_under_test(request):
-    return request.getfixturevalue(request.param)
+    cluster = request.getfixturevalue(request.param)
+    return cluster
