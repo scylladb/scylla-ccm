@@ -906,9 +906,7 @@ class Node(object):
 
         # Needed for any subdirs stored underneath a data directory.
         # Common for hints post CASSANDRA-6230
-        for dir in self._get_directories():
-            if not os.path.exists(dir):
-                os.mkdir(dir)
+        self._create_directory()
 
     def run_sstable2json(self, out_file=None, keyspace=None, datafiles=None, column_families=None, enumerate_keys=False):
         print_("running")
@@ -1416,8 +1414,9 @@ class Node(object):
         dir_name = self.get_path()
         if not os.path.exists(dir_name):
             os.mkdir(dir_name)
-            for dir in self._get_directories():
-                os.mkdir(os.path.join(dir_name, dir))
+            for _, dir in self._get_directories().items():
+                if not os.path.exists(dir):
+                    os.mkdir(dir)
 
     def _update_config(self):
         dir_name = self.get_path()
