@@ -42,13 +42,9 @@ class ScyllaCluster(Cluster):
 
         self.started = False
         self.force_wait_for_cluster_start = (force_wait_for_cluster_start != False)
-        super(ScyllaCluster, self).__init__(path, name, partitioner,
-                                            install_dir, create_directory,
-                                            version, verbose,
-                                            snitch=SNITCH, cassandra_version=cassandra_version,
-                                            docker_image=docker_image)
-
         self._scylla_manager = None
+
+
         if not manager:
             scylla_ext_opts = os.getenv('SCYLLA_EXT_OPTS', "").split()
             opts_i = 0
@@ -57,10 +53,17 @@ class ScyllaCluster(Cluster):
                    manager = scylla_ext_opts[opts_i].split('=')[1]
                 opts_i += 1
 
+        super(ScyllaCluster, self).__init__(path, name, partitioner,
+                                            install_dir, create_directory,
+                                            version, verbose,
+                                            snitch=SNITCH, cassandra_version=cassandra_version,
+                                            docker_image=docker_image)
+
+        if manager:
+            self._scylla_manager = ScyllaManager(self, manager)
+
         if os.path.exists(os.path.join(self.get_path(), common.SCYLLAMANAGER_DIR)):
             self._scylla_manager = ScyllaManager(self)
-        elif manager:
-            self._scylla_manager = ScyllaManager(self,manager)
 
     def load_from_repository(self, version, verbose):
         install_dir, version = scylla_repository.setup(version, verbose)
@@ -198,6 +201,24 @@ class ScyllaCluster(Cluster):
         self._config_options['server_encryption_options'] = node_ssl_options
         self._update_config()
 
+    def _update_config(self):
+        """
+        add scylla specific item to the cluster.conf
+        :return: None
+        """
+        super(ScyllaCluster, self)._update_config()
+
+        if self._scylla_manager and self._scylla_manager.install_dir:
+            filename = os.path.join(self.get_path(), 'cluster.conf')
+
+            with open(filename, 'r') as f:
+                data = yaml.safe_load(f)
+
+            data['scylla_manager_install_path'] = self._scylla_manager.install_dir
+
+            with open(filename, 'w') as f:
+                yaml.safe_dump(data, f)
+
     def sctool(self, cmd):
         if self._scylla_manager == None:
             raise Exception("scylla manager not enabled - sctool command cannot be executed")
@@ -230,7 +251,7 @@ class ScyllaManager:
         self._process_scylla_manager = None
         self._pid = None
         self.auth_token = str(uuid.uuid4())
-
+        self.install_dir = install_dir
         if install_dir:
             if not os.path.exists(self._get_path()):
                 os.mkdir(self._get_path())
@@ -238,7 +259,8 @@ class ScyllaManager:
         else:
             self._update_pid()
 
-    def _version(self):
+    @property
+    def version(self):
         stdout, _ = self.sctool(["version"], ignore_exit_status=True)
         version_string = stdout[stdout.find(": ") + 2:].strip()  # Removing unnecessary information
         version_code = LooseVersion(version_string)
@@ -247,7 +269,6 @@ class ScyllaManager:
     def _install(self, install_dir):
         self._copy_config_files(install_dir)
         self._copy_bin_files(install_dir)
-        self.version = self._version()
         self._update_config(install_dir)
 
     def _get_api_address(self):
@@ -357,7 +378,7 @@ class ScyllaManager:
     def start(self):
         # some configurations are set post initialisation (cluster id) so
         # we are forced to update the config prior to calling start
-        self._update_config()
+        self._update_config(self.install_dir)
         # check process is not running
         if self._pid:
             try:

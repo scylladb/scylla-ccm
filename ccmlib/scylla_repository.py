@@ -187,37 +187,42 @@ def setup(version, verbose=True):
         # install using scylla install.sh
         run_scylla_install_script(os.path.join(
             cdir, 'scylla-core-package'), cdir, package_version)
-    setup_scylla_manager()
+
+    scylla_ext_opts = os.environ.get('SCYLLA_EXT_OPTS', '')
+    scylla_manager_package = os.environ.get('SCYLLA_MANAGER_PACKAGE')
+
+    if not scylla_ext_opts:
+        manager_install_dir = setup_scylla_manager(scylla_manager_package)
+        scylla_ext_opts += ' --scylla-manager={}'.format(manager_install_dir)
+        os.environ['SCYLLA_EXT_OPTS'] = scylla_ext_opts
 
     return cdir, get_scylla_version(cdir)
 
 
-def setup_scylla_manager():
+def setup_scylla_manager(scylla_manager_package=None):
 
     """
     download and cache scylla-manager RPMs,
     :return:
     """
-    base_url = os.environ.get('SCYLLA_MANAGER_PACKAGE', None)
-    scylla_ext_opts = os.environ.get('SCYLLA_EXT_OPTS', '')
 
-    if base_url and '--scylla-manager' not in scylla_ext_opts:
+    if scylla_manager_package and '--scylla-manager':
         m = hashlib.md5()
-        m.update(base_url.encode('utf-8'))
+        m.update(scylla_manager_package.encode('utf-8'))
 
         # select a dir to change this version of scylla-manager based on the md5 of the path
-        install_dir = directory_name(os.path.join('manager', m.hexdigest()))
-        if not os.path.exists(install_dir):
-            os.makedirs(install_dir)
+        manager_install_dir = directory_name(os.path.join('manager', m.hexdigest()))
+        if not os.path.exists(manager_install_dir):
+            os.makedirs(manager_install_dir)
 
             # download and traverse the repo data, for getting the url for the RPMs
-            url = os.path.join(base_url, 'repodata/repomd.xml')
+            url = os.path.join(scylla_manager_package, 'repodata/repomd.xml')
             page = requests.get(url).text
 
             primary_regex = re.compile(r'="(.*?primary.xml.gz)"')
             primary_path = primary_regex.search(page).groups()[0]
 
-            url = os.path.join(base_url, primary_path)
+            url = os.path.join(scylla_manager_package, primary_path)
             data = requests.get(url).content
 
             # unzip the repo primary listing
@@ -236,11 +241,11 @@ def setup_scylla_manager():
 
             # download the RPMs and extract them into place
             for rpm_file in files_to_download:
-                url = os.path.join(base_url, rpm_file)
+                url = os.path.join(scylla_manager_package, rpm_file)
                 rpm_data = requests.get(url).content
 
                 p = Popen(['bash', '-c', 'rpm2cpio - | cpio -id'],
-                          stdout=PIPE, stdin=PIPE, stderr=STDOUT, cwd=install_dir)
+                          stdout=PIPE, stdin=PIPE, stderr=STDOUT, cwd=manager_install_dir)
                 grep_stdout = p.communicate(input=rpm_data)[0]
                 print_(grep_stdout.decode())
 
@@ -255,10 +260,9 @@ def setup_scylla_manager():
                     cp -r ./etc/scylla-manager/* ./dist/etc/
                     cp -r ./etc/scylla-manager/cql ./schema/
                 ''',
-                cwd=install_dir)
+                cwd=manager_install_dir)
 
-        scylla_ext_opts += ' --scylla-manager={}'.format(install_dir)
-        os.environ['SCYLLA_EXT_OPTS'] = scylla_ext_opts
+        return manager_install_dir
 
 
 min_attributes = ('scheme', 'netloc')

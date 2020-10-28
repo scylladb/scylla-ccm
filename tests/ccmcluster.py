@@ -10,7 +10,16 @@ LOGGER = logging.getLogger(__name__)
 
 class CCMCluster:
 
-    def __init__(self, test_id, use_scylla=True, relocatable_version=None, docker_image=None):
+    def __init__(self, test_id, use_scylla=True, relocatable_version=None, docker_image=None, scylla_manager_package=None):
+
+        if scylla_manager_package:
+            os.environ['SCYLLA_MANAGER_PACKAGE'] = ''
+        else:
+            try:
+                del os.environ['SCYLLA_MANAGER_PACKAGE']
+            except Exception:
+                pass
+
         self.name = f"{self.__class__.__name__}-{test_id}"
         self.ccm_bin = os.path.join(os.curdir, "ccm")
         self.cluster_dir = os.path.join(common.get_default_path(), self.name)
@@ -68,7 +77,8 @@ class CCMCluster:
             stdout = stdout.strip()
             stderr = stderr.strip()
 
-            LOGGER.debug("[OUT] %s" % stdout)
+            LOGGER.debug("[stdout] %s" % stdout)
+            LOGGER.debug("[stderr] %s" % stderr)
             assert status_code == expected_status_code
             return stdout, stderr
         except AssertionError:
