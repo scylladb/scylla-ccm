@@ -16,7 +16,7 @@ LOGGER = logging.getLogger(__name__)
 @pytest.fixture(scope="session")
 def results_dir():
     LOGGER.info("Creating test directory...")
-    dir_name = "tests" / Path(RESULTS_DIR)
+    dir_name = Path(__file__).parent / Path(RESULTS_DIR)
     dir_name.mkdir(parents=True, exist_ok=True)
     return dir_name
 
