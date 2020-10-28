@@ -26,7 +26,7 @@ jobs:
 
     - name: Install dependencies
       run: |
-        apt-get install -y openjdk-8-jdk rpm2cpio
+        sudo apt-get install -y openjdk-8-jdk rpm2cpio
         pip install -U pip setuptools pytest
         python setup.py install
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
