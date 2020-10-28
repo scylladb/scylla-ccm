@@ -1,6 +1,8 @@
 import re
+import pytest
 
 
+@pytest.mark.docker
 class TestScyllaDockerCluster:
     @staticmethod
     def parse_nodetool_status(lines):
@@ -69,6 +71,6 @@ class TestScyllaDockerCluster:
 
     def test_node_stress(self, docker_cluster):
         node1, *_ = docker_cluster.nodelist()
-        stdout, _ = node1.stress(['write', 'n=1000000'], capture_output=True)
-        assert 'Total partitions          :  1,000,000 [WRITE: 1,000,000]' in stdout
+        stdout, _ = node1.stress(['write', 'n=1000'], capture_output=True)
+        assert '1,000 [WRITE: 1,000]' in stdout
         assert 'END' in stdout
