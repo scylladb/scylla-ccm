@@ -48,7 +48,13 @@ class CCMCluster:
         return [self.ccm_bin, "start", "--wait-for-binary-proto"]
 
     def get_updateconf_cmd(self):
-        return [self.ccm_bin, "updateconf", "read_request_timeout_in_ms:10000"]
+        return [self.ccm_bin, "updateconf",
+                'read_request_timeout_in_ms:10000',
+                'range_request_timeout_in_ms:10000',
+                'write_request_timeout_in_ms:10000',
+                'truncate_request_timeout_in_ms:10000',
+                'request_timeout_in_ms:10000'
+        ]
 
     def run_command(self, cmd):
         LOGGER.info(cmd)
