@@ -29,7 +29,7 @@ class Cluster(object):
         self._config_options = {}
         self._dse_config_options = {}
         self.__log_level = "INFO"
-        self.__path = path
+        self.path = path
         self.__version = None
         self.use_vnodes = False
         # Classes that are to follow the respective logging level
@@ -303,7 +303,7 @@ class Cluster(object):
         self.remove_dir_with_retry(self.get_path())
 
     def get_path(self):
-        return os.path.join(self.__path, self.name)
+        return os.path.join(self.path, self.name)
 
     def get_seeds(self):
         return [s.network_interfaces['storage'][0] for s in self.seeds]
@@ -526,7 +526,7 @@ class Cluster(object):
     def _update_config(self):
         node_list = [node.name for node in list(self.nodes.values())]
         seed_list = [node.name for node in self.seeds]
-        filename = os.path.join(self.__path, self.name, 'cluster.conf')
+        filename = os.path.join(self.path, self.name, 'cluster.conf')
         with open(filename, 'w') as f:
             yaml.safe_dump({
                 'name': self.name,
