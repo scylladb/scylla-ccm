@@ -1,11 +1,19 @@
 language: python
 
 python:
-  - "3.7"
   - "3.8"
 
+cache:
+  directories:
+    - $HOME/.cache/pip
+    - $HOME/.ccm/repository
+    - $HOME/.ccm/scylla-repository
+
+before_cache:
+    - rm -f $HOME/.cache/pip/log/debug.log
+
 script:
-  - python -m pytest $TRAVIS_BUILD_DIR/tests
+  - travis_wait 30 python -m pytest -m docker -m reloc $TRAVIS_BUILD_DIR/tests
 
 addons:
   apt:
@@ -14,3 +22,8 @@ addons:
 
 before_install:
   - python setup.py install
+  - ./ccm create temp -n 1 --scylla --version unstable/master:2020-10-25T21%3A55%3A10Z > /dev/null
+  - ./ccm remove
+  - ./ccm create temp-cas -n 1 --version 3.11.4 > /dev/null
+  - ./ccm remove
+  - docker pull scylladb/scylla-nightly:666.development-0.20201015.8068272b466
