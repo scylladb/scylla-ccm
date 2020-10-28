@@ -30,7 +30,17 @@ jobs:
         pip install -U pip setuptools pytest
         python setup.py install
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
- 
+
+    - name: Cache versions
+      uses: actions/cache@v2
+      with:
+        path: |
+          - ~/.ccm/repository
+          - ~/.ccm/scylla-repository
+        key: ${{ runner.os }}-repos-${{ hashFiles('**/test_config.py') }}
+        restore-keys: |
+          ${{ runner.os }}-repos-
+
     - name: Download versions
       run: |
         ./ccm create temp -n 1 --scylla --version unstable/master:2020-10-25T21%3A55%3A10Z > /dev/null
