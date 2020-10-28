@@ -18,7 +18,7 @@ script:
 addons:
   apt:
     packages:
-      - oracle-java8-set-default
+      - openjdk-8-jdk
 
 before_install:
   - python setup.py install

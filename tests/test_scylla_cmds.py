@@ -1,6 +1,5 @@
 import os
 import logging
-import time
 
 import pytest
 
@@ -119,7 +118,6 @@ class TestCCMClusterNodetool:
     @staticmethod
     @pytest.fixture(scope="class", autouse=True)
     def base_setup_with_2_nodes(cluster_under_test):
-        setattr(TestCCMClusterNodetool, "cluster", cluster_under_test)
         try:
             cluster_under_test.run_command(cluster_under_test.get_create_cmd(args=['-n', '2']))
             cluster_under_test.validate_command_result()
@@ -129,7 +127,6 @@ class TestCCMClusterNodetool:
 
             cluster_under_test.run_command(cluster_under_test.get_start_cmd())
             cluster_under_test.validate_command_result()
-            time.sleep(30)
             yield
         finally:
             cluster_under_test.run_command(cluster_under_test.get_remove_cmd())
@@ -154,3 +151,37 @@ class TestCCMClusterNodetool:
             LOGGER.info(node_statuses)
             for node in node_statuses:
                 assert node['status'] == 'UN'
+
+
+@pytest.mark.parametrize(
+    'cluster_under_test',
+    (pytest.param('ccm_docker_cluster', marks=[pytest.mark.docker, pytest.mark.skipif(True, reason="docker doesn't yet support it")]),
+     pytest.param('ccm_reloc_with_manager_cluster', marks=pytest.mark.reloc),
+     ),
+    indirect=True
+)
+class TestCCMClusterManagerSctool:
+    @staticmethod
+    @pytest.fixture(scope="class", autouse=True)
+    def base_setup(cluster_under_test):
+        try:
+            cluster_under_test.run_command(cluster_under_test.get_create_cmd(args=['-n', '3',
+                '--scylla-manager-package',
+                'http://downloads.scylladb.com/manager/rpm/unstable/centos/branch-2.2/30/scylla-manager/x86_64/']))
+            cluster_under_test.validate_command_result()
+
+            cluster_under_test.run_command(cluster_under_test.get_updateconf_cmd())
+            cluster_under_test.validate_command_result()
+
+            cluster_under_test.run_command(cluster_under_test.get_start_cmd())
+            cluster_under_test.validate_command_result()
+            yield
+        finally:
+            cluster_under_test.run_command(cluster_under_test.get_remove_cmd())
+            cluster_under_test.process.wait()
+            if os.path.exists(cluster_under_test.cluster_dir):
+                common.rmdirs(cluster_under_test.cluster_dir)
+
+    def test_sctool(self, cluster_under_test):
+        cluster_under_test.run_command(['./ccm', 'sctool', 'status'])
+        cluster_under_test.validate_command_result()
