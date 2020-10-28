@@ -1482,7 +1482,7 @@ class Node(object):
         full_options = dict(list(self.cluster._config_options.items()) + list(self.__config_options.items()))  # last win and we want node options to win
         for name in full_options:
             value = full_options[name]
-            if isinstance(value, str) and (value is None or len(value) == 0):
+            if (isinstance(value, str) and len(value) == 0) or value is None:
                 try:
                     del data[name]
                 except KeyError:
@@ -1657,9 +1657,9 @@ class Node(object):
         return found
 
     def _get_directories(self):
-        dirs = []
+        dirs = {}
         for i in ['data', 'commitlogs', 'saved_caches', 'logs', 'conf', 'bin', os.path.join('data', 'hints')]:
-            dirs.append(os.path.join(self.get_path(), i))
+            dirs[i] = os.path.join(self.get_path(), i)
         return dirs
 
     def __get_status_string(self):

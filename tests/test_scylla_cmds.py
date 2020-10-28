@@ -99,9 +99,10 @@ class TestCCMClusterStart:
     def test_create_and_start_cluster_with_nodes(self, cluster_under_test):
         cluster_under_test.run_command(cluster_under_test.get_create_cmd(args=['-n', '1']))
         cluster_under_test.validate_command_result()
-        # TODO: fix updateconf commandline
-        # cluster_under_test.run_command(cluster_under_test.get_updateconf_cmd())
-        # cluster_under_test.validate_command_result()
+
+        cluster_under_test.run_command(cluster_under_test.get_updateconf_cmd())
+        cluster_under_test.validate_command_result()
+
         cluster_under_test.run_command(cluster_under_test.get_start_cmd())
         cluster_under_test.validate_command_result()
 
@@ -122,9 +123,10 @@ class TestCCMClusterNodetool:
         try:
             cluster_under_test.run_command(cluster_under_test.get_create_cmd(args=['-n', '2']))
             cluster_under_test.validate_command_result()
-            # TODO: fix updateconf commandline
-            # cluster_under_test.run_command(cluster_under_test.get_updateconf_cmd())
-            # cluster_under_test.validate_command_result()
+
+            cluster_under_test.run_command(cluster_under_test.get_updateconf_cmd())
+            cluster_under_test.validate_command_result()
+
             cluster_under_test.run_command(cluster_under_test.get_start_cmd())
             cluster_under_test.validate_command_result()
             time.sleep(30)
