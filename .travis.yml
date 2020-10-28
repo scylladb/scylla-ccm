@@ -13,12 +13,13 @@ before_cache:
     - rm -f $HOME/.cache/pip/log/debug.log
 
 script:
-  - travis_wait 30 python -m pytest -m docker -m reloc $TRAVIS_BUILD_DIR/tests
+  - travis_wait 30 python -m pytest $TRAVIS_BUILD_DIR/tests
 
 addons:
   apt:
     packages:
       - openjdk-8-jdk
+      - rpm2cpio
 
 before_install:
   - python setup.py install
