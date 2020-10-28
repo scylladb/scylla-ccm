@@ -121,6 +121,8 @@ class ClusterCreateCmd(Cmd):
                           help="Must specify --install-dir holding Scylla")
         parser.add_option("--scylla-manager", type="string", dest="scyllamanager",
                           help="Must specify root directory for scylla management")
+        parser.add_option("--scylla-manager-package", type="string", dest="scylla_manager_package",
+                          help="A remote path, where the scylla-manager RPMs are available")
         parser.add_option("--snitch", type="string", dest="snitch",
                           help="Supports 'org.apache.cassandra.locator.PropertyFileSnitch','org.apache.cassandra.locator.GossipingPropertyFileSnitch' used only in multidc clusters")
         parser.add_option("--id", type="int", dest="id",
@@ -199,14 +201,19 @@ class ClusterCreateCmd(Cmd):
         if options.scylla_jmx_package_uri:
             os.environ['SCYLLA_JMX_PACKAGE'] = options.scylla_jmx_package_uri
 
-
     def run(self):
         try:
             if self.options.scylla:
                 if self.options.docker_image:
                     cluster = ScyllaDockerCluster(self.path, self.name, docker_image=self.options.docker_image)
                 else:
-                    cluster = ScyllaCluster(self.path, self.name, install_dir=self.options.install_dir, version=self.options.version, verbose=True, manager=self.options.scyllamanager)
+                    if self.options.scylla_manager_package:
+                        from ccmlib.scylla_repository import setup_scylla_manager
+                        manager_install_dir = setup_scylla_manager(self.options.scylla_manager_package)
+                    else:
+                        manager_install_dir = self.options.scyllamanager
+                    cluster = ScyllaCluster(self.path, self.name, install_dir=self.options.install_dir,
+                                            version=self.options.version, verbose=True, manager=manager_install_dir)
             elif self.options.dse or (not self.options.version and common.isDse(self.options.install_dir)):
                 cluster = DseCluster(self.path, self.name, install_dir=self.options.install_dir, version=self.options.version, dse_username=self.options.dse_username, dse_password=self.options.dse_password, opscenter=self.options.opscenter, verbose=True)
             else:

@@ -21,6 +21,7 @@ class ClusterFactory():
             data = yaml.safe_load(f)
         try:
             install_dir = None
+            scylla_manager_install_path = data.get('scylla_manager_install_path')
             if 'install_dir' in data and 'docker_image' not in data:
                 install_dir = data['install_dir']
                 repository.validate(install_dir)
@@ -31,7 +32,8 @@ class ClusterFactory():
                 cluster = ScyllaDockerCluster(path, data['name'], docker_image=data['docker_image'],
                                               install_dir=install_dir, create_directory=False)
             elif common.isScylla(install_dir):
-                cluster = ScyllaCluster(path, data['name'], install_dir=install_dir, create_directory=False)
+                cluster = ScyllaCluster(path, data['name'], install_dir=install_dir, create_directory=False,
+                                        manager=scylla_manager_install_path)
             elif common.isDse(install_dir):
                 cluster = DseCluster(path, data['name'], install_dir=install_dir, create_directory=False)
             else:
