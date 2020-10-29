@@ -20,6 +20,7 @@ from boto3 import client
 from botocore import UNSIGNED
 from botocore.client import Config
 from six import print_
+from six.moves import zip_longest
 
 BIN_DIR = "bin"
 CASSANDRA_CONF_DIR = "conf"
@@ -717,3 +718,11 @@ def aws_bucket_ls(s3_url):
             files_in_bucket.append(obj['Key'].replace(prefix + "/", ''))
     return files_in_bucket
 
+
+def grouper(n, iterable, padvalue=None):
+    """
+    grouper(3, 'abcdefg', 'x') --> ('a','b','c'), ('d','e','f'), ('g','x','x')
+
+    idea from: https://stackoverflow.com/a/312644/459189
+    """
+    return zip_longest(*[iter(iterable)] * n, fillvalue=padvalue)
