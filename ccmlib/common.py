@@ -17,6 +17,7 @@ import logging
 
 import yaml
 from six import print_
+from six.moves import zip_longest
 
 BIN_DIR = "bin"
 CASSANDRA_CONF_DIR = "conf"
@@ -695,3 +696,13 @@ def assert_jdk_valid_for_cassandra_version(cassandra_version):
     if cassandra_version >= '3.0' and get_jdk_version() < '1.8':
         print_('ERROR: Cassandra 3.0+ requires Java >= 1.8, found Java {}'.format(get_jdk_version()))
         exit(1)
+
+
+def grouper(n, iterable, padvalue=None):
+    """
+    grouper(3, 'abcdefg', 'x') --> ('a','b','c'), ('d','e','f'), ('g','x','x')
+
+    idea from: https://stackoverflow.com/a/312644/459189
+    """
+    return zip_longest(*[iter(iterable)] * n, fillvalue=padvalue)
+

@@ -1,6 +1,6 @@
 import os
 from shutil import copyfile
-from subprocess import run, PIPE
+from subprocess import check_call, run, PIPE
 import logging
 
 import yaml
@@ -9,7 +9,6 @@ from ccmlib.scylla_cluster import ScyllaCluster
 from ccmlib.scylla_node import ScyllaNode
 from ccmlib.node import Status
 from ccmlib import common
-
 
 LOGGER = logging.getLogger("ccm")
 
@@ -132,12 +131,13 @@ class ScyllaDockerNode(ScyllaNode):
         with open(conf_file, 'w') as f:
             yaml.safe_dump(data, f, default_flow_style=False)
 
-    def create_docker(self):
+    def create_docker(self, args):
         # TODO: handle smp correctly via the correct param/api (or only via commandline params)
         # TODO: mount of the data dir
         # TODO: pass down the full command line params, since the docker ones doesn't support all of them ?
         # TODO: pass down a unique tag, with the cluster name, or id, if we have such in ccm, like test_id in SCT ?
         # TODO: add volume map to: hints, ...
+        # TODO: improve support for passing args to scylla docker.
 
         if not self.pid:
             node1 = self.cluster.nodelist()[0]
@@ -161,7 +161,7 @@ class ScyllaDockerNode(ScyllaNode):
 
             res = run(['bash', '-c', f"docker run {ports} "
                                      f"{mount_points} --name {self.docker_name}  "
-                                     f"-d {self.cluster.docker_image} --smp 1 {seeds}"], stdout=PIPE, stderr=PIPE, universal_newlines=True)
+                                     f"-d {self.cluster.docker_image} {seeds} {' '.join(args)}"], stdout=PIPE, stderr=PIPE, universal_newlines=True)
             self.pid = res.stdout.strip()
 
             if not res.returncode == 0:
@@ -274,9 +274,39 @@ class ScyllaDockerNode(ScyllaNode):
         with open(filename, 'w') as f:
             yaml.safe_dump(values, f)
 
+    @staticmethod
+    def filter_args(args):
+        cleaned_args = []
+        # boolean args that are handled different in docker commandline parser
+        if '--overprovisioned' in args:
+            args.remove('--overprovisioned')
+            args += ['--overprovisioned', '1']
+
+        for arg, value in common.grouper(2, args[3:], padvalue=''):
+            if arg == '--developer-mode' and value == 'true':
+                value = '1'
+
+            # handle duplicates in  https://github.com/scylladb/scylla/pull/7458 was merged
+            if arg in ['--log-to-stdout', '--default-log-level']:
+                continue
+
+            # handle code before https://github.com/scylladb/scylla/pull/7458 was merged
+            if arg in ['--experimental', '--seeds', '--cpuset', '--smp', '--reserve-memory', '--overprovisioned',
+                       '--io-setup', '--listen-address', '--rpc-address', '--broadcast-address',
+                       '--broadcast-rpc-address', '--api-address', '--alternator-address', '--alternator-port',
+                       '--alternator-https-port', '--alternator-write-isolation', '--disable-version-check',
+                       '--authenticator', '--authorizer', '--cluster-name', '--endpoint-snitch',
+                       '--replace-address-first-boot']:
+                cleaned_args.append(arg)
+                cleaned_args.append(value)
+        return cleaned_args
+
     def _start_scylla(self, args, marks, update_pid, wait_other_notice,
                       wait_for_binary_proto, ext_env):
-        self.create_docker()
+
+        args = self.filter_args(args)
+        # TODO: handle the cases args are changing between reboots (if there are any like that)
+        self.create_docker(args)
 
         scylla_status = self.service_status('scylla')
         if scylla_status and scylla_status.upper() != 'RUNNING':
@@ -360,7 +390,7 @@ class ScyllaDockerNode(ScyllaNode):
         pass
 
     def get_tool(self, toolname):
-        return ['docker',  'exec', '-i',  f'{self.pid}', f'{toolname}']
+        return ['docker', 'exec', '-i', f'{self.pid}', f'{toolname}']
 
     def _find_cmd(self, command_name):
         return self.get_tool(command_name)
@@ -393,9 +423,6 @@ class ScyllaDockerNode(ScyllaNode):
             stdout=PIPE, stderr=PIPE)
 
 
-import subprocess
-
-
 class DockerLogger:
     def __init__(self, node, target_log_file: str):
         self._node = node
@@ -406,5 +433,4 @@ class DockerLogger:
         return f'docker logs -f {self._node.pid} >> {self._target_log_file} 2>&1 &'
 
     def start(self):
-        subprocess.check_call(['bash', '-c', self._logger_cmd])
-
+        check_call(['bash', '-c', self._logger_cmd])
