@@ -733,7 +733,7 @@ class Node(object):
         args += cmd.split()
         if capture_output:
             p = subprocess.Popen(args, universal_newlines=True, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            stdout, stderr = p.communicate()
+            stdout, stderr = p.communicate(timeout=timeout)
         else:
             p = subprocess.Popen(args, env=env, universal_newlines=True)
             stdout, stderr = None, None
