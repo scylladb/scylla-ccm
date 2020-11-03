@@ -1862,6 +1862,21 @@ class Node(object):
         jstack_cmd = [jstack_location, '-J-d64'] + opts + [str(self.pid)]
         return subprocess.Popen(jstack_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
 
+    def _log_message(self, message):
+        return "{}: {}".format(self.name, message)
+
+    def debug(self, message):
+        self.cluster.debug(self._log_message(message))
+
+    def info(self, message):
+        self.cluster.info(self._log_message(message))
+
+    def warning(self, message):
+        self.cluster.warning(self._log_message(message))
+
+    def error(self, message):
+        self.cluster.error(self._log_message(message))
+
 
     def _log_message(self, message):
         return "{}: {}".format(self.name, message)
