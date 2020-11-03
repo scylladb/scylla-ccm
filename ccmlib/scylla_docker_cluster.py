@@ -126,8 +126,8 @@ class ScyllaDockerNode(ScyllaNode):
 
             res = run(['bash', '-c', f"docker run {ports} -v {self.local_yaml_path}/scylla.yaml:/etc/scylla/scylla.yaml "
                                      f"{' '.join(mount_points)} --name {self.docker_name} -v /tmp:/tmp "
-                                     f"-d {self.cluster.docker_image} --smp 1 {seeds}"], stdout=PIPE, stderr=PIPE)
-            self.pid = res.stdout.decode('utf-8').strip()
+                                     f"-d {self.cluster.docker_image} --smp 1 {seeds}"], stdout=PIPE, stderr=PIPE, universal_newlines=True)
+            self.pid = res.stdout.strip()
 
             if not res.returncode == 0:
                 LOGGER.error(res)
@@ -156,8 +156,8 @@ class ScyllaDockerNode(ScyllaNode):
             self.log_thread.start()
 
         # replace addresses
-        network = run(['bash', '-c', f"docker inspect --format='{{{{ .NetworkSettings.IPAddress }}}}' {self.pid}"], stdout=PIPE, stderr=PIPE)
-        address = network.stdout.decode('utf-8').strip() if network.stdout else None
+        network = run(['bash', '-c', f"docker inspect --format='{{{{ .NetworkSettings.IPAddress }}}}' {self.pid}"], stdout=PIPE, stderr=PIPE, universal_newlines=True)
+        address = network.stdout.strip() if network.stdout else None
         self.network_interfaces = {k: (address, v[1]) for k, v in self.network_interfaces.items()}
 
     def service_start(self, service_name):
@@ -169,20 +169,20 @@ class ScyllaDockerNode(ScyllaNode):
 
     def service_stop(self, service_name):
         res = run(['bash', '-c', f'docker exec {self.pid} /bin/bash -c "supervisorctl stop {service_name}"'],
-                  stdout=PIPE, stderr=PIPE)
+                  stdout=PIPE, stderr=PIPE, universal_newlines=True)
         if res.returncode != 0:
             LOGGER.debug(res.stdout)
             LOGGER.error(f'service {service_name} failed to stop with error\n{res.stderr}')
 
     def service_status(self, service_name):
         res = run(['bash', '-c', f'docker exec {self.pid} /bin/bash -c "supervisorctl status {service_name}"'],
-                  stdout=PIPE, stderr=PIPE)
+                  stdout=PIPE, stderr=PIPE, universal_newlines=True)
         if res.returncode != 0:
             LOGGER.debug(res.stdout)
-            LOGGER.error(f'service {service_name} failed to stop with error\n{res.stderr}')
+            LOGGER.error(f'service {service_name} failed to get status with error\n{res.stderr}')
             return "DOWN"
         else:
-            return res.stdout.decode('utf-8').split()[1]
+            return res.stdout.split()[1]
 
     def show(self, only_status=False, show_cluster=True):
         """
@@ -246,6 +246,7 @@ class ScyllaDockerNode(ScyllaNode):
         scylla_status = self.service_status('scylla')
         if scylla_status and scylla_status.upper() != 'RUNNING':
             self.service_start('scylla')
+            # self.service_start('scylla-jmx')
 
         if wait_other_notice:
             for node, mark in marks:
@@ -284,7 +285,7 @@ class ScyllaDockerNode(ScyllaNode):
 
     def _start_jmx(self, data):
         jmx_status = self.service_status('scylla-jmx')
-        if not jmx_status and jmx_status.upper() == 'RUNNING':
+        if jmx_status and jmx_status.upper() != 'RUNNING':
             self.service_start('scylla-jmx')
 
     def is_running(self):
