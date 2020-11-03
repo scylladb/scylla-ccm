@@ -191,6 +191,10 @@ class Node(object):
     def is_scylla(self):
         return common.isScylla(self.get_install_dir())
 
+    @staticmethod
+    def is_docker():
+        return False
+
     def get_node_cassandra_root(self):
         return self.get_path()
 
@@ -728,24 +732,27 @@ class Node(object):
         if capture_output and not wait:
             raise common.ArgumentError("Cannot set capture_output while wait is False.")
         env = self.get_env()
-        if self.is_scylla():
+        if self.is_scylla() and not self.is_docker():
             host = self.address()
         else:
             host = 'localhost'
         nodetool = self.get_tool('nodetool')
-        args = [nodetool, '-h', host, '-p', str(self.jmx_port)]
-        args += cmd.split()
+
+        if not isinstance(nodetool, list):
+            nodetool = [nodetool]
+        nodetool.extend(['-h', host, '-p', str(self.jmx_port)])
+        nodetool.extend(cmd.split())
         if capture_output:
             p = subprocess.Popen(nodetool, universal_newlines=True, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             stdout, stderr = p.communicate(timeout=timeout)
         else:
-            p = subprocess.Popen(args, env=env, universal_newlines=True)
+            p = subprocess.Popen(nodetool, env=env, universal_newlines=True)
             stdout, stderr = None, None
 
         if wait:
             exit_status = p.wait(timeout=timeout)
             if exit_status != 0:
-                raise NodetoolError(" ".join(args), exit_status, stdout, stderr)
+                raise NodetoolError(" ".join(nodetool), exit_status, stdout, stderr)
 
         return stdout, stderr
 
