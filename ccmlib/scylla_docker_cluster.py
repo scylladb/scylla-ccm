@@ -30,6 +30,11 @@ class ScyllaDockerCluster(ScyllaCluster):
             # even that it's not correct one, but we need this for `Cluster.add_node()`
             return super().get_node_ip(nodeid)
 
+    def remove(self, node=None, wait_other_notice=False, other_nodes=None):
+        super(ScyllaDockerCluster, self).remove(node=node, wait_other_notice=wait_other_notice, other_nodes=other_nodes)
+        for node in list(self.nodes.values()):
+            node.remove()
+
     def create_node(self, name, auto_bootstrap, thrift_interface,
                     storage_interface, jmx_port, remote_debug_port,
                     initial_token, save=True, binary_interface=None):
@@ -292,8 +297,10 @@ class ScyllaDockerNode(ScyllaNode):
     def clear(self, *args, **kwargs):
         # change file permissions so it can be deleted
         run(['bash', '-c', f'docker run -v {self.get_path()}:/node busybox chmod -R 777 /node'], stdout=PIPE, stderr=PIPE)
-        run(['bash', '-c', f'docker rm --volumes -f {self.pid}'], stdout=PIPE, stderr=PIPE)
         super(ScyllaDockerNode, self).clear(*args, **kwargs)
+
+    def remove(self):
+        run(['bash', '-c', f'docker rm --volumes -f {self.pid}'], stdout=PIPE, stderr=PIPE)
 
     def _start_jmx(self, data):
         jmx_status = self.service_status('scylla-jmx')
@@ -352,8 +359,7 @@ class ScyllaDockerNode(ScyllaNode):
         pass
 
     def import_config_files(self):
-        # no need to import any config file, since we are running in docker, and everything is available inside it
-        pass
+        self.update_yaml()
 
     def kill(self, __signal):
         run(['bash', '-c', f"docker exec {self.pid} bash -c 'kill -{__signal} `supervisorctl pid scylla`'"],
