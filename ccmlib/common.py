@@ -392,8 +392,12 @@ def isScylla(install_dir):
             from ccmlib.scylla_repository import setup
             cdir, _ = setup(scylla_version)
             return cdir is not None
-        else:
-            raise ArgumentError('Undefined installation directory')
+
+        scylla_docker_image = os.environ.get('SCYLLA_DOCKER_IMAGE', None)
+        if scylla_docker_image:
+            return True
+
+        raise ArgumentError('Undefined installation directory')
 
     return (os.path.exists(os.path.join(install_dir, 'scylla')) or
             os.path.exists(os.path.join(install_dir, 'build', 'debug', 'scylla')) or
