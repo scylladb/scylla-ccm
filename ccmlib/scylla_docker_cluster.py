@@ -98,7 +98,12 @@ class ScyllaDockerNode(ScyllaNode):
 
     def update_yaml(self):
         if not os.path.exists(f'{self.local_yaml_path}/scylla.yaml'):
-            run(['bash', '-c', f'docker run --rm --entrypoint cat {self.cluster.docker_image} /etc/scylla/scylla.yaml > {self.local_yaml_path}/scylla.yaml'])
+            # copy all the content of /etc/scylla out of the image without actually running it
+            run(['bash', '-c', f"""
+                    ID=$(docker run --rm -d {self.cluster.docker_image} tail -f /dev/null) ; 
+                    docker container cp -a "${{ID}}:/etc/scylla/" - | tar -x --strip-components=1 -C {self.local_yaml_path} ;
+                    docker stop ${{ID}}
+                """], stdout=PIPE, stderr=PIPE, universal_newlines=True)
         super(ScyllaDockerNode, self).update_yaml()
 
         conf_file = os.path.join(self.get_conf_dir(), common.SCYLLA_CONF)
@@ -141,7 +146,7 @@ class ScyllaDockerNode(ScyllaNode):
                 mount_points.append(
                     f'-v {os.path.join(self.get_path(),directory)}:{os.path.join(self.base_data_path, directory)}')
 
-            res = run(['bash', '-c', f"docker run {ports} -v {self.local_yaml_path}/scylla.yaml:/etc/scylla/scylla.yaml "
+            res = run(['bash', '-c', f"docker run {ports} -v {self.local_yaml_path}:/etc/scylla "
                                      f"{' '.join(mount_points)} --name {self.docker_name} -v /tmp:/tmp "
                                      f"-d {self.cluster.docker_image} --smp 1 {seeds}"], stdout=PIPE, stderr=PIPE, universal_newlines=True)
             self.pid = res.stdout.strip()
