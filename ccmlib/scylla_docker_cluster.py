@@ -18,6 +18,9 @@ class ScyllaDockerCluster(ScyllaCluster):
         super(ScyllaDockerCluster, self).__init__(*args, **kwargs)
         self.docker_image = kwargs['docker_image']
 
+    def get_install_dir(self):
+        return None
+
     def create_node(self, name, auto_bootstrap, thrift_interface,
                     storage_interface, jmx_port, remote_debug_port,
                     initial_token, save=True, binary_interface=None):
@@ -328,8 +331,8 @@ class ScyllaDockerNode(ScyllaNode):
     def _find_cmd(self, command_name):
         return self.get_tool(command_name)
 
-    def get_sstables(self, keyspace, column_family):
-        files = super(ScyllaDockerNode, self).get_sstables(keyspace=keyspace, column_family=column_family)
+    def get_sstables(self, *args, **kwargs):
+        files = super(ScyllaDockerNode, self).get_sstables(*args, **kwargs)
         return [f.replace(self.get_path(), '/usr/lib/scylla') for f in files]
 
     def get_env(self):
