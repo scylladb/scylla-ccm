@@ -21,6 +21,15 @@ class ScyllaDockerCluster(ScyllaCluster):
     def get_install_dir(self):
         return None
 
+    def get_node_ip(self, nodeid):
+        try:
+            return self.nodelist()[nodeid-1].address()
+        except IndexError:
+            # HACK:
+            # in case we don't have the node yet in the nodelist, we fallback to the formatted ip address,
+            # even that it's not correct one, but we need this for `Cluster.add_node()`
+            return super().get_node_ip(nodeid)
+
     def create_node(self, name, auto_bootstrap, thrift_interface,
                     storage_interface, jmx_port, remote_debug_port,
                     initial_token, save=True, binary_interface=None):
