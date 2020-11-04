@@ -905,8 +905,11 @@ class Node(object):
                             if os.path.isfile(full_path):
                                 os.remove(full_path)
             else:
-                common.rmdirs(full_dir)
-                os.mkdir(full_dir)
+                for root, dirs, files in os.walk(full_dir):
+                    for f in files:
+                        os.unlink(os.path.join(root, f))
+                    for d in dirs:
+                        shutil.rmtree(os.path.join(root, d))
 
         # Needed for any subdirs stored underneath a data directory.
         # Common for hints post CASSANDRA-6230
