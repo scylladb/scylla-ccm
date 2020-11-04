@@ -90,7 +90,7 @@ class ScyllaDockerNode(ScyllaNode):
         conf_file = os.path.join(self.get_conf_dir(), common.SCYLLA_CONF)
         data = self.read_scylla_yaml()
 
-        data['api_address'] = '127.0.0.1'
+        data['api_address'] = '0.0.0.0'
         if 'alternator_port' in data or 'alternator_https_port' in data:
             data['alternator_address'] = "0.0.0.0"
 
