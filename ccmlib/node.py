@@ -174,9 +174,6 @@ class Node(object):
         return os.path.join(self.get_path(), 'bin')
 
     def get_tool(self, toolname):
-        return common.join_bin(self.get_install_dir(), 'bin', toolname)
-
-    def get_tool_args(self, toolname):
         return [common.join_bin(self.get_install_dir(), 'bin', toolname)]
 
     def get_env(self):
@@ -926,8 +923,6 @@ class Node(object):
         if out_file is None:
             out_file = sys.stdout
         sstable2json = self._find_cmd('sstabledump')
-        if not isinstance(sstable2json, list):
-            sstable2json = [sstable2json]
         env = self.get_env()
         sstablefiles = self.__gather_sstables(datafiles, keyspace, column_families)
         print_(sstablefiles)
@@ -946,7 +941,7 @@ class Node(object):
 
         for sstablefile in sstablefiles:
             in_file_name = os.path.abspath(in_file.name)
-            args = [json2sstable, "-s", "-K", ks, "-c", cf, in_file_name, sstablefile]
+            args = json2sstable + ["-s", "-K", ks, "-c", cf, in_file_name, sstablefile]
             subprocess.call(args, env=env)
 
     def run_sstablesplit(self, datafiles=None, size=None, keyspace=None, column_families=None,
@@ -959,7 +954,7 @@ class Node(object):
 
         def do_split(f):
             print_("-- {0}-----".format(os.path.basename(f)))
-            cmd = [sstablesplit]
+            cmd = sstablesplit
             if size is not None:
                 cmd += ['-s', str(size)]
             if no_snapshot:
@@ -986,7 +981,7 @@ class Node(object):
         results = []
 
         for sstable in sstablefiles:
-            cmd = [sstablemetadata, sstable]
+            cmd = sstablemetadata + [sstable]
             if output_file is None:
                 p = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=env, universal_newlines=True)
                 (out, err) = p.communicate()
@@ -1001,7 +996,7 @@ class Node(object):
         cdir = self.get_install_dir()
         sstableexpiredblockers = self._find_cmd('sstableexpiredblockers')
         env = self.get_env()
-        cmd = [sstableexpiredblockers, keyspace, column_family]
+        cmd = sstableexpiredblockers + [keyspace, column_family]
         results = []
         if output_file is None:
             p = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=env, universal_newlines=True)
@@ -1025,9 +1020,9 @@ class Node(object):
 
         for sstable in sstablefiles:
             if set_repaired:
-                cmd = [sstablerepairedset, "--really-set", "--is-repaired", sstable]
+                cmd = sstablerepairedset + ["--really-set", "--is-repaired", sstable]
             else:
-                cmd = [sstablerepairedset, "--really-set", "--is-unrepaired", sstable]
+                cmd = sstablerepairedset + ["--really-set", "--is-unrepaired", sstable]
             subprocess.call(cmd, env=env)
 
     def run_sstablelevelreset(self, keyspace, cf, output=False):
@@ -1036,7 +1031,7 @@ class Node(object):
         env = self.get_env()
         sstablefiles = self.__cleanup_sstables(keyspace, cf)
 
-        cmd = [sstablelevelreset, "--really-reset", keyspace, cf]
+        cmd = sstablelevelreset + ["--really-reset", keyspace, cf]
 
         if output:
             p = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=env, universal_newlines=True)
@@ -1053,9 +1048,9 @@ class Node(object):
         sstablefiles = self.__cleanup_sstables(keyspace, cf)
 
         if dry_run:
-            cmd = [sstableofflinerelevel, "--dry-run", keyspace, cf]
+            cmd = sstableofflinerelevel + ["--dry-run", keyspace, cf]
         else:
-            cmd = [sstableofflinerelevel, keyspace, cf]
+            cmd = sstableofflinerelevel +[keyspace, cf]
 
         if output:
             p = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=env, universal_newlines=True)
@@ -1070,7 +1065,7 @@ class Node(object):
         env = self.get_env()
         sstablefiles = self.__cleanup_sstables(keyspace, cf)
 
-        cmd = [sstableverify, keyspace, cf]
+        cmd = sstableverify + [keyspace, cf]
         if options is not None:
             cmd[1:1] = options
 
@@ -1096,7 +1091,7 @@ class Node(object):
         except:
             print_("WARN: Couldn't change permissions to use {0}.".format(cmd))
             print_("WARN: If it didn't work, you will have to do so manually.")
-        return fcmd
+        return [fcmd]
 
     def list_keyspaces(self):
         keyspaces = os.listdir(os.path.join(self.get_path(), 'data'))
