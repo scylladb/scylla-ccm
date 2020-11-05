@@ -103,7 +103,7 @@ class ScyllaDockerNode(ScyllaNode):
             # copy all the content of /etc/scylla out of the image without actually running it
             run(['bash', '-c', f"""
                     ID=$(docker run --rm -d {self.cluster.docker_image} tail -f /dev/null) ; 
-                    docker container cp -a "${{ID}}:/etc/scylla/" - | tar -x --strip-components=1 -C {self.local_yaml_path} ;
+                    docker container cp -a "${{ID}}:/etc/scylla/" - | tar --keep-old-files -x --strip-components=1 -C {self.local_yaml_path} ;
                     docker stop ${{ID}}
                 """], stdout=PIPE, stderr=PIPE, universal_newlines=True)
         super(ScyllaDockerNode, self).update_yaml()
