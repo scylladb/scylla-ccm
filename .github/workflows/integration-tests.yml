@@ -48,23 +48,23 @@ jobs:
           - ~/.ccm/repository
           - ~/.ccm/scylla-repository
         key: ${{ runner.os }}-repos-${{ hashFiles('**/test_config.py') }}
-        restore-keys: |
-          ${{ runner.os }}-repos-
 
     - name: Download versions
       run: |
-        RELOC_VERSION="2020-10-25T21:55:10Z"
-        AWS_BASE=s3://downloads.scylladb.com/relocatable/unstable/master/${RELOC_VERSION}
+        if [ ! -f ~/.ccm/scylla-repository/unstable/master/2020-08-29T22_24_05Z ]; then
+          RELOC_VERSION="2020-08-29T22:24:05Z"
+          AWS_BASE=s3://downloads.scylladb.com/relocatable/unstable/master/${RELOC_VERSION}
 
-        aws s3 --only-show-errors --no-sign-request cp ${AWS_BASE}/scylla-package.tar.gz .
-        aws s3 --only-show-errors --no-sign-request cp ${AWS_BASE}/scylla-tools-package.tar.gz .
-        aws s3 --only-show-errors --no-sign-request cp ${AWS_BASE}/scylla-jmx-package.tar.gz .
+          aws s3 --only-show-errors --no-sign-request cp ${AWS_BASE}/scylla-package.tar.gz .
+          aws s3 --only-show-errors --no-sign-request cp ${AWS_BASE}/scylla-tools-package.tar.gz .
+          aws s3 --only-show-errors --no-sign-request cp ${AWS_BASE}/scylla-jmx-package.tar.gz .
 
-        ./ccm create temp -n 1 --scylla --version unstable/master:${RELOC_VERSION} \
-          --scylla-core-package-uri=./scylla-package.tar.gz \
-          --scylla-tools-java-package-uri=./scylla-tools-package.tar.gz \
-          --scylla-jmx-package-uri=./scylla-jmx-package.tar.gz
-        ./ccm remove
+          ./ccm create temp -n 1 --scylla --version unstable/master:${RELOC_VERSION} \
+            --scylla-core-package-uri=./scylla-package.tar.gz \
+            --scylla-tools-java-package-uri=./scylla-tools-package.tar.gz \
+            --scylla-jmx-package-uri=./scylla-jmx-package.tar.gz
+          ./ccm remove
+        fi
         ./ccm create temp-cas -n 1 --version 3.11.4 > /dev/null
         ./ccm remove
         docker pull scylladb/scylla-nightly:666.development-0.20201015.8068272b466
