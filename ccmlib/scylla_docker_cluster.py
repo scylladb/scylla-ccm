@@ -174,6 +174,11 @@ class ScyllaDockerNode(ScyllaNode):
 
             self.watch_log_for("supervisord started with", from_mark=0, timeout=10)
 
+            # HACK: need to echo cause: https://github.com/scylladb/scylla-tools-java/issues/213
+            run(['bash', '-c',
+                 f"docker exec {self.pid} bash -c 'find /opt/ -iname cassandra.in.sh | xargs sed -i -e \\'/echo.*as the config file\"/d\\'"],
+                stdout=PIPE, stderr=PIPE)
+
             # disable autorestart on scylla and scylla-jmx
             run(['bash', '-c',
                  f"docker exec {self.pid} bash -c 'echo \"autorestart=false\" >> /etc/supervisord.conf.d/scylla-server.conf'"],
