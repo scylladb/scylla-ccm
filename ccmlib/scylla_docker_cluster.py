@@ -349,7 +349,7 @@ class ScyllaDockerNode(ScyllaNode):
 
     def clear(self, *args, **kwargs):
         # change file permissions so it can be deleted
-        run(['bash', '-c', f'docker run -v {self.get_path()}:/node busybox chmod -R 777 /node'], stdout=PIPE, stderr=PIPE)
+        run(['bash', '-c', f'docker run --rm -v {self.get_path()}:/node busybox chmod -R 777 /node'], stdout=PIPE, stderr=PIPE)
         super(ScyllaDockerNode, self).clear(*args, **kwargs)
 
     def remove(self):
@@ -419,13 +419,17 @@ class ScyllaDockerNode(ScyllaNode):
             stdout=PIPE, stderr=PIPE)
 
     def unlink(self, file_path):
-        run(['bash', '-c', f'docker run -v {self.get_path()}:/node busybox chmod -R 777 /node'], stdout=PIPE, stderr=PIPE)
+        run(['bash', '-c', f'docker run --rm -v {self.get_path()}:/node busybox chmod -R 777 /node'], stdout=PIPE, stderr=PIPE)
         super(ScyllaDockerNode, self).unlink(file_path)
 
     def chmod(self, file_path, permissions):
         path_inside_docker = file_path.replace(self.get_path(), self.base_data_path)
-        run(['bash', '-c', f'docker run -v {file_path}:{path_inside_docker} busybox chmod -R {permissions} {path_inside_docker}'],
+        run(['bash', '-c', f'docker run --rm -v {file_path}:{path_inside_docker} busybox chmod -R {permissions} {path_inside_docker}'],
             stdout=PIPE, stderr=PIPE)
+
+    def rmtree(self, path):
+        run(['bash', '-c', f'docker run --rm -v {self.get_path()}:/node busybox chmod -R 777 /node'], stdout=PIPE, stderr=PIPE)
+        super(ScyllaDockerNode, self).rmtree(path)
 
 
 class DockerLogger:
