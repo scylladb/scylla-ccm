@@ -1862,6 +1862,17 @@ class Node(object):
     def kill(self, __signal):
         os.kill(self.pid, __signal)
 
+    def rmtree(self, path):
+        """
+        delete a directory content without removing the directory
+        since in docker those are mountpoint into the docker container, and deleting them leave break scylla
+        """
+        for root, dirs, files in os.walk(path):
+            for f in files:
+                os.unlink(os.path.join(root, f))
+            for d in dirs:
+                shutil.rmtree(os.path.join(root, d))
+
     def jstack(self, opts=None):
         opts = [] if opts is None else opts
         jstack_location = os.path.abspath(os.path.join(os.environ['JAVA_HOME'],
