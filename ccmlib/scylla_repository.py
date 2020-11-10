@@ -238,9 +238,6 @@ def __get_dir():
 def run_scylla_install_script(install_dir, target_dir, package_version):
     scylla_target_dir = os.path.join(target_dir, 'scylla')
 
-    # FIXME: remove this hack once scylladb/scylla#4949 is fixed and merged
-    run('''sed 's|"$prefix|"$root/$prefix|' -i install.sh''', cwd=install_dir)
-
     if package_version <= packaging.version.parse('2'):
         # leave this for compatibility
         run('''sed -i '/systemctl --user/d' install.sh''', cwd=install_dir)
@@ -249,9 +246,9 @@ def run_scylla_install_script(install_dir, target_dir, package_version):
         # on relocatable package format 2.1 or later, use --packaging instead of sed
         install_opt = ' --packaging'
 
-    run('''{0}/install.sh --root {1} --prefix {1} --prefix /opt/scylladb --nonroot{2}'''.format(
+    run('''{0}/install.sh --prefix {1} --nonroot{2}'''.format(
         install_dir, scylla_target_dir, install_opt), cwd=install_dir)
     run('''mkdir -p {0}/conf; cp ./conf/scylla.yaml {0}/conf'''.format(
         scylla_target_dir), cwd=install_dir)
-    run('''ln -s {}/opt/scylladb/bin .'''.format(scylla_target_dir), cwd=target_dir)
+    run('''ln -s {}/bin .'''.format(scylla_target_dir), cwd=target_dir)
     run('''ln -s {}/conf .'''.format(scylla_target_dir), cwd=target_dir)
