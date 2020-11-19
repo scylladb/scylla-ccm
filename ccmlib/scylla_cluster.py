@@ -141,7 +141,7 @@ class ScyllaCluster(Cluster):
 
         return started
 
-    def stop_nodes(self, nodes=None, wait=True, gently=True, wait_other_notice=False, other_nodes=None, wait_seconds=127):
+    def stop_nodes(self, nodes=None, wait=True, gently=True, wait_other_notice=False, other_nodes=None, wait_seconds=None):
         if nodes is None:
             nodes = self.nodes.values()
         elif isinstance(nodes, ScyllaNode):
@@ -165,7 +165,7 @@ class ScyllaCluster(Cluster):
 
         return [node for node in nodes if not node.is_running()]
 
-    def stop(self, wait=True, gently=True, wait_other_notice=False, other_nodes=None, wait_seconds=127):
+    def stop(self, wait=True, gently=True, wait_other_notice=False, other_nodes=None, wait_seconds=None):
         if self._scylla_manager:
             self._scylla_manager.stop(gently)
         args = locals()

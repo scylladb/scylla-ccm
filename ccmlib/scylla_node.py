@@ -681,7 +681,7 @@ class ScyllaNode(Node):
 
         return True
 
-    def _wait_until_stopped(self, wait_seconds=127):
+    def _wait_until_stopped(self, wait_seconds):
         start_time = time.time()
         wait_time_sec = 1
         while True:
@@ -696,13 +696,16 @@ class ScyllaNode(Node):
             elif wait_time_sec <= 16:
                 wait_time_sec *= 2
 
-    def wait_until_stopped(self, wait_seconds=127, marks=[], dump_core=True):
+    def wait_until_stopped(self, wait_seconds=None, marks=[], dump_core=True):
         """
         Wait until node is stopped after do_stop was called.
           - wait_other_notice: return only when the other live nodes of the
             cluster have marked this node has dead.
           - marks: optional list of (node, mark) to call watch_log_for_death on.
         """
+
+        if wait_seconds is None:
+            wait_seconds = 127 if self.scylla_mode() != 'debug' else 600
 
         if self.is_running():
             if not self._wait_until_stopped(wait_seconds):
@@ -714,7 +717,8 @@ class ScyllaNode(Node):
                 if dump_core and self.pid:
                     # Aborting is intended to generate a core dump
                     # so the reason the node didn't stop normally can be studied.
-                    self.warning("{} is still running. Trying to generate coredump using kill({}, SIGQUIT)...".format(self.name, self.pid))
+                    self.warning("{} is still running after {} seconds. Trying to generate coredump using kill({}, SIGQUIT)...".format(
+                        self.name, wait_seconds, self.pid))
                     try:
                         os.kill(self.pid, signal.SIGQUIT)
                     except OSError:
@@ -727,13 +731,15 @@ class ScyllaNode(Node):
             if node != self:
                 node.watch_log_for_death(self, from_mark=mark)
 
-    def stop(self, wait=True, wait_other_notice=False, other_nodes=None, gently=True, wait_seconds=127, marks=[]):
+    def stop(self, wait=True, wait_other_notice=False, other_nodes=None, gently=True, wait_seconds=None, marks=[]):
         """
         Stop the node.
           - wait: if True (the default), wait for the Scylla process to be
             really dead. Otherwise return after having sent the kill signal.
-            stop() will wait up to wait_seconds, by default 127 seconds, for
-            the Cassandra process to die. After this wait, it will throw an
+            stop() will wait up to wait_seconds, by default 127 seconds
+            (or 600 in debug mode), for the Scylla process to stop gracefully.
+            After this wait, it will try to kill the node using SIGQUIT,
+            and if that failed, it will throw an
             exception stating it couldn't stop the node.
           - wait_other_notice: return only when the other live nodes of the
             cluster have marked this node has dead.
