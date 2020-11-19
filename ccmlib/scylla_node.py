@@ -714,7 +714,7 @@ class ScyllaNode(Node):
                 if dump_core and self.pid:
                     # Aborting is intended to generate a core dump
                     # so the reason the node didn't stop normally can be studied.
-                    print("{} is still running. Trying to generate coredump using kill({}, SIGQUIT)...".format(self.name, self.pid))
+                    self.warning("{} is still running. Trying to generate coredump using kill({}, SIGQUIT)...".format(self.name, self.pid))
                     try:
                         os.kill(self.pid, signal.SIGQUIT)
                     except OSError:
