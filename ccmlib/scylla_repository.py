@@ -28,6 +28,7 @@ from ccmlib.repository import __download
 GIT_REPO = "http://github.com/scylladb/scylla.git"
 
 RELOCATABLE_URLS_BASE = 'https://s3.amazonaws.com/downloads.scylladb.com/relocatable/{0}/{1}'
+ENTERPRISE_RELOCATABLE_URLS_BASE = 'https://s3.amazonaws.com/downloads.scylladb.com/enterprise/relocatable/{0}/{1}'
 
 
 def run(cmd, cwd=None):
@@ -38,9 +39,14 @@ def run(cmd, cwd=None):
 def setup(version, verbose=True):
     s3_url = ''
     type_n_version = version.split(':', 1)
+    scylla_product = os.environ.get('SCYLLA_PRODUCT', 'scylla')
+
     if len(type_n_version) == 2:
         s3_version = type_n_version[1]
-        s3_url = RELOCATABLE_URLS_BASE.format(type_n_version[0], s3_version)
+        if 'enterprise' in scylla_product:
+            s3_url = ENTERPRISE_RELOCATABLE_URLS_BASE.format(type_n_version[0], s3_version)
+        else:
+            s3_url = RELOCATABLE_URLS_BASE.format(type_n_version[0], s3_version)
         version = os.path.join(*type_n_version)
 
     cdir = version_directory(version)
@@ -49,19 +55,19 @@ def setup(version, verbose=True):
         tmp_download = tempfile.mkdtemp()
 
         url = os.environ.get('SCYLLA_CORE_PACKAGE', os.path.join(
-            s3_url, 'scylla-package.tar.gz'))
+            s3_url, f'{scylla_product}-package.tar.gz'))
         package_version = download_version(version, verbose=verbose, url=url, target_dir=os.path.join(
             tmp_download, 'scylla-core-package'))
         # Try the old name for backward compatibility
         url = os.environ.get("SCYLLA_TOOLS_JAVA_PACKAGE") or \
             os.environ.get("SCYLLA_JAVA_TOOLS_PACKAGE") or \
-            os.path.join(s3_url, 'scylla-tools-package.tar.gz')
+            os.path.join(s3_url, f'{scylla_product}-tools-package.tar.gz')
 
         download_version(version, verbose=verbose, url=url, target_dir=os.path.join(
             tmp_download, 'scylla-tools-java'))
 
         url = os.environ.get('SCYLLA_JMX_PACKAGE', os.path.join(
-            s3_url, 'scylla-jmx-package.tar.gz'))
+            s3_url, f'{scylla_product}-jmx-package.tar.gz'))
         download_version(version, verbose=verbose, url=url,
                          target_dir=os.path.join(tmp_download, 'scylla-jmx'))
 
