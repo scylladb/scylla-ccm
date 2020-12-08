@@ -423,8 +423,7 @@ class ScyllaDockerNode(ScyllaNode):
             stdout=PIPE, stderr=PIPE)
 
     def unlink(self, file_path):
-        run(['bash', '-c', f'docker run --rm -v {self.get_path()}:/node busybox chmod -R 777 /node'], stdout=PIPE, stderr=PIPE)
-        super(ScyllaDockerNode, self).unlink(file_path)
+        run(['bash', '-c', f'docker run --rm -v {file_path}:{file_path} busybox rm {file_path}'], stdout=PIPE, stderr=PIPE)
 
     def chmod(self, file_path, permissions):
         path_inside_docker = file_path.replace(self.get_path(), self.base_data_path)
