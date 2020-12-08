@@ -426,23 +426,11 @@ class Cluster(object):
         return self
 
     def stress(self, stress_options):
-        stress = common.get_stress_bin(self.get_install_dir())
         livenodes = [node.network_interfaces['storage'][0] for node in list(self.nodes.values()) if node.is_live()]
         if len(livenodes) == 0:
             print_("No live node")
             return
-        if parse_version(self.version()) <= parse_version('2.1'):
-            args = [stress, '-d', ",".join(livenodes)] + stress_options
-        else:
-            args = [stress] + stress_options + ['-node', ','.join(livenodes)]
-        try:
-            # need to set working directory for env on Windows
-            if common.is_win():
-                subprocess.call(args, cwd=common.parse_path(stress))
-            else:
-                subprocess.call(args)
-        except KeyboardInterrupt:
-            pass
+        self.nodelist()[0].stress(stress_options=stress_options + ['-node', ','.join(livenodes)] )
         return self
 
     def run_cli(self, cmds=None, show_output=False, cli_options=[]):
