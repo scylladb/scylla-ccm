@@ -1182,15 +1182,16 @@ class Node(object):
                 # cassandra-stress has version command
                 stress_options = [o.replace('limit=', 'throttle=') for o in stress_options]
 
-        if self.cluster.cassandra_version() < '2.1':
-            stress_options.append('-d')
-            stress_options.append(self.address())
-        else:
-            stress_options.append('-node')
-            stress_options.append(self.address())
-            # specify used jmx port if not already set
-            if not [opt for opt in stress_options if opt.startswith('jmx=')]:
-                stress_options.extend(['-port', 'jmx=' + self.jmx_port])
+        if not ('-node' in stress_options or '-d' in stress_options):
+            if self.cluster.cassandra_version() < '2.1':
+                stress_options.append('-d')
+                stress_options.append(self.address())
+            else:
+                stress_options.append('-node')
+                stress_options.append(self.address())
+                # specify used jmx port if not already set
+                if not [opt for opt in stress_options if opt.startswith('jmx=')]:
+                    stress_options.extend(['-port', 'jmx=' + self.jmx_port])
 
         args = stress + stress_options
         try:
