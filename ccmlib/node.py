@@ -33,6 +33,12 @@ class Status():
     DECOMMISSIONED = "DECOMMISSIONED"
 
 
+class NodeUpgradeError(Exception):
+
+    def __init__(self, msg):
+        Exception.__init__(self, msg)
+
+
 class NodeError(Exception):
 
     def __init__(self, msg, process=None):
@@ -1846,6 +1852,9 @@ class Node(object):
 
     def error(self, message):
         self.cluster.error(self._log_message(message))
+
+    def get_node_scylla_version(selff, scylla_exec_path=None): ...
+
 
 
 def _get_load_from_info_output(info):

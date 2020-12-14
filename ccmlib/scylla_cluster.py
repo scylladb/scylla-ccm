@@ -207,6 +207,16 @@ class ScyllaCluster(Cluster):
             return
         self._scylla_manager.stop(gently)
 
+    def upgrade_cluster(self, upgrade_version):
+        """
+        Support when uses relocatable packages only
+        :param upgrade_version: relocatables name. Example: unstable/master:2020-11-18T08:57:53Z
+        """
+        for node in self.nodelist():
+            node.upgrade(upgrade_version)
+
+        self._update_config(install_dir=self.nodelist()[0].node_install_dir)
+
 
 class ScyllaManager:
     def __init__(self, scylla_cluster, install_dir=None):
