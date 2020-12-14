@@ -21,9 +21,11 @@ from six import print_
 from six.moves import xrange
 
 from ccmlib import common
-from ccmlib.node import Node
+from ccmlib.node import Node, NodeUpgradeError
+from ccmlib.node import Status
 from ccmlib.node import NodeError
 from ccmlib.node import TimeoutError
+from ccmlib.scylla_repository import setup
 
 
 def wait_for(func, timeout, first=0.0, step=1.0, text=None):
@@ -66,6 +68,8 @@ class ScyllaNode(Node):
     def __init__(self, name, cluster, auto_bootstrap, thrift_interface,
                  storage_interface, jmx_port, remote_debug_port, initial_token,
                  save=True, binary_interface=None, scylla_manager=None):
+        self._node_install_dir = None
+        self._node_scylla_version = None
         super(ScyllaNode, self).__init__(name, cluster, auto_bootstrap,
                                          thrift_interface, storage_interface,
                                          jmx_port, remote_debug_port,
@@ -87,7 +91,29 @@ class ScyllaNode(Node):
         self.scylla_manager = scylla_manager
         self.jmx_pid = None
         self.agent_pid = None
+        self.upgraded = False
+        self.upgrader = NodeUpgrader(node=self)
         self._create_directory()
+
+    @property
+    def node_install_dir(self):
+        if not self._node_install_dir:
+            self._node_install_dir = self.get_install_dir()
+        return self._node_install_dir
+
+    @node_install_dir.setter
+    def node_install_dir(self, install_dir):
+        self._node_install_dir = install_dir
+
+    @property
+    def node_scylla_version(self):
+        if not self._node_scylla_version:
+            self._node_scylla_version = self.get_node_scylla_version()
+        return self._node_scylla_version
+
+    @node_scylla_version.setter
+    def node_scylla_version(self, install_dir):
+        self._node_scylla_version = self.get_node_scylla_version(install_dir)
 
     def scylla_mode(self):
         return self.cluster.get_scylla_mode()
@@ -780,10 +806,10 @@ class ScyllaNode(Node):
                 shutil.copy(filename, self.get_conf_dir())
 
     def get_tools_java_dir(self):
-        return common.get_tools_java_dir(self.get_install_dir())
+        return common.get_tools_java_dir(self.node_install_dir)
 
     def get_jmx_dir(self, relative_repos_root):
-        return os.environ.get('SCYLLA_JMX_DIR', os.path.join(self.get_install_dir(), relative_repos_root, 'scylla-jmx'))
+        return os.environ.get('SCYLLA_JMX_DIR', os.path.join(self.node_install_dir, relative_repos_root, 'scylla-jmx'))
 
     def __copy_logback_files(self):
         shutil.copy(os.path.join(self.get_tools_java_dir(), 'conf', 'logback-tools.xml'),
@@ -795,13 +821,17 @@ class ScyllaNode(Node):
     def copy_config_files_dse(self):
         raise NotImplementedError('ScyllaNode.copy_config_files_dse')
 
-    def hard_link_or_copy(self, src, dst, extra_perms=0, always_copy=False):
+    def hard_link_or_copy(self, src, dst, extra_perms=0, always_copy=False, replace=False):
         def do_copy(src, dst, extra_perms=0):
             shutil.copy(src, dst)
             os.chmod(dst, os.stat(src).st_mode | extra_perms)
 
         if always_copy:
             return do_copy(src, dst, extra_perms)
+
+        if os.path.exists(dst) and replace:
+            os.remove(dst)
+
         try:
             os.link(src, dst)
         except OSError as oserror:
@@ -810,37 +840,43 @@ class ScyllaNode(Node):
             else:
                 raise RuntimeError("Unable to create hard link from %s to %s: %s" % (src, dst, oserror))
 
-    def import_bin_files(self):
-        # selectively copying files to reduce risk of using unintended items
-        files = ['cassandra.in.sh', 'nodetool']
-        os.makedirs(os.path.join(self.get_path(), 'resources', 'cassandra', 'bin'))
+    def _copy_binaries(self, files, src_path, dest_path, exist_ok=False, replace=False, extra_perms=0):
+        os.makedirs(dest_path, exist_ok=exist_ok)
 
         for name in files:
-            self.hard_link_or_copy(os.path.join(self.get_tools_java_dir(),
-                                                'bin', name),
-                                   os.path.join(self.get_path(),
-                                                'resources', 'cassandra',
-                                                'bin', name))
+            self.hard_link_or_copy(src=os.path.join(src_path, name),
+                                   dst=os.path.join(dest_path, name),
+                                   extra_perms=extra_perms,
+                                   replace=replace)
+
+
+    def import_bin_files(self, exist_ok=False, replace=False):
+        # selectively copying files to reduce risk of using unintended items
+        self._copy_binaries(files=['cassandra.in.sh', 'nodetool'],
+                            src_path=os.path.join(self.get_tools_java_dir(), 'bin'),
+                            dest_path=os.path.join(self.get_path(), 'resources', 'cassandra', 'bin'),
+                            exist_ok=exist_ok,
+                            replace=replace
+                            )
 
         # selectively copying files to reduce risk of using unintended items
-        files = ['sstabledump', 'sstablelevelreset', 'sstablemetadata',
-                 'sstablerepairedset', 'sstablesplit']
-        os.makedirs(os.path.join(self.get_path(), 'resources', 'cassandra',
-                                 'tools', 'bin'))
-        for name in files:
-            self.hard_link_or_copy(os.path.join(self.get_tools_java_dir(),
-                                                'tools', 'bin', name),
-                                   os.path.join(self.get_path(),
-                                                'resources', 'cassandra',
-                                                'tools', 'bin', name))
+        # Copy sstable tools
+        self._copy_binaries(files=['sstabledump', 'sstablelevelreset', 'sstablemetadata',
+                                   'sstablerepairedset', 'sstablesplit'],
+                            src_path=os.path.join(self.get_tools_java_dir(), 'tools', 'bin'),
+                            dest_path=os.path.join(self.get_path(), 'resources', 'cassandra', 'tools', 'bin'),
+                            exist_ok=exist_ok,
+                            replace=replace
+                            )
 
         # TODO: - currently no scripts only executable - copying exec
         if self.is_scylla_reloc():
             relative_repos_root = '../..'
-            self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'bin', 'scylla'),
-                                   os.path.join(self.get_bin_dir(), 'scylla'),
-                                   stat.S_IEXEC)
-            os.environ['GNUTLS_SYSTEM_PRIORITY_FILE'] = os.path.join(self.get_install_dir(), 'scylla-core-package/libreloc/gnutls.config')
+            self.hard_link_or_copy(src=os.path.join(self.node_install_dir, 'bin', 'scylla'),
+                                   dst=os.path.join(self.get_bin_dir(), 'scylla'),
+                                   extra_perms=stat.S_IEXEC,
+                                   replace=replace)
+            os.environ['GNUTLS_SYSTEM_PRIORITY_FILE'] = os.path.join(self.node_install_dir, 'scylla-core-package/libreloc/gnutls.config')
         else:
             relative_repos_root = '..'
             src = os.path.join(self.get_install_dir(), 'build', self.scylla_mode(), 'scylla')
@@ -879,21 +915,22 @@ class ScyllaNode(Node):
                 if returncode != 0:
                     raise RuntimeError('{} exited with status {}.\nstdout:{}\nstderr:\n{}'.format(patchelf_cmd, returncode, stdout, stderr))
 
-        if 'scylla-repository' in self.get_install_dir():
-            self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'scylla-jmx', 'scylla-jmx-1.0.jar'),
-                                   os.path.join(self.get_bin_dir(), 'scylla-jmx-1.0.jar'))
-            self.hard_link_or_copy(os.path.join(self.get_install_dir(), 'scylla-jmx', 'scylla-jmx'),
-                                   os.path.join(self.get_bin_dir(), 'scylla-jmx'))
+        if 'scylla-repository' in self.node_install_dir:
+            self.hard_link_or_copy(os.path.join(self.node_install_dir, 'scylla-jmx', 'scylla-jmx-1.0.jar'),
+                                   os.path.join(self.get_bin_dir(), 'scylla-jmx-1.0.jar'), replace=replace)
+            self.hard_link_or_copy(os.path.join(self.node_install_dir, 'scylla-jmx', 'scylla-jmx'),
+                                   os.path.join(self.get_bin_dir(), 'scylla-jmx'), replace=replace)
         else:
             self.hard_link_or_copy(os.path.join(self.get_jmx_dir(relative_repos_root), 'target', 'scylla-jmx-1.0.jar'),
                                    os.path.join(self.get_bin_dir(), 'scylla-jmx-1.0.jar'))
             self.hard_link_or_copy(os.path.join(self.get_jmx_dir(relative_repos_root), 'scripts', 'scylla-jmx'),
                                    os.path.join(self.get_bin_dir(), 'scylla-jmx'))
 
-        os.makedirs(os.path.join(self.get_bin_dir(), 'symlinks'))
-        os.symlink('/usr/bin/java', os.path.join(self.get_bin_dir(),
-                                                 'symlinks',
-                                                 'scylla-jmx'))
+        os.makedirs(os.path.join(self.get_bin_dir(), 'symlinks'), exist_ok=exist_ok)
+        scylla_jmx_file = os.path.join(self.get_bin_dir(), 'symlinks', 'scylla-jmx')
+        if os.path.exists(scylla_jmx_file) and replace:
+            os.remove(scylla_jmx_file)
+        os.symlink('/usr/bin/java', scylla_jmx_file)
 
         parent_dir = os.path.dirname(os.path.realpath(__file__))
         resources_bin_dir = os.path.join(parent_dir, 'resources', 'bin')
@@ -1141,3 +1178,95 @@ class ScyllaNode(Node):
     def flush(self):
         self.nodetool("flush")
         self._wait_no_pending_flushes()
+
+    def get_node_scylla_version(self, scylla_exec_path=None):
+        if not scylla_exec_path:
+            scylla_exec_path = self.get_path()
+
+        if not scylla_exec_path.endswith('bin'):
+            scylla_exec_path = os.path.join(scylla_exec_path, 'bin')
+
+        scylla_exec = os.path.join(scylla_exec_path, 'scylla')
+
+        scylla_version = subprocess.run(f"{scylla_exec} --version", shell=True, capture_output=True, text=True)
+        if scylla_version.returncode:
+            raise NodeError("Failed to get Scylla version. Error:\n%s" % scylla_version.stderr)
+
+        return scylla_version.stdout
+
+    def upgrade(self, upgrade_to_version):
+        self.upgrader.upgrade(upgrade_version=upgrade_to_version)
+
+class NodeUpgrader:
+
+    """
+    Upgrade node is supported when uses relocatable packages only
+    """
+
+    def __init__(self, node: ScyllaNode):
+        """
+        :param node: node that should be upgraded/downgraded
+        """
+        self.node = node
+        self._scylla_version_for_upgrade = None
+        self.orig_install_dir = node.node_install_dir
+        self.install_dir_for_upgrade = None
+
+    @property
+    def scylla_version_for_upgrade(self):
+        return self._scylla_version_for_upgrade
+
+    @scylla_version_for_upgrade.setter
+    def scylla_version_for_upgrade(self, scylla_version_for_upgrade: str):
+        """
+        :param scylla_version_for_upgrade: relocatables name. Example: unstable/master:2020-11-18T08:57:53Z
+        """
+        self._scylla_version_for_upgrade = scylla_version_for_upgrade
+
+    def _setup_relocatable_packages(self):
+        try:
+            cdir, _ = setup(self.scylla_version_for_upgrade)
+        except Exception as exc:
+            raise NodeUpgradeError("Failed to setup relocatable packages. %s" % exc)
+        return cdir
+
+    def _import_executables(self, install_dir):
+        try:
+            self.node.node_install_dir = install_dir
+            self.node.import_bin_files(exist_ok=True, replace=True)
+        except Exception as exc:
+            self.node.node_install_dir = self.orig_install_dir
+            raise NodeUpgradeError("Failed to import executables files. %s" % exc)
+
+    def upgrade(self, upgrade_version: str):
+        """
+        :param upgrade_version: relocatables folder. Example: unstable/master:2020-11-18T08:57:53Z
+        """
+        self.scylla_version_for_upgrade = upgrade_version
+        cdir = self._setup_relocatable_packages()
+
+        self.node.stop(wait_other_notice=True)
+        if self.node.status != Status.DOWN:
+            raise NodeUpgradeError("Node %s failed to stop before upgrade" % self.node.name)
+
+        self._import_executables(cdir)
+
+        try:
+            self.node.start(wait_other_notice=True, wait_for_binary_proto=True)
+        except Exception as exc:
+            raise NodeUpgradeError("Node %s failed to start after upgrade. Error: %s" % (self.node.name, exc))
+
+        if self.node.status != Status.UP:
+            self.node.node_install_dir = self.orig_install_dir
+            raise NodeUpgradeError("Node %s failed to start after upgrade" % self.node.name)
+
+        self.install_dir_for_upgrade = cdir
+        self.node.node_scylla_version = self.install_dir_for_upgrade
+        self.validate_version_after_upgrade()
+        self.node.upgraded = True
+
+    def validate_version_after_upgrade(self):
+        expected_version = self.node.get_node_scylla_version(self.install_dir_for_upgrade)
+        if self.node.node_scylla_version != expected_version:
+            raise NodeUpgradeError("Node hasn't been upgraded. Expected version after upgrade: %s, Got: %s" % (
+                                    expected_version, self.node.node_scylla_version))

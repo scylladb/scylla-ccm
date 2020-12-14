@@ -521,7 +521,7 @@ class Cluster(object):
     def __get_version_from_build(self):
         return common.get_version_from_build(self.get_install_dir())
 
-    def _update_config(self):
+    def _update_config(self, install_dir=None):
         node_list = [node.name for node in list(self.nodes.values())]
         seed_list = [node.name for node in self.seeds]
         filename = os.path.join(self.__path, self.name, 'cluster.conf')
@@ -531,7 +531,7 @@ class Cluster(object):
                 'nodes': node_list,
                 'seeds': seed_list,
                 'partitioner': self.partitioner,
-                'install_dir': self.__install_dir,
+                'install_dir': install_dir or self.__install_dir,
                 'config_options': self._config_options,
                 'dse_config_options': self._dse_config_options,
                 'log_level': self.__log_level,
