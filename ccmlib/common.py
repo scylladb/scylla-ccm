@@ -620,7 +620,8 @@ def _get_scylla_version(install_dir):
                                 os.path.join(install_dir, 'scylla-core-package', 'SCYLLA-VERSION-FILE') ]
     for version_file in scylla_version_files:
         if os.path.exists(version_file):
-            v = open(version_file).read().strip()
+            with open(version_file) as file:
+                v = file.read().strip()
             # return only version strings (loosly) conforming to PEP-440
             # See https://www.python.org/dev/peps/pep-0440/
             # 'i.j(.|-)dev[N]' < 'i.j.rc[N]' < 'i.j.k' < i.j(.|-)post[N]
