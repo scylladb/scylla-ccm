@@ -213,13 +213,11 @@ class ScyllaNode(Node):
                 '-jar',
                 jmx_jar]
         log_file = os.path.join(self.get_path(), 'logs', 'system.log.jmx')
-        jmx_log = open(log_file, 'a')
         env_copy = os.environ
         env_copy['SCYLLA_HOME'] = self.get_path()
-        self._process_jmx = subprocess.Popen(args, stdout=jmx_log,
-                                             stderr=jmx_log,
-                                             close_fds=True,
-                                             env=env_copy)
+
+        with open(log_file, 'a') as jmx_log:
+            self._process_jmx = subprocess.Popen(args, stdout=jmx_log, stderr=jmx_log, close_fds=True, env=env_copy)
         self._process_jmx.poll()
         # When running on ccm standalone, the waiter thread would block
         # the create commands. Besides in that mode, waiting is unnecessary,
@@ -274,17 +272,16 @@ class ScyllaNode(Node):
         # we risk reading the old cassandra.pid file
         self._delete_old_pid()
 
-        scylla_log = open(log_file, 'a')
         try:
             env_copy = self._launch_env
         except AttributeError:
             env_copy = os.environ
         env_copy['SCYLLA_HOME'] = self.get_path()
         env_copy.update(ext_env)
-        self._process_scylla = subprocess.Popen(args, stdout=scylla_log,
-                                                stderr=scylla_log,
-                                                close_fds=True,
-                                                env=env_copy)
+
+        with open(log_file, 'a') as scylla_log:
+            self._process_scylla = \
+                subprocess.Popen(args, stdout=scylla_log, stderr=scylla_log, close_fds=True, env=env_copy)
         self._process_scylla.poll()
         # When running on ccm standalone, the waiter thread would block
         # the create commands. Besides in that mode, waiting is unnecessary,
@@ -345,12 +342,11 @@ class ScyllaNode(Node):
         log_file = os.path.join(self.get_path(), 'logs', 'system.log.manager_agent')
         config_file = self._create_agent_config()
 
-        agent_log = open(log_file, 'a')
         args = [agent_bin,
                 '--config-file', config_file]
-        self._process_agent = subprocess.Popen(args, stdout=agent_log,
-                                             stderr=agent_log,
-                                             close_fds=True)
+
+        with open(log_file, 'a') as agent_log:
+            self._process_agent = subprocess.Popen(args, stdout=agent_log, stderr=agent_log, close_fds=True)
         self._process_agent.poll()
         # When running on ccm standalone, the waiter thread would block
         # the create commands. Besides in that mode, waiting is unnecessary,
@@ -393,17 +389,17 @@ class ScyllaNode(Node):
         iteration = 0
         while not java_up and iteration < 30:
             iteration += 1
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            try:
-                s.settimeout(1.0)
-                s.connect((ip_addr, jmx_port))
-                java_up = True
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as _socket:
                 try:
-                    s.close()
-                except:
+                    _socket.settimeout(1.0)
+                    _socket.connect((ip_addr, jmx_port))
+                    java_up = True
+                    try:
+                        _socket.close()
+                    except:
+                        pass
+                except (socket.timeout, ConnectionRefusedError):
                     pass
-            except (socket.timeout, ConnectionRefusedError):
-                pass
             time.sleep(1)
 
         return java_up
