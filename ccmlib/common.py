@@ -16,6 +16,9 @@ import tempfile
 import logging
 
 import yaml
+from boto3 import client
+from botocore import UNSIGNED
+from botocore.client import Config
 from six import print_
 
 BIN_DIR = "bin"
@@ -693,3 +696,21 @@ def assert_jdk_valid_for_cassandra_version(cassandra_version):
     if cassandra_version >= '3.0' and get_jdk_version() < '1.8':
         print_('ERROR: Cassandra 3.0+ requires Java >= 1.8, found Java {}'.format(get_jdk_version()))
         exit(1)
+
+
+def aws_bucket_ls(s3_url):
+    bucket_object = s3_url.replace('https://s3.amazonaws.com/', '').split('/')
+    prefix = '/'.join(bucket_object[1:])
+    s3_conn = client('s3', config=Config(signature_version=UNSIGNED))
+    paginator = s3_conn.get_paginator('list_objects_v2')
+    pages = paginator.paginate(Bucket=bucket_object[0], Prefix=prefix)
+
+    files_in_bucket = []
+    for page in pages:
+        if 'Contents' not in page:
+            break
+
+        for obj in page['Contents']:
+            files_in_bucket.append(obj['Key'].replace(prefix + "/", ''))
+    return files_in_bucket
+

@@ -1,5 +1,7 @@
 from __future__ import with_statement
 
+from typing import NamedTuple
+
 import os
 import tarfile
 import tempfile
@@ -22,12 +24,14 @@ from six import BytesIO
 import packaging.version
 
 from ccmlib.common import (
-    ArgumentError, get_default_path, rmdirs, validate_install_dir, get_scylla_version)
+    ArgumentError, get_default_path, rmdirs, validate_install_dir, get_scylla_version, aws_bucket_ls)
 from ccmlib.repository import __download
 
 GIT_REPO = "http://github.com/scylladb/scylla.git"
 
 RELOCATABLE_URLS_BASE = 'https://s3.amazonaws.com/downloads.scylladb.com/relocatable/{0}/{1}'
+RELEASE_RELOCATABLE_URLS_BASE = 'https://s3.amazonaws.com/downloads.scylladb.com/downloads/scylla/relocatable/scylladb-{0}'
+ENTERPRISE_RELEASE_RELOCATABLE_URLS_BASE = 'https://s3.amazonaws.com/downloads.scylladb.com/downloads/scylla-enterprise/relocatable/scylladb-{0}'
 ENTERPRISE_RELOCATABLE_URLS_BASE = 'https://s3.amazonaws.com/downloads.scylladb.com/enterprise/relocatable/{0}/{1}'
 
 
@@ -36,38 +40,134 @@ def run(cmd, cwd=None):
                           stderr=None, stdout=None)
 
 
+class RelocatablePackages(NamedTuple):
+    scylla_package: str
+    scylla_tools_package: str
+    scylla_jmx_package: str
+
+
+def release_packages(s3_url, version):
+    """
+    Choose RELEASE relocatable packages for download.
+    It covers 3 cases:
+    1. Choose release packages for supplied version. If scylla_version includes minor version (like "4.3.1"),
+       relocatable packages for this version will be selected.
+    2. Choose release packages for latest release version. If scylla_version doesn't include minor version (like "4.3),
+       relocatables for latest released version will be selected.
+    3. If the version was not released yet, relocatables for latest release candidate (rc0..) will be selected.
+
+    :param s3_url:
+    :param version:
+    :return:
+    """
+    major_version = version if version.count('.') == 1 else '.'.join(n for n in version.split('.')[:2])
+    s3_url = s3_url.format(major_version)
+
+    files_in_bucket = aws_bucket_ls(s3_url)
+
+    if not files_in_bucket:
+        raise RuntimeError(
+            f"Failed to get release packages list for version {major_version}. URL: {s3_url}.")
+
+    all_packages = [name for name in files_in_bucket if 'jmx' in name or 'tools' in name or 'scylla-package' in name]
+
+    # Search for released version packages
+    candidates = [package for package in all_packages if ".rc" not in package]
+
+    if candidates:
+        # If found packages for released version
+        if version.count('.') == 1:
+            # Choose relocatable packages for latest release version
+            a = re.findall(f'-{version}\.(\d+)-', ','.join(candidates))
+            latest_candidate = f"{version}.{max(set(a))}" if a else ''
+        elif version.count('.') == 2:
+             # Choose relocatable packages for supplied version
+            latest_candidate = version
+        else:
+            raise ValueError(f"Not expected version number: {version}. S3_URL: {s3_url}")
+
+        release_packages = [package for package in candidates if f"-{latest_candidate}-" in package]
+    else:
+        # Choose relocatables for latest release candidate
+        a = re.findall('\.rc(\d+)-', ','.join(all_packages))
+        latest_candidate = f"{version}.rc{max(set(a))}" if a else ''
+        release_packages = [package for package in all_packages if f"{latest_candidate}-" in package]
+
+    if not release_packages:
+        raise ValueError(
+            f"Release packages have not beed found.\nDebug info: all packages: {all_packages}; "
+            f"candidates packages: {candidates}; last version: {latest_candidate}")
+
+    packages = RelocatablePackages
+    for package in release_packages:
+        if 'jmx' in package:
+            packages.scylla_jmx_package = os.path.join(s3_url, package)
+        elif 'tool' in package:
+            packages.scylla_tools_package = os.path.join(s3_url, package)
+        else:
+            packages.scylla_package = os.path.join(s3_url, package)
+
+    return packages, latest_candidate
+
 def setup(version, verbose=True):
+    """
+    :param version:
+            Supported version values (examples):
+            1. Unstable versions:
+              - unstable/master:2020-12-20T00:11:59Z
+              - unstable/enterprise:2020-08-18T14:49:18Z
+              - unstable/branch-4.1:2020-05-30T08:27:59Z
+            2. Official version (released):
+              - release:4.3
+              - release:4.2.1
+              - release:2020.1 (SCYLLA_PRODUCT='enterprise')
+              - release:2020.1.5 (SCYLLA_PRODUCT='enterprise')
+
+    """
     s3_url = ''
     type_n_version = version.split(':', 1)
     scylla_product = os.environ.get('SCYLLA_PRODUCT', 'scylla')
 
+    packages = None
     if len(type_n_version) == 2:
         s3_version = type_n_version[1]
-        if 'enterprise' in scylla_product:
-            s3_url = ENTERPRISE_RELOCATABLE_URLS_BASE.format(type_n_version[0], s3_version)
+        packages = None
+
+        if type_n_version[0] == 'release':
+            if 'enterprise' in scylla_product:
+                s3_url = ENTERPRISE_RELEASE_RELOCATABLE_URLS_BASE
+            else:
+                s3_url = RELEASE_RELOCATABLE_URLS_BASE
+            packages, type_n_version[1] = release_packages(s3_url=s3_url, version=s3_version)
         else:
-            s3_url = RELOCATABLE_URLS_BASE.format(type_n_version[0], s3_version)
+            if 'enterprise' in scylla_product:
+                s3_url = ENTERPRISE_RELOCATABLE_URLS_BASE.format(type_n_version[0], s3_version)
+            else:
+                s3_url = RELOCATABLE_URLS_BASE.format(type_n_version[0], s3_version)
         version = os.path.join(*type_n_version)
 
     cdir = version_directory(version)
 
     if cdir is None:
+        if not packages:
+            packages = RelocatablePackages(scylla_jmx_package=os.path.join(s3_url, f'{scylla_product}-jmx-package.tar.gz'),
+                                           scylla_tools_package=os.path.join(s3_url, f'{scylla_product}-tools-package.tar.gz'),
+                                           scylla_package=os.path.join(s3_url, f'{scylla_product}-package.tar.gz'))
+
         tmp_download = tempfile.mkdtemp()
 
-        url = os.environ.get('SCYLLA_CORE_PACKAGE', os.path.join(
-            s3_url, f'{scylla_product}-package.tar.gz'))
+        url = os.environ.get('SCYLLA_CORE_PACKAGE', packages.scylla_package)
         package_version = download_version(version, verbose=verbose, url=url, target_dir=os.path.join(
             tmp_download, 'scylla-core-package'))
         # Try the old name for backward compatibility
         url = os.environ.get("SCYLLA_TOOLS_JAVA_PACKAGE") or \
-            os.environ.get("SCYLLA_JAVA_TOOLS_PACKAGE") or \
-            os.path.join(s3_url, f'{scylla_product}-tools-package.tar.gz')
+              os.environ.get("SCYLLA_JAVA_TOOLS_PACKAGE") or \
+              packages.scylla_tools_package
 
         download_version(version, verbose=verbose, url=url, target_dir=os.path.join(
             tmp_download, 'scylla-tools-java'))
 
-        url = os.environ.get('SCYLLA_JMX_PACKAGE', os.path.join(
-            s3_url, f'{scylla_product}-jmx-package.tar.gz'))
+        url = os.environ.get('SCYLLA_JMX_PACKAGE', packages.scylla_jmx_package)
         download_version(version, verbose=verbose, url=url,
                          target_dir=os.path.join(tmp_download, 'scylla-jmx'))
 
