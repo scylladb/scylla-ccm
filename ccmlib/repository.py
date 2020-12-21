@@ -308,7 +308,7 @@ def compile_version(version, target_dir, verbose=False):
                     lf.write("\n\n`ant jar` failed. Retry #%s...\n\n" % attempt)
                 ret_val = subprocess.call([platform_binary('ant'), 'jar'], cwd=target_dir, stdout=lf, stderr=lf)
                 attempt += 1
-            if ret_val is not 0:
+            if ret_val != 0:
                 raise CCMError('Error compiling Cassandra. See {logfile} or run '
                                '"ccm showlastlog" for details'.format(logfile=logfile))
         except OSError as e:
@@ -328,8 +328,8 @@ def compile_version(version, target_dir, verbose=False):
                     full_path = os.path.join(stress_bin_dir, f)
                     os.chmod(full_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
 
-                if subprocess.call([platform_binary('ant'), 'build'], cwd=stress_dir, stdout=lf, stderr=lf) is not 0:
-                    if subprocess.call([platform_binary('ant'), 'stress-build'], cwd=target_dir, stdout=lf, stderr=lf) is not 0:
+                if subprocess.call([platform_binary('ant'), 'build'], cwd=stress_dir, stdout=lf, stderr=lf) != 0:
+                    if subprocess.call([platform_binary('ant'), 'stress-build'], cwd=target_dir, stdout=lf, stderr=lf) != 0:
                         raise CCMError("Error compiling Cassandra stress tool.  "
                                        "See %s for details (you will still be able to use ccm "
                                        "but not the stress related commands)" % logfile)
