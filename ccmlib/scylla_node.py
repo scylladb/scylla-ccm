@@ -17,6 +17,7 @@ import yaml
 import glob
 import re
 
+from ccmlib.common import CASSANDRA_SH, BIN_DIR
 from six import print_
 from six.moves import xrange
 
@@ -142,7 +143,7 @@ class ScyllaNode(Node):
         return os.path.join(self.get_path(), 'conf')
 
     def get_tool(self, toolname):
-        return common.join_bin(self.get_tools_java_dir(), 'bin', toolname)
+        return common.join_bin(self.get_tools_java_dir(), BIN_DIR, toolname)
 
     def get_tool_args(self, toolname):
         raise NotImplementedError('ScyllaNode.get_tool_args')
@@ -196,7 +197,7 @@ class ScyllaNode(Node):
             self._process_agent.wait()
 
     def _start_jmx(self, data):
-        jmx_jar_dir = os.path.join(self.get_path(), 'bin')
+        jmx_jar_dir = os.path.join(self.get_path(), BIN_DIR)
         jmx_java_bin = os.path.join(jmx_jar_dir, 'symlinks', 'scylla-jmx')
         jmx_jar = os.path.join(jmx_jar_dir, 'scylla-jmx-1.0.jar')
         args = [jmx_java_bin,
@@ -338,7 +339,7 @@ class ScyllaNode(Node):
         return conf_file
 
     def start_scylla_manager_agent(self):
-        agent_bin = os.path.join(self.scylla_manager._get_path(), 'bin', 'scylla-manager-agent')
+        agent_bin = os.path.join(self.scylla_manager._get_path(), BIN_DIR, 'scylla-manager-agent')
         log_file = os.path.join(self.get_path(), 'logs', 'system.log.manager_agent')
         config_file = self._create_agent_config()
 
@@ -485,7 +486,7 @@ class ScyllaNode(Node):
 
         self.mark = self.mark_log()
 
-        launch_bin = common.join_bin(self.get_path(), 'bin', 'scylla')
+        launch_bin = common.join_bin(self.get_path(), BIN_DIR, 'scylla')
         options_file = os.path.join(self.get_path(), 'conf', 'scylla.yaml')
 
         # TODO: we do not support forcing specific settings
@@ -817,6 +818,12 @@ class ScyllaNode(Node):
     def copy_config_files_dse(self):
         raise NotImplementedError('ScyllaNode.copy_config_files_dse')
 
+    def clean_runtime_file(self):
+        """Remove cassandra.in.sh file that created runtime during cluster build """
+        cassandra_in_sh = os.path.join(self.get_node_cassandra_root(), BIN_DIR, CASSANDRA_SH)
+        if os.path.exists(cassandra_in_sh):
+            os.remove(cassandra_in_sh)
+
     def hard_link_or_copy(self, src, dst, extra_perms=0, always_copy=False, replace=False):
         def do_copy(src, dst, extra_perms=0):
             shutil.copy(src, dst)
@@ -848,9 +855,9 @@ class ScyllaNode(Node):
 
     def import_bin_files(self, exist_ok=False, replace=False):
         # selectively copying files to reduce risk of using unintended items
-        self._copy_binaries(files=['cassandra.in.sh', 'nodetool'],
-                            src_path=os.path.join(self.get_tools_java_dir(), 'bin'),
-                            dest_path=os.path.join(self.get_path(), 'resources', 'cassandra', 'bin'),
+        self._copy_binaries(files=[CASSANDRA_SH, 'nodetool'],
+                            src_path=os.path.join(self.get_tools_java_dir(), BIN_DIR),
+                            dest_path=os.path.join(self.get_path(), 'resources', 'cassandra', BIN_DIR),
                             exist_ok=exist_ok,
                             replace=replace
                             )
@@ -859,8 +866,8 @@ class ScyllaNode(Node):
         # Copy sstable tools
         self._copy_binaries(files=['sstabledump', 'sstablelevelreset', 'sstablemetadata',
                                    'sstablerepairedset', 'sstablesplit'],
-                            src_path=os.path.join(self.get_tools_java_dir(), 'tools', 'bin'),
-                            dest_path=os.path.join(self.get_path(), 'resources', 'cassandra', 'tools', 'bin'),
+                            src_path=os.path.join(self.get_tools_java_dir(), 'tools', BIN_DIR),
+                            dest_path=os.path.join(self.get_path(), 'resources', 'cassandra', 'tools', BIN_DIR),
                             exist_ok=exist_ok,
                             replace=replace
                             )
@@ -868,7 +875,7 @@ class ScyllaNode(Node):
         # TODO: - currently no scripts only executable - copying exec
         if self.is_scylla_reloc():
             relative_repos_root = '../..'
-            self.hard_link_or_copy(src=os.path.join(self.node_install_dir, 'bin', 'scylla'),
+            self.hard_link_or_copy(src=os.path.join(self.node_install_dir, BIN_DIR, 'scylla'),
                                    dst=os.path.join(self.get_bin_dir(), 'scylla'),
                                    extra_perms=stat.S_IEXEC,
                                    replace=replace)
@@ -929,7 +936,7 @@ class ScyllaNode(Node):
         os.symlink('/usr/bin/java', scylla_jmx_file)
 
         parent_dir = os.path.dirname(os.path.realpath(__file__))
-        resources_bin_dir = os.path.join(parent_dir, 'resources', 'bin')
+        resources_bin_dir = os.path.join(parent_dir, 'resources', BIN_DIR)
         for name in os.listdir(resources_bin_dir):
             filename = os.path.join(resources_bin_dir, name)
             if os.path.isfile(filename):
@@ -1135,7 +1142,7 @@ class ScyllaNode(Node):
 
     def _get_directories(self):
         dirs = {}
-        for i in ['data', 'commitlogs', 'bin', 'conf', 'logs', 'hints', 'view_hints']:
+        for i in ['data', 'commitlogs', BIN_DIR, 'conf', 'logs', 'hints', 'view_hints']:
             dirs[i] = os.path.join(self.get_path(), i)
         return dirs
 
@@ -1179,8 +1186,8 @@ class ScyllaNode(Node):
         if not scylla_exec_path:
             scylla_exec_path = self.get_path()
 
-        if not scylla_exec_path.endswith('bin'):
-            scylla_exec_path = os.path.join(scylla_exec_path, 'bin')
+        if not scylla_exec_path.endswith(BIN_DIR):
+            scylla_exec_path = os.path.join(scylla_exec_path, BIN_DIR)
 
         scylla_exec = os.path.join(scylla_exec_path, 'scylla')
 
@@ -1188,7 +1195,7 @@ class ScyllaNode(Node):
         if scylla_version.returncode:
             raise NodeError("Failed to get Scylla version. Error:\n%s" % scylla_version.stderr)
 
-        return scylla_version.stdout
+        return scylla_version.stdout.strip()
 
     def upgrade(self, upgrade_to_version):
         self.upgrader.upgrade(upgrade_version=upgrade_to_version)
@@ -1246,6 +1253,7 @@ class NodeUpgrader:
             raise NodeUpgradeError("Node %s failed to stop before upgrade" % self.node.name)
 
         self._import_executables(cdir)
+        self.node.clean_runtime_file()
 
         try:
             self.node.start(wait_other_notice=True, wait_for_binary_proto=True)
