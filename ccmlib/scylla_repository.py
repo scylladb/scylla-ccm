@@ -1,5 +1,7 @@
 from __future__ import with_statement
 
+import random
+import time
 from typing import NamedTuple
 
 import os
@@ -24,7 +26,8 @@ from six import BytesIO
 import packaging.version
 
 from ccmlib.common import (
-    ArgumentError, CCMError, get_default_path, rmdirs, validate_install_dir, get_scylla_version, aws_bucket_ls)
+    ArgumentError, CCMError, get_default_path, rmdirs, validate_install_dir, get_scylla_version, aws_bucket_ls,
+    INSTALL_DIR_PLACEHOLDER_FILE, wait_for_parallel_download_finish)
 from ccmlib.utils.download import download_file, download_version_from_s3
 
 GIT_REPO = "http://github.com/scylladb/scylla.git"
@@ -73,8 +76,10 @@ def release_packages(s3_url, version):
 
     all_packages = [name for name in files_in_bucket if 'jmx' in name or 'tools' in name or 'scylla-package' in name]
 
+    candidates = []
     # Search for released version packages
-    candidates = [package for package in all_packages if ".rc" not in package]
+    if '.rc' not in version:
+        candidates = [package for package in all_packages if ".rc" not in package]
 
     if candidates:
         # If found packages for released version
@@ -91,23 +96,30 @@ def release_packages(s3_url, version):
         release_packages = [package for package in candidates if f"-{latest_candidate}-" in package]
     else:
         # Choose relocatables for latest release candidate
-        a = re.findall('\.rc(\d+)-', ','.join(all_packages))
-        latest_candidate = f"{version}.rc{max(set(a))}" if a else ''
-        release_packages = [package for package in all_packages if f"{latest_candidate}-" in package]
+        if '.rc' in version:
+            latest_candidate = version
+        else:
+            a = re.findall('\.rc(\d+)(?:-|\.)', ','.join(all_packages))
+            latest_candidate = f"{version}.rc{max(set(a))}" if a else ""
+
+        release_packages = [package for package in all_packages if latest_candidate in package]
 
     if not release_packages:
         raise ValueError(
             f"Release packages have not beed found.\nDebug info: all packages: {all_packages}; "
             f"candidates packages: {candidates}; last version: {latest_candidate}")
 
-    packages = RelocatablePackages
+    release_packages_dict = {}
     for package in release_packages:
-        if 'jmx' in package:
-            packages.scylla_jmx_package = os.path.join(s3_url, package)
-        elif 'tool' in package:
-            packages.scylla_tools_package = os.path.join(s3_url, package)
-        else:
-            packages.scylla_package = os.path.join(s3_url, package)
+        # Expected packages names (examples):
+        #  'scylla-jmx-package-4.3.0-0.20210110.000585522.tar.gz'
+        #  'scylla-package-4.3.0-0.20210110.000585522.tar.gz'
+        #  'scylla-tools-package-4.3.0-0.20210110.000585522.tar.gz'
+        release_packages_dict[package.split("-")[1]] = package
+
+    packages = RelocatablePackages(scylla_package=os.path.join(s3_url, release_packages_dict['package']),
+                                   scylla_jmx_package=os.path.join(s3_url, release_packages_dict['jmx']),
+                                   scylla_tools_package=os.path.join(s3_url, release_packages_dict['tools']))
 
     return packages, latest_candidate
 
@@ -167,40 +179,55 @@ def setup(version, verbose=True):
 
         version = os.path.join(*type_n_version)
 
-    cdir = version_directory(version)
+    version_dir = version_directory(version)
 
-    if cdir is None:
-        if not packages and not s3_url:
-            packages = RelocatablePackages(scylla_jmx_package=os.environ.get('SCYLLA_JMX_PACKAGE'),
-                                           # Try the old name for backward compatibility
-                                           scylla_tools_package=os.environ.get("SCYLLA_TOOLS_JAVA_PACKAGE") or
-                                                                os.environ.get("SCYLLA_JAVA_TOOLS_PACKAGE"),
-                                           scylla_package=os.environ.get('SCYLLA_CORE_PACKAGE')
-                                           )
+    if version_dir is None:
+        # Create version folder and add placeholder file to prevent parallel downloading from another test.
+        version_dir = directory_name(version)
+        placeholder_file = os.path.join(version_dir, INSTALL_DIR_PLACEHOLDER_FILE)
 
-            if not packages:
-                raise EnvironmentError("Not found environment parameters: 'SCYLLA_JMX_PACKAGE' and "
-                                       "('SCYLLA_TOOLS_JAVA_PACKAGE' or 'SCYLLA_JAVA_TOOLS_PACKAGE) and"
-                                       "'SCYLLA_CORE_PACKAGE'")
+        # Let one more chance don't start few downloads in the exactly same second
+        time.sleep(random.randint(0, 5))
 
-        tmp_download = tempfile.mkdtemp()
+        # If another parallel downloading has been started already, wait while it will be completed
+        if os.path.exists(placeholder_file):
+            print(f"Another download running into '{version_dir}'. Waiting for parallel downloading finished")
+            wait_for_parallel_download_finish(placeholder_file)
+        else:
+            try:
+                os.makedirs(version_dir)
+            except FileExistsError as exc:
+                # If parallel process created the folder first, let to the parallel download to finish
+                print(f"Another download running into '{version_dir}'. Waiting for parallel downloading finished")
+                wait_for_parallel_download_finish(placeholder_file)
+            else:
+                run(f'touch {placeholder_file}')
+                package_version = download_packages(version_dir, packages, s3_url, scylla_product, version, verbose)
+                run(f'touch {placeholder_file}')
 
-        package_version = download_version(version, verbose=verbose, url=packages.scylla_package, target_dir=os.path.join(
-            tmp_download, 'scylla-core-package'))
+                # install using scylla install.sh
+                run_scylla_install_script(os.path.join(version_dir, 'scylla-core-package'),
+                                          version_dir, package_version)
+                print(f"Completed to install Scylla in the folder '{version_dir}'")
+                os.remove(placeholder_file)
 
-        download_version(version, verbose=verbose, url=packages.scylla_tools_package, target_dir=os.path.join(
-            tmp_download, 'scylla-tools-java'))
+    setup_scylla_manager()
 
-        download_version(version, verbose=verbose, url=packages.scylla_jmx_package,
-                         target_dir=os.path.join(tmp_download, 'scylla-jmx'))
+    return version_dir, get_scylla_version(version_dir)
 
-        cdir = directory_name(version)
 
-        shutil.move(tmp_download, cdir)
+def download_packages(version_dir, packages, s3_url, scylla_product, version, verbose):
+    if not packages and not s3_url:
+        packages = RelocatablePackages(scylla_jmx_package=os.environ.get('SCYLLA_JMX_PACKAGE'),
+                                       scylla_tools_package=os.environ.get("SCYLLA_TOOLS_JAVA_PACKAGE") or
+                                                            os.environ.get("SCYLLA_JAVA_TOOLS_PACKAGE"),
+                                       scylla_package=os.environ.get('SCYLLA_CORE_PACKAGE')
+                                       )
 
-        # install using scylla install.sh
-        run_scylla_install_script(os.path.join(
-            cdir, 'scylla-core-package'), cdir, package_version)
+        if not packages:
+            raise EnvironmentError("Not found environment parameters: 'SCYLLA_JMX_PACKAGE' and "
+                                   "('SCYLLA_TOOLS_JAVA_PACKAGE' or 'SCYLLA_JAVA_TOOLS_PACKAGE) and"
+                                   "'SCYLLA_CORE_PACKAGE'")
 
     scylla_ext_opts = os.environ.get('SCYLLA_EXT_OPTS', '')
     scylla_manager_package = os.environ.get('SCYLLA_MANAGER_PACKAGE')
@@ -210,7 +237,21 @@ def setup(version, verbose=True):
         scylla_ext_opts += ' --scylla-manager={}'.format(manager_install_dir)
         os.environ['SCYLLA_EXT_OPTS'] = scylla_ext_opts
 
-    return cdir, get_scylla_version(cdir)
+    tmp_download = tempfile.mkdtemp()
+
+    package_version = download_version(version, verbose=verbose, url=packages.scylla_package,
+                                       target_dir=os.path.join(tmp_download, 'scylla-core-package'))
+
+    download_version(version, verbose=verbose, url=packages.scylla_tools_package,
+                     target_dir=os.path.join(tmp_download, 'scylla-tools-java'))
+
+    download_version(version, verbose=verbose, url=packages.scylla_jmx_package,
+                     target_dir=os.path.join(tmp_download, 'scylla-jmx'))
+
+    shutil.rmtree(version_dir)
+    shutil.move(tmp_download, version_dir)
+
+    return package_version
 
 
 def setup_scylla_manager(scylla_manager_package=None):
@@ -306,7 +347,7 @@ def download_version(version, url=None, verbose=False, target_dir=None):
                 "unsupported url or file doesn't exist\n\turl={}".format(url))
 
         if verbose:
-            print_("Extracting %s as version %s ..." % (target, version))
+            print_("Extracting %s (%s, %s) as version %s ..." % (target, url, target_dir, version))
         tar = tarfile.open(target)
         tar.extractall(path=target_dir)
         tar.close()
