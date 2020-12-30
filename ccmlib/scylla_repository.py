@@ -144,31 +144,40 @@ def setup(version, verbose=True):
                 s3_url = ENTERPRISE_RELOCATABLE_URLS_BASE.format(type_n_version[0], s3_version)
             else:
                 s3_url = RELOCATABLE_URLS_BASE.format(type_n_version[0], s3_version)
+            packages = RelocatablePackages(scylla_jmx_package=os.path.join(s3_url,
+                                                                           f'{scylla_product}-jmx-package.tar.gz'),
+                                           scylla_tools_package=os.path.join(s3_url,
+                                                                             f'{scylla_product}-tools-package.tar.gz'),
+                                           scylla_package=os.path.join(s3_url,
+                                                                       f'{scylla_product}-package.tar.gz'))
+
         version = os.path.join(*type_n_version)
 
     cdir = version_directory(version)
 
     if cdir is None:
-        if not packages:
-            packages = RelocatablePackages(scylla_jmx_package=os.path.join(s3_url, f'{scylla_product}-jmx-package.tar.gz'),
-                                           scylla_tools_package=os.path.join(s3_url, f'{scylla_product}-tools-package.tar.gz'),
-                                           scylla_package=os.path.join(s3_url, f'{scylla_product}-package.tar.gz'))
+        if not packages and not s3_url:
+            packages = RelocatablePackages(scylla_jmx_package=os.environ.get('SCYLLA_JMX_PACKAGE'),
+                                           # Try the old name for backward compatibility
+                                           scylla_tools_package=os.environ.get("SCYLLA_TOOLS_JAVA_PACKAGE") or
+                                                                os.environ.get("SCYLLA_JAVA_TOOLS_PACKAGE"),
+                                           scylla_package=os.environ.get('SCYLLA_CORE_PACKAGE')
+                                           )
+
+            if not packages:
+                raise EnvironmentError("Not found environment parameters: 'SCYLLA_JMX_PACKAGE' and "
+                                       "('SCYLLA_TOOLS_JAVA_PACKAGE' or 'SCYLLA_JAVA_TOOLS_PACKAGE) and"
+                                       "'SCYLLA_CORE_PACKAGE'")
 
         tmp_download = tempfile.mkdtemp()
 
-        url = os.environ.get('SCYLLA_CORE_PACKAGE', packages.scylla_package)
-        package_version = download_version(version, verbose=verbose, url=url, target_dir=os.path.join(
+        package_version = download_version(version, verbose=verbose, url=packages.scylla_package, target_dir=os.path.join(
             tmp_download, 'scylla-core-package'))
-        # Try the old name for backward compatibility
-        url = os.environ.get("SCYLLA_TOOLS_JAVA_PACKAGE") or \
-              os.environ.get("SCYLLA_JAVA_TOOLS_PACKAGE") or \
-              packages.scylla_tools_package
 
-        download_version(version, verbose=verbose, url=url, target_dir=os.path.join(
+        download_version(version, verbose=verbose, url=packages.scylla_tools_package, target_dir=os.path.join(
             tmp_download, 'scylla-tools-java'))
 
-        url = os.environ.get('SCYLLA_JMX_PACKAGE', packages.scylla_jmx_package)
-        download_version(version, verbose=verbose, url=url,
+        download_version(version, verbose=verbose, url=packages.scylla_jmx_package,
                          target_dir=os.path.join(tmp_download, 'scylla-jmx'))
 
         cdir = directory_name(version)
