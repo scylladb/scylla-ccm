@@ -5,11 +5,9 @@ on:
     branches:
      - master
      - next*
-     - docker-ccm
 
   pull_request:
     branches:
-     - docker-ccm
      - next*
 
 jobs:
