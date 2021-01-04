@@ -167,7 +167,7 @@ class TestCCMClusterManagerSctool:
         try:
             cluster_under_test.run_command(cluster_under_test.get_create_cmd(args=['-n', '3',
                 '--scylla-manager-package',
-                'http://downloads.scylladb.com/manager/rpm/unstable/centos/branch-2.2/30/scylla-manager/x86_64/']))
+                'http://downloads.scylladb.com/manager/rpm/unstable/centos/branch-2.2/latest/scylla-manager/x86_64/']))
             cluster_under_test.validate_command_result()
 
             cluster_under_test.run_command(cluster_under_test.get_updateconf_cmd())
