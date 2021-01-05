@@ -637,6 +637,20 @@ def _get_scylla_version(install_dir):
     return '3.0'
 
 
+def _get_scylla_release(install_dir):
+    scylla_release_files = [os.path.join(install_dir, 'build', 'SCYLLA-RELEASE-FILE'),
+                                os.path.join(install_dir, 'scylla-core-package', 'SCYLLA-RELEASE-FILE')]
+    for release_file in scylla_release_files:
+        if os.path.exists(release_file):
+            with open(release_file) as file:
+                return file.read().strip()
+    raise ValueError("SCYLLA-RELEASE-FILE wasn't found")
+
+
+def get_scylla_full_version(install_dir):
+    return f'{_get_scylla_version(install_dir)}-{_get_scylla_release(install_dir)}'
+
+
 def get_scylla_version(install_dir):
     if isScylla(install_dir):
         return _get_scylla_version(install_dir)
