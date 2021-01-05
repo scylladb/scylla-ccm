@@ -44,7 +44,7 @@ class ScyllaDockerCluster(ScyllaCluster):
                                 initial_token, save=save, binary_interface=binary_interface,
                                 scylla_manager=self._scylla_manager)
 
-    def _update_config(self):
+    def _update_config(self, install_dir=None):
         node_list = [node.name for node in list(self.nodes.values())]
         seed_list = [node.name for node in self.seeds]
         filename = os.path.join(self.get_path(), 'cluster.conf')

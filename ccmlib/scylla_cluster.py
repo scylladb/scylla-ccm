@@ -201,7 +201,7 @@ class ScyllaCluster(Cluster):
         self._config_options['server_encryption_options'] = node_ssl_options
         self._update_config()
 
-    def _update_config(self):
+    def _update_config(self, install_dir=None):
         """
         add scylla specific item to the cluster.conf
         :return: None
