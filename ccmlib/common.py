@@ -16,7 +16,7 @@ import tempfile
 import logging
 
 import yaml
-from boto3 import client
+from boto3.session import Session
 from botocore import UNSIGNED
 from botocore.client import Config
 from six import print_
@@ -705,7 +705,7 @@ def assert_jdk_valid_for_cassandra_version(cassandra_version):
 def aws_bucket_ls(s3_url):
     bucket_object = s3_url.replace('https://s3.amazonaws.com/', '').split('/')
     prefix = '/'.join(bucket_object[1:])
-    s3_conn = client('s3', config=Config(signature_version=UNSIGNED))
+    s3_conn = Session().client(service_name='s3', config=Config(signature_version=UNSIGNED))
     paginator = s3_conn.get_paginator('list_objects_v2')
     pages = paginator.paginate(Bucket=bucket_object[0], Prefix=prefix)
 
