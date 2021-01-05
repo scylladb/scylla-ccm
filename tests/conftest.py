@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from tests.test_config import RESULTS_DIR, TEST_ID, SCYLLA_DOCKER_IMAGE, SCYLLA_RELOCATABLE_VERSION
 
+from ccmlib.scylla_cluster import ScyllaCluster
 from ccmlib.scylla_docker_cluster import ScyllaDockerCluster
 from .ccmcluster import CCMCluster
 
@@ -58,6 +59,26 @@ def docker_cluster(test_dir, test_id):
         'request_timeout_in_ms': timeout
     })
     cluster.populate(3)
+    cluster.start(wait_for_binary_proto=True)
+    try:
+        yield cluster
+    finally:
+        cluster.clear()
+
+
+@pytest.fixture(scope="session")
+def relocatable_cluster(test_dir, test_id):
+    cluster_name = f"relocatable_cluster_{test_id}"
+    cluster = ScyllaCluster(str(test_dir), name=cluster_name, version=SCYLLA_RELOCATABLE_VERSION)
+    timeout = 10000
+    cluster.set_configuration_options(values={
+        'read_request_timeout_in_ms': timeout,
+        'range_request_timeout_in_ms': timeout,
+        'write_request_timeout_in_ms': timeout,
+        'truncate_request_timeout_in_ms': timeout,
+        'request_timeout_in_ms': timeout
+    })
+    cluster.populate(1)
     cluster.start(wait_for_binary_proto=True)
     try:
         yield cluster
