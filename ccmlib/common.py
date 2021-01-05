@@ -632,9 +632,10 @@ def _get_scylla_version(install_dir):
             # return only version strings (loosly) conforming to PEP-440
             # See https://www.python.org/dev/peps/pep-0440/
             # 'i.j(.|-)dev[N]' < 'i.j.rc[N]' < 'i.j.k' < i.j(.|-)post[N]
-            if re.fullmatch('(\d+!)?\d+([.-]\d+)*([a-z]+\d?)?([.-]post\d?)?([.-]dev\d?)?', v):
+            if re.fullmatch('(\d+!)?\d+([.-]\d+)*([a-z]+\d*)?([.-](post|dev|rc)\d*)*', v):
                 return v
     return '3.0'
+
 
 def get_scylla_version(install_dir):
     if isScylla(install_dir):
