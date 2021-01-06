@@ -25,7 +25,7 @@ import packaging.version
 
 from ccmlib.common import (
     ArgumentError, get_default_path, rmdirs, validate_install_dir, get_scylla_version, aws_bucket_ls)
-from ccmlib.repository import __download
+from ccmlib.utils.download import download_file, download_version_from_s3
 
 GIT_REPO = "http://github.com/scylladb/scylla.git"
 
@@ -284,7 +284,9 @@ def download_version(version, url=None, verbose=False, target_dir=None):
             target = url
         elif is_valid(url):
             _, target = tempfile.mkstemp(suffix=".tar.gz", prefix="ccm-")
-            __download(url, target, show_progress=verbose)
+            res = download_version_from_s3(url=url, target_path=target,verbose=verbose)
+            if not res:
+                download_file(url=url, target_path=target,verbose=verbose)
         else:
             raise ArgumentError(
                 "unsupported url or file doesn't exist\n\turl={}".format(url))
