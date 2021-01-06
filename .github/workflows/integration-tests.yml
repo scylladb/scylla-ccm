@@ -40,6 +40,7 @@ jobs:
         if [ -f requirements-test.txt ]; then pip install -r requirements-test.txt; fi
 
     - name: Cache binary versions
+      id: cache-versions
       uses: actions/cache@v2
       with:
         path: |
@@ -48,6 +49,7 @@ jobs:
         key: ${{ runner.os }}-repos-${{ hashFiles('**/test_config.py') }}
 
     - name: Download versions
+      if: steps.cache-versions.outputs.cache-hit != 'true'
       run: |
         if [ ! -f ~/.ccm/scylla-repository/unstable/master/2020-08-29T22_24_05Z ]; then
           RELOC_VERSION="2020-08-29T22:24:05Z"
