@@ -1159,10 +1159,8 @@ class Node(object):
 
         if self.is_docker():
             stress = self.get_tool("cassandra-stress")
-            cmd = None
         else:
             stress = common.get_stress_bin(self.get_install_dir())
-            cmd = common.parse_path(stress)
             stress = [stress]
 
         # handle cassandra-stress >= 3.11 parameters
@@ -1170,7 +1168,7 @@ class Node(object):
         has_throttle = any(['throttle=' in o for o in stress_options])
         if has_limit or has_throttle:
             args = stress + ['version']
-            p = subprocess.Popen(args, cwd=cmd,
+            p = subprocess.Popen(args,
                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
                                  **kwargs)
             stdout, stderr = p.communicate()
@@ -1197,7 +1195,7 @@ class Node(object):
         try:
             stdout_handle = kwargs.pop("stdout", subprocess.PIPE)
             stderr_handle = kwargs.pop("stderr", subprocess.PIPE)
-            p = subprocess.Popen(args, cwd=cmd,
+            p = subprocess.Popen(args,
                                  stdout=stdout_handle, stderr=stderr_handle, universal_newlines=True,
                                  **kwargs)
             stdout, stderr = p.communicate()
