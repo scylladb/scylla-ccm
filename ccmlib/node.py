@@ -322,6 +322,31 @@ class Node(object):
     def debuglogfilename(self):
         return os.path.join(self.get_path(), 'logs', 'debug.log')
 
+    def upgradesstables_if_command_available(self):
+        stdout, _ = self.nodetool('help')
+        return True if "upgradesstables" in stdout else False
+
+    def get_node_supported_sstable_versions(self):
+        match = self.grep_log(r'Feature (.*)_SSTABLE_FORMAT is enabled')
+        return [m[1].group(1).lower() for m in match] if match else []
+
+    def check_node_sstables_format(self, timeout=10):
+        node_system_folder = os.path.join(self.get_path(), 'data', 'system')
+        find_cmd = f"find {node_system_folder} -type f ! -path '*snapshots*' -printf %f\\n".split()
+        try:
+            result = subprocess.run(find_cmd, capture_output=True, timeout=timeout, text=True)
+            assert not result.stderr, result.stderr
+            assert result.stdout, "Empty command '\"%s\" output" % find_cmd
+            all_sstable_files = result.stdout.splitlines()
+
+            sstable_version_regex = re.compile(r'(\w+)-\d+-(.+)\.(db|txt|sha1|crc32)')
+
+            sstable_versions = {sstable_version_regex.search(f).group(1) for f in all_sstable_files if
+                                sstable_version_regex.search(f)}
+            return sstable_versions
+        except Exception:
+            raise
+
     def grep_log(self, expr, filter_expr=None, filename='system.log', from_mark=None):
         """
         Returns a list of lines matching the regular expression in parameter
