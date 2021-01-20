@@ -29,7 +29,8 @@ from ccmlib.utils.download import download_file, download_version_from_s3
 
 GIT_REPO = "http://github.com/scylladb/scylla.git"
 
-RELOCATABLE_URLS_BASE = 'https://s3.amazonaws.com/downloads.scylladb.com/relocatable/{0}/{1}'
+RELOCATABLE_URLS_BASE = ['https://s3.amazonaws.com/downloads.scylladb.com/unstable/scylla/{0}/relocatable/{1}',
+                         'https://s3.amazonaws.com/downloads.scylladb.com/relocatable/unstable/{0}/{1}']
 RELEASE_RELOCATABLE_URLS_BASE = 'https://s3.amazonaws.com/downloads.scylladb.com/downloads/scylla/relocatable/scylladb-{0}'
 ENTERPRISE_RELEASE_RELOCATABLE_URLS_BASE = 'https://s3.amazonaws.com/downloads.scylladb.com/downloads/scylla-enterprise/relocatable/scylladb-{0}'
 ENTERPRISE_RELOCATABLE_URLS_BASE = 'https://s3.amazonaws.com/downloads.scylladb.com/enterprise/relocatable/{0}/{1}'
@@ -143,7 +144,12 @@ def setup(version, verbose=True):
             if 'enterprise' in scylla_product:
                 s3_url = ENTERPRISE_RELOCATABLE_URLS_BASE.format(type_n_version[0], s3_version)
             else:
-                s3_url = RELOCATABLE_URLS_BASE.format(type_n_version[0], s3_version)
+                _, branch = type_n_version[0].split("/")
+                for reloc_url in RELOCATABLE_URLS_BASE:
+                    s3_url = reloc_url.format(branch, s3_version)
+                    resp = aws_bucket_ls(s3_url)
+                    if resp:
+                        break
             packages = RelocatablePackages(scylla_jmx_package=os.path.join(s3_url,
                                                                            f'{scylla_product}-jmx-package.tar.gz'),
                                            scylla_tools_package=os.path.join(s3_url,
