@@ -22,7 +22,7 @@ setup(
     author='Sylvain Lebresne',
     author_email='sylvain@datastax.com',
     url='https://github.com/pcmanus/ccm',
-    packages=['ccmlib', 'ccmlib.cmds', 'ccm.utils'],
+    packages=['ccmlib', 'ccmlib.cmds', 'ccmlib.utils'],
     scripts=[ccmscript],
     install_requires=['pyYaml', 'psutil', 'six >=1.12.0', 'requests', 'packaging', 'boto3', 'tqdm'],
     tests_require=['pytest'],
