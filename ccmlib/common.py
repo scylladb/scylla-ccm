@@ -451,7 +451,7 @@ def scylla_extract_install_dir_and_mode(install_dir):
                 f = open(os.path.join(install_dir, 'scylla-core-package', 'source.txt'), 'r')
                 for l in f.readlines():
                     if l.startswith('url='):
-                        scylla_mode = scylla_extract_mode(l)
+                        scylla_mode = scylla_extract_mode(l) or scylla_mode
                 f.close()
             except:
                 pass
