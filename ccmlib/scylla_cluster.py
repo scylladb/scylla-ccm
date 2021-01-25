@@ -44,6 +44,11 @@ class ScyllaCluster(Cluster):
         self.force_wait_for_cluster_start = (force_wait_for_cluster_start != False)
         self._scylla_manager = None
 
+        super(ScyllaCluster, self).__init__(path, name, partitioner,
+                                            install_dir, create_directory,
+                                            version, verbose,
+                                            snitch=SNITCH, cassandra_version=cassandra_version,
+                                            docker_image=docker_image)
 
         if not manager:
             scylla_ext_opts = os.getenv('SCYLLA_EXT_OPTS', "").split()
@@ -52,12 +57,6 @@ class ScyllaCluster(Cluster):
                 if scylla_ext_opts[opts_i].startswith("--scylla-manager="):
                    manager = scylla_ext_opts[opts_i].split('=')[1]
                 opts_i += 1
-
-        super(ScyllaCluster, self).__init__(path, name, partitioner,
-                                            install_dir, create_directory,
-                                            version, verbose,
-                                            snitch=SNITCH, cassandra_version=cassandra_version,
-                                            docker_image=docker_image)
 
         if manager:
             self._scylla_manager = ScyllaManager(self, manager)
