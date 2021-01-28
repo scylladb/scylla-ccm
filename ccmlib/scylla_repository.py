@@ -205,7 +205,7 @@ def setup(version, verbose=True):
     scylla_ext_opts = os.environ.get('SCYLLA_EXT_OPTS', '')
     scylla_manager_package = os.environ.get('SCYLLA_MANAGER_PACKAGE')
 
-    if not scylla_ext_opts and scylla_manager_package:
+    if scylla_manager_package:
         manager_install_dir = setup_scylla_manager(scylla_manager_package)
         scylla_ext_opts += ' --scylla-manager={}'.format(manager_install_dir)
         os.environ['SCYLLA_EXT_OPTS'] = scylla_ext_opts
