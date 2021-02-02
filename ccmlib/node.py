@@ -990,7 +990,7 @@ class Node(object):
             if debug:
                 cmd.append('--debug')
             cmd.append(f)
-            p = subprocess.Popen(cmd, cwd=os.path.join(self.get_install_dir(), 'resources', 'cassandra', 'bin'),
+            p = subprocess.Popen(cmd, cwd=os.path.join(self.get_path(), 'resources', 'cassandra', 'tools', 'bin'),
                                  env=env, stderr=subprocess.PIPE, stdout=subprocess.PIPE, universal_newlines=True)
             (out, err) = p.communicate()
             rc = p.returncode
