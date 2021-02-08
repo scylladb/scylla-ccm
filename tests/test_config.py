@@ -9,4 +9,4 @@ SCYLLA_DOCKER_IMAGE = os.environ.get(
 SCYLLA_RELOCATABLE_VERSION = os.environ.get(
     "SCYLLA_VERSION", "unstable/master:2020-08-29T22:24:05Z")
 
-# Jan/6 comment to refresh the action cache
+# Feb/8 comment to refresh the action cache
