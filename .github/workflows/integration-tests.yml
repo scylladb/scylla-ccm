@@ -44,8 +44,8 @@ jobs:
       uses: actions/cache@v2
       with:
         path: |
-          - ~/.ccm/repository
-          - ~/.ccm/scylla-repository
+          ~/.ccm/repository
+          ~/.ccm/scylla-repository
         key: ${{ runner.os }}-repos-${{ hashFiles('**/test_config.py') }}
 
     - name: Download versions
