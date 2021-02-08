@@ -646,6 +646,21 @@ class ScyllaNode(Node):
         else:
             self.jmx_pid = None
 
+    def nodetool(self, *args, **kwargs):
+        """
+        Kill scylla-jmx in case of timeout, to supply enough debugging information
+        """
+        try:
+            return super().nodetool(*args, **kwargs)
+        except subprocess.TimeoutExpired:
+            self.error("nodetool timeout, going to kill scylla-jmx with SIGQUIT")
+            self.kill_jmx(signal.SIGQUIT)
+            raise
+
+    def kill_jmx(self, __signal):
+        if self.jmx_pid:
+            os.kill(self.jmx_pid, __signal)
+
     def _update_scylla_agent_pid(self):
         pidfile = os.path.join(self.get_path(), 'scylla-agent.pid')
 
