@@ -1,8 +1,12 @@
 import os
 import logging
+import shutil
+import subprocess
+import getpass
+from datetime import datetime
 
 import pytest
-
+from _pytest.fixtures import FixtureRequest
 from ccmlib import common
 from .test_scylla_docker_cluster import TestScyllaDockerCluster
 
@@ -18,14 +22,25 @@ cluster_params = pytest.mark.parametrize(
 )
 
 
+def copy_cluster_data(request: FixtureRequest):
+    cluster_dir = request.getfixturevalue('cluster_under_test').cluster_dir
+    test_dir = request.getfixturevalue('test_dir')
+    scope_id = f'-{str(datetime.now().strftime("%H%M%S%s"))}' if request.scope == 'class' else ''
+    test_name = f'{request.node.name}{scope_id}'
+    user = getpass.getuser()
+    subprocess.run(["/bin/bash", "-c", f"sudo chown -R {user}:{user} {cluster_dir}"])
+    shutil.copytree(cluster_dir, test_dir / test_name)
+
+
 @cluster_params
 class TestCCMCreateCluster:
     @staticmethod
     @pytest.fixture(scope="function", autouse=True)
-    def base_setup(cluster_under_test):
+    def base_setup(request, cluster_under_test):
         try:
             yield
         finally:
+            copy_cluster_data(request=request)
             cluster_under_test.run_command(cluster_under_test.get_remove_cmd())
             cluster_under_test.process.wait()
             if os.path.exists(cluster_under_test.cluster_dir):
@@ -52,12 +67,13 @@ class TestCCMClusterStatus:
 
     @staticmethod
     @pytest.fixture(scope="class", autouse=True)
-    def base_setup(cluster_under_test):
+    def base_setup(request, cluster_under_test):
         try:
             cluster_under_test.run_command(cluster_under_test.get_create_cmd(args=['-n', '1']))
             cluster_under_test.validate_command_result()
             yield
         finally:
+            copy_cluster_data(request)
             cluster_under_test.run_command(cluster_under_test.get_remove_cmd())
             cluster_under_test.process.wait()
             if os.path.exists(cluster_under_test.cluster_dir):
@@ -79,10 +95,11 @@ class TestCCMClusterStart:
 
     @staticmethod
     @pytest.fixture(autouse=True)
-    def base_setup(cluster_under_test):
+    def base_setup(request, cluster_under_test):
         try:
             yield
         finally:
+            copy_cluster_data(request)
             cluster_under_test.run_command(cluster_under_test.get_remove_cmd())
             cluster_under_test.process.wait()
             if os.path.exists(cluster_under_test.cluster_dir):
@@ -117,7 +134,7 @@ class TestCCMClusterNodetool:
 
     @staticmethod
     @pytest.fixture(scope="class", autouse=True)
-    def base_setup_with_2_nodes(cluster_under_test):
+    def base_setup_with_2_nodes(request, cluster_under_test):
         try:
             cluster_under_test.run_command(cluster_under_test.get_create_cmd(args=['-n', '2']))
             cluster_under_test.validate_command_result()
@@ -129,6 +146,7 @@ class TestCCMClusterNodetool:
             cluster_under_test.validate_command_result()
             yield
         finally:
+            copy_cluster_data(request)
             cluster_under_test.run_command(cluster_under_test.get_remove_cmd())
             cluster_under_test.process.wait()
             if os.path.exists(cluster_under_test.cluster_dir):
@@ -163,7 +181,7 @@ class TestCCMClusterNodetool:
 class TestCCMClusterManagerSctool:
     @staticmethod
     @pytest.fixture(scope="class", autouse=True)
-    def base_setup(cluster_under_test):
+    def base_setup(request, cluster_under_test):
         try:
             cluster_under_test.run_command(cluster_under_test.get_create_cmd(args=['-n', '3',
                 '--scylla-manager-package',
@@ -177,6 +195,7 @@ class TestCCMClusterManagerSctool:
             cluster_under_test.validate_command_result()
             yield
         finally:
+            copy_cluster_data(request)
             cluster_under_test.run_command(cluster_under_test.get_remove_cmd())
             cluster_under_test.process.wait()
             if os.path.exists(cluster_under_test.cluster_dir):
