@@ -12,7 +12,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-18.04
 
     steps:
     - uses: actions/checkout@v2
@@ -29,10 +29,15 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-pip-
 
+    - name: Setup java
+      uses: actions/setup-java@v1
+      with:
+        java-version: '8''
+
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y openjdk-8-jdk rpm2cpio
+        sudo apt-get install -y rpm2cpio
         pip install -U pip setuptools
 
         python setup.py install
@@ -46,7 +51,7 @@ jobs:
         path: |
           ~/.ccm/repository
           ~/.ccm/scylla-repository
-        key: ${{ runner.os }}-repos-${{ hashFiles('**/test_config.py') }}
+        key: ${{ runner.os }}-binaries
 
     - name: Download versions
       if: steps.cache-versions.outputs.cache-hit != 'true'
@@ -71,4 +76,11 @@ jobs:
 
     - name: Test with pytest
       run: |
-        python -m pytest ./tests
+        python -m pytest ./tests -x
+
+    - name: Copy logs/results
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v2
+      with:
+        name: ccm-tests-log
+        path: tests/test_results/
