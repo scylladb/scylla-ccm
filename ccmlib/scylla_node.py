@@ -660,6 +660,7 @@ class ScyllaNode(Node):
         except subprocess.TimeoutExpired:
             self.error("nodetool timeout, going to kill scylla-jmx with SIGQUIT")
             self.kill_jmx(signal.SIGQUIT)
+            time.sleep(5)  # give the java process time to print the threaddump into the log
             raise
 
     def kill_jmx(self, __signal):
