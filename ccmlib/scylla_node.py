@@ -273,7 +273,7 @@ class ScyllaNode(Node):
         return bool(self.grep_log("{}|{}".format(bootstrap_message, resharding_message), from_mark=from_mark))
 
     def _start_scylla(self, args, marks, update_pid, wait_other_notice,
-                      wait_for_binary_proto, ext_env):
+                      wait_for_binary_proto, ext_env, timeout=None):
         log_file = os.path.join(self.get_path(), 'logs', 'system.log')
         # In case we are restarting a node
         # we risk reading the old cassandra.pid file
@@ -311,11 +311,13 @@ class ScyllaNode(Node):
 
         if wait_other_notice:
             for node, mark in marks:
-                node.watch_log_for_alive(self, from_mark=mark)
+                t = timeout if timeout is not None else 120 if self.cluster.scylla_mode != 'debug' else 360
+                node.watch_log_for_alive(self, from_mark=mark, timeout=t)
 
         if wait_for_binary_proto:
             try:
-                self.wait_for_binary_interface(from_mark=self.mark, process=self._process_scylla, timeout=420)
+                t = timeout * 4 if timeout is not None else 420 if self.cluster.scylla_mode != 'debug' else 900
+                self.wait_for_binary_interface(from_mark=self.mark, process=self._process_scylla, timeout=t)
             except TimeoutError as e:
                 if not self.wait_for_starting(from_mark=self.mark):
                     raise e
