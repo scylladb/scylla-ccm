@@ -109,7 +109,8 @@ class ScyllaCluster(Cluster):
                 if started:
                     last_node, _, last_mark = started[-1]
                     last_node.watch_log_for("node is now in normal status|Starting listening for CQL clients",
-                                            verbose=verbose, from_mark=last_mark)
+                                            verbose=verbose, from_mark=last_mark,
+                                            process=last_node._process_scylla)
                 mark = 0
                 if os.path.exists(node.logfilename()):
                     mark = node.mark_log()
