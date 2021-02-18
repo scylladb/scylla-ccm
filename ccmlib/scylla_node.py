@@ -97,12 +97,6 @@ class ScyllaNode(Node):
         self._create_directory()
 
     @property
-    def ip_addr(self):
-        for ip_bucket in self.network_interfaces.values():
-            if ip_bucket and ip_bucket[0]:
-                return ip_bucket[0]
-
-    @property
     def node_install_dir(self):
         if not self._node_install_dir:
             self._node_install_dir = self.get_install_dir()
@@ -586,10 +580,11 @@ class ScyllaNode(Node):
                                             ext_env)
         self._start_jmx(data)
 
+        ip_addr, _ = self.network_interfaces['thrift']
         jmx_port = int(self.jmx_port)
-        if not self._wait_java_up(self.ip_addr, jmx_port):
+        if not self._wait_java_up(ip_addr, jmx_port):
             e_msg = "Error starting node {}: unable to connect to scylla-jmx port {}:{}".format(
-                     self.name, self.ip_addr, jmx_port)
+                     self.name, ip_addr, jmx_port)
             raise NodeError(e_msg, scylla_process)
 
         self.is_running()
@@ -990,14 +985,13 @@ class ScyllaNode(Node):
             # cassandra 0.8
             data['seed_provider'][0]['parameters'][0]['seeds'] = (
                 ','.join(self.cluster.get_seeds()))
-        data['listen_address'] = self.ip_addr
-        if self.network_interfaces['storage']:
-            data['storage_port'] = self.network_interfaces['storage'][1]
-        if self.network_interfaces['thrift']:
-            data['rpc_address'], data['rpc_port'] = self.network_interfaces['thrift']
+        data['listen_address'], data['storage_port'] = (
+            self.network_interfaces['storage'])
+        data['rpc_address'], data['rpc_port'] = (
+            self.network_interfaces['thrift'])
         if (self.network_interfaces['binary'] is not None and
                 self.get_base_cassandra_version() >= 1.2):
-            data['native_transport_port'] = self.network_interfaces['binary'][1]
+            _, data['native_transport_port'] = self.network_interfaces['binary']
 
         data['data_file_directories'] = [os.path.join(self.get_path(), 'data')]
         data['commitlog_directory'] = os.path.join(self.get_path(),
