@@ -696,14 +696,13 @@ class ScyllaNode(Node):
             Otherwise do a 'kill -9' which shuts down faster.
         """
 
-        if not self.is_running():
-            return False
-
+        did_stop = False
         self._update_jmx_pid(wait=False)
         if self.scylla_manager and self.scylla_manager.is_agent_available:
             self._update_scylla_agent_pid()
         for proc in [self._process_jmx, self._process_scylla, self._process_agent]:
             if proc:
+                did_stop = True
                 if gently:
                     try:
                         proc.terminate()
@@ -718,12 +717,13 @@ class ScyllaNode(Node):
             signal_mapping = {True: signal.SIGTERM, False: signal.SIGKILL}
             for pid in [self.jmx_pid, self.pid, self.agent_pid]:
                 if pid:
+                    did_stop = True
                     try:
                         os.kill(pid, signal_mapping[gently])
                     except OSError:
                         pass
 
-        return True
+        return did_stop
 
     def _wait_until_stopped(self, wait_seconds):
         start_time = time.time()
@@ -801,7 +801,7 @@ class ScyllaNode(Node):
                     marks = [(node, node.mark_log()) for node in
                              other_nodes if
                              node.is_live() and node is not self]
-            self.do_stop(gently=gently)
+        self.do_stop(gently=gently)
 
         if wait or wait_other_notice:
             self.wait_until_stopped(wait_seconds, marks, dump_core=gently)
