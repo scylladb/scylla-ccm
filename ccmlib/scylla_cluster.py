@@ -442,3 +442,18 @@ class ScyllaManager:
         if exit_status != 0 and not ignore_exit_status:
             raise Exception(" ".join(args), exit_status, stdout, stderr)
         return stdout, stderr
+
+    def agent_check_location(self, location_list, extra_config_file_list=None):
+        agent_bin = os.path.join(self._get_path(), 'bin', 'scylla-manager-agent')
+        locations_names = ','.join(location_list)
+        agent_conf = os.path.join(self.scylla_cluster.get_path(), 'node1/conf/scylla-manager-agent.yaml')
+        args = [agent_bin, "check-location", "-L", str(locations_names)]
+        if extra_config_file_list:
+            for config_file in extra_config_file_list:
+                args.extend(["-c", config_file])
+        p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        stdout, stderr = p.communicate()
+        exit_status = p.wait()
+        if exit_status != 0:
+            raise Exception(" ".join(args), exit_status, stdout, stderr)
+        return stdout, stderr
