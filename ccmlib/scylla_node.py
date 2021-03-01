@@ -753,13 +753,9 @@ class ScyllaNode(Node):
         if wait_seconds is None:
             wait_seconds = 127 if self.scylla_mode() != 'debug' else 600
 
+        start = time.time()
         if self.is_running():
             if not self._wait_until_stopped(wait_seconds):
-                if self.jmx_pid:
-                    try:
-                        os.kill(self.jmx_pid, signal.SIGKILL)
-                    except OSError:
-                        pass
                 if dump_core and self.pid:
                     # Aborting is intended to generate a core dump
                     # so the reason the node didn't stop normally can be studied.
@@ -770,8 +766,30 @@ class ScyllaNode(Node):
                     except OSError:
                         pass
                     self._wait_until_stopped(300)
-                if self.is_running():
-                    raise NodeError("Problem stopping node %s" % self.name)
+                if self.is_running() and self.pid:
+                    self.warning("{} is still running after {} seconds. Killing process using kill({}, SIGKILL)...".format(
+                        self.name, wait_seconds, self.pid))
+                    os.kill(self.pid, signal.SIGKILL)
+                    self._wait_until_stopped(10)
+
+        while self.jmx_pid and time.time() - start < wait_seconds:
+            try:
+                os.kill(self.jmx_pid, 0)
+                time.sleep(1)
+            except OSError:
+                self.jmx_pid = None
+                pass
+
+        if self.jmx_pid:
+            try:
+                self.warning("{} scylla-jmx is still running. Killing process using kill({}, SIGKILL)...".format(
+                    self.name, wait_seconds, self.jmx_pid))
+                os.kill(self.jmx_pid, signal.SIGKILL)
+            except OSError:
+                pass
+
+        if self.is_running():
+            raise NodeError("Problem stopping node %s" % self.name)
 
         for node, mark in marks:
             if node != self:
