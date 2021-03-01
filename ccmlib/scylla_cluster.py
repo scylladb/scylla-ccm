@@ -163,14 +163,13 @@ class ScyllaCluster(Cluster):
             marks = [(node, node.mark_log()) for node in other_nodes if node.is_live()]
 
         # stop all nodes in parallel
-        stopped = [node for node in nodes if node.is_running()]
-        for node in stopped:
+        for node in nodes:
             node.do_stop(gently=gently)
 
         # wait for stopped nodes is needed
         if wait or wait_other_notice:
-            for node in stopped:
-                node.wait_until_stopped(wait_seconds, marks)
+            for node in nodes:
+                node.wait_until_stopped(wait_seconds, marks, dump_core=gently)
 
         return [node for node in nodes if not node.is_running()]
 
