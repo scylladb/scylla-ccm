@@ -65,6 +65,10 @@ class ScyllaDockerCluster(ScyllaCluster):
         run(['bash', '-c', f'docker run --rm -v {path}:/node busybox chmod -R 777 /node'], stdout=PIPE, stderr=PIPE)
         super(ScyllaDockerCluster, self).remove_dir_with_retry(path)
 
+    @staticmethod
+    def is_docker():
+        return True
+
 
 class ScyllaDockerNode(ScyllaNode):
     def __init__(self, *args, **kwargs):

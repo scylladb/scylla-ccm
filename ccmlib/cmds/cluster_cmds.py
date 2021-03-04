@@ -358,7 +358,11 @@ class ClusterAddCmd(Cmd):
     def run(self):
         try:
             if self.options.scylla_node:
-                node = ScyllaNode(self.name, self.cluster, self.options.bootstrap, self.thrift, self.storage, self.jmx_port, self.remote_debug_port, self.initial_token, binary_interface=self.binary)
+                if self.cluster.is_docker():
+                    node_class = ScyllaDockerNode
+                else:
+                    node_class = ScyllaNode
+                node = node_class(self.name, self.cluster, self.options.bootstrap, self.thrift, self.storage, self.jmx_port, self.remote_debug_port, self.initial_token, binary_interface=self.binary)
             elif self.options.dse_node:
                 node = DseNode(self.name, self.cluster, self.options.bootstrap, self.thrift, self.storage, self.jmx_port, self.remote_debug_port, self.initial_token, binary_interface=self.binary)
             else:

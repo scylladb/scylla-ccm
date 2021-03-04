@@ -690,7 +690,6 @@ class Cluster(object):
         self._config_options['server_encryption_options'] = node_ssl_options
         self._update_config()
 
-
     def debug(self, message):
         logger.debug(message)
 
@@ -702,3 +701,7 @@ class Cluster(object):
 
     def error(self, message):
         logger.error(message)
+
+    @staticmethod
+    def is_docker():
+        return False

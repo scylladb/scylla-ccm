@@ -33,7 +33,7 @@ class ClusterFactory():
                                               install_dir=install_dir, create_directory=False)
             elif common.isScylla(install_dir):
                 cluster = ScyllaCluster(path, data['name'], install_dir=install_dir, create_directory=False,
-                                        manager=scylla_manager_install_path)
+                                        manager=scylla_manager_install_path, cassandra_version=data.get('scylla_version', None))
             elif common.isDse(install_dir):
                 cluster = DseCluster(path, data['name'], install_dir=install_dir, create_directory=False)
             else:

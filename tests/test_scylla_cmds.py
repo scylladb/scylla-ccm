@@ -170,6 +170,14 @@ class TestCCMClusterNodetool:
             for node in node_statuses:
                 assert node['status'] == 'UN'
 
+    def test_add_node(self, cluster_under_test):
+        node_name = "node3"
+        cluster_under_test.run_command(cluster_under_test.get_add_cmd(node_name))
+        cluster_under_test.validate_command_result()
+
+        cluster_under_test.run_command(cluster_under_test.get_node_start_cmd(node_name))
+        cluster_under_test.validate_command_result()
+
 
 @pytest.mark.parametrize(
     'cluster_under_test',
