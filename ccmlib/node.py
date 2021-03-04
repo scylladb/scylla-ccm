@@ -854,7 +854,7 @@ class Node(object):
             if common.is_win():
                 subprocess.Popen(cqlsh + args, env=env, creationflags=subprocess.CREATE_NEW_CONSOLE, universal_newlines=True)
             else:
-                os.execve(cqlsh, [common.platform_binary('cqlsh')] + args, env)
+                os.execve(cqlsh[0], cqlsh + args, env)
         else:
             p = subprocess.Popen(cqlsh + args, env=env, stdin=subprocess.PIPE, stderr=subprocess.PIPE, stdout=subprocess.PIPE, universal_newlines=True)
             for cmd in cmds.split(';'):
@@ -1605,13 +1605,13 @@ class Node(object):
         if common.is_win() and self.get_base_cassandra_version() >= 2.1:
             conf_file = os.path.join(self.get_conf_dir(), common.CASSANDRA_WIN_ENV)
             jmx_port_pattern = '^\s+\$JMX_PORT='
-            jmx_port_setting = '    $JMX_PORT="' + self.jmx_port + '"'
-            remote_debug_options = '    $env:JVM_OPTS="$env:JVM_OPTS -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=' + str(self.remote_debug_port) + '"'
+            jmx_port_setting = f'    $JMX_PORT="{self.jmx_port}"'
+            remote_debug_options = f'    $env:JVM_OPTS="$env:JVM_OPTS -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address={self.jmx_port}"'
         else:
             conf_file = os.path.join(self.get_conf_dir(), common.CASSANDRA_ENV)
             jmx_port_pattern = 'JMX_PORT='
-            jmx_port_setting = 'JMX_PORT="' + self.jmx_port + '"'
-            remote_debug_options = 'JVM_OPTS="$JVM_OPTS -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=' + str(self.remote_debug_port) + '"'
+            jmx_port_setting = f'JMX_PORT="{self.jmx_port}"'
+            remote_debug_options = f'JVM_OPTS="$JVM_OPTS -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address={self.jmx_port}"'
 
         common.replace_in_file(conf_file, jmx_port_pattern, jmx_port_setting)
 

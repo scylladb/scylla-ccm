@@ -56,6 +56,15 @@ class CCMCluster:
     def get_start_cmd(self):
         return [self.ccm_bin, "start", "--wait-for-binary-proto"]
 
+    def get_add_cmd(self, node_name):
+        cmd_args = []
+        if self.use_scylla:
+            cmd_args += ["--scylla"]
+        return [self.ccm_bin, "add", "-b", *cmd_args, node_name]
+
+    def get_node_start_cmd(self, node_name):
+        return [self.ccm_bin, node_name, "start"]
+
     def get_updateconf_cmd(self):
         return [self.ccm_bin, "updateconf",
                 'read_request_timeout_in_ms:10000',

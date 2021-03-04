@@ -106,7 +106,7 @@ def ccm_reloc_with_manager_cluster():
 
 @pytest.fixture(scope="session")
 def ccm_cassandra_cluster():
-    cluster = CCMCluster(test_id="cassandra")
+    cluster = CCMCluster(use_scylla=False, test_id="cassandra")
     return cluster
 
 

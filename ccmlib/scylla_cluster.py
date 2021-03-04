@@ -43,6 +43,7 @@ class ScyllaCluster(Cluster):
         self.started = False
         self.force_wait_for_cluster_start = (force_wait_for_cluster_start != False)
         self._scylla_manager = None
+        self.scylla_version = cassandra_version
 
         super(ScyllaCluster, self).__init__(path, name, partitioner,
                                             install_dir, create_directory,
@@ -207,16 +208,19 @@ class ScyllaCluster(Cluster):
         """
         super(ScyllaCluster, self)._update_config()
 
+        filename = os.path.join(self.get_path(), 'cluster.conf')
+
+        with open(filename, 'r') as f:
+            data = yaml.safe_load(f)
+
+        if self.is_scylla_reloc():
+            data['scylla_version'] = self.scylla_version
+
         if self._scylla_manager and self._scylla_manager.install_dir:
-            filename = os.path.join(self.get_path(), 'cluster.conf')
-
-            with open(filename, 'r') as f:
-                data = yaml.safe_load(f)
-
             data['scylla_manager_install_path'] = self._scylla_manager.install_dir
 
-            with open(filename, 'w') as f:
-                yaml.safe_dump(data, f)
+        with open(filename, 'w') as f:
+            yaml.safe_dump(data, f)
 
     def sctool(self, cmd):
         if self._scylla_manager == None:
