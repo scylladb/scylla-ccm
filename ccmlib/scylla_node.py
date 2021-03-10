@@ -514,15 +514,17 @@ class ScyllaNode(Node):
             if scylla_ext_opts[opts_i].startswith("--scylla-manager="):
                opts_i += 1
             elif scylla_ext_opts[opts_i].startswith('-'):
-                add = False
-                if scylla_ext_opts[opts_i] not in orig_args:
-                    add = True
-                    args.append(scylla_ext_opts[opts_i])
+                o = scylla_ext_opts[opts_i]
                 opts_i += 1
-                while opts_i < len(scylla_ext_opts) and not scylla_ext_opts[opts_i].startswith('-'):
-                    if add:
-                        args.append(scylla_ext_opts[opts_i])
-                    opts_i += 1
+                if '=' in o:
+                    opt = o.replace('=', ' ', 1).split()
+                else:
+                    opt = [ o ]
+                    while opts_i < len(scylla_ext_opts) and not scylla_ext_opts[opts_i].startswith('-'):
+                        opt.append(scylla_ext_opts[opts_i])
+                        opts_i += 1
+                if opt[0] not in orig_args:
+                    args.extend(opt)
 
         if '--developer-mode' not in args:
             args += ['--developer-mode', 'true']
