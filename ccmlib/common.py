@@ -44,7 +44,7 @@ CASSANDRA_SH = "cassandra.in.sh"
 CONFIG_FILE = "config"
 CCM_CONFIG_DIR = "CCM_CONFIG_DIR"
 
-INSTALL_DIR_PLACEHOLDER_FILE = "placeholder"
+DOWNLOAD_IN_PROGRESS_FILE = "download_in_progress"
 
 logger = logging.getLogger('ccm')
 
@@ -484,7 +484,7 @@ def _wait_until_false(wait_seconds, func, kwargs):
 
 def wait_for_parallel_download_finish(placeholder_file):
     if check_file_exists(placeholder_file):
-        if not _wait_until_false(3600, check_file_exists, kwargs={'path_to_file': placeholder_file}):
+        if not _wait_until_false(wait_seconds=3600, func=check_file_exists, kwargs={'path_to_file': placeholder_file}):
             raise TimeoutError(f"Relocatables download still runs in parallel from another test after 60 min. "
                                f"Placeholder file exists: {placeholder_file}")
 
@@ -495,7 +495,7 @@ def validate_install_dir(install_dir):
 
     # If relocatables download is running in parallel from another test, the install_dir exists with placehoslder file
     # in the folder. Once it will be downloaded and installed, this file will be removed.
-    wait_for_parallel_download_finish(os.path.join(install_dir, INSTALL_DIR_PLACEHOLDER_FILE))
+    wait_for_parallel_download_finish(placeholder_file=os.path.join(install_dir, DOWNLOAD_IN_PROGRESS_FILE))
 
     # Windows requires absolute pathing on installation dir - abort if specified cygwin style
     if is_win():
