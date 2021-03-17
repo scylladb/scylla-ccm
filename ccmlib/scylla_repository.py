@@ -2,6 +2,7 @@ from __future__ import with_statement
 
 import random
 import time
+from pathlib import Path
 from typing import NamedTuple
 
 import os
@@ -27,7 +28,7 @@ import packaging.version
 
 from ccmlib.common import (
     ArgumentError, CCMError, get_default_path, rmdirs, validate_install_dir, get_scylla_version, aws_bucket_ls,
-    INSTALL_DIR_PLACEHOLDER_FILE, wait_for_parallel_download_finish)
+    DOWNLOAD_IN_PROGRESS_FILE, wait_for_parallel_download_finish)
 from ccmlib.utils.download import download_file, download_version_from_s3
 
 GIT_REPO = "http://github.com/scylladb/scylla.git"
@@ -184,32 +185,34 @@ def setup(version, verbose=True):
     if version_dir is None:
         # Create version folder and add placeholder file to prevent parallel downloading from another test.
         version_dir = directory_name(version)
-        placeholder_file = os.path.join(version_dir, INSTALL_DIR_PLACEHOLDER_FILE)
+        download_in_progress_file = Path(version_dir) / DOWNLOAD_IN_PROGRESS_FILE
 
-        # Let one more chance don't start few downloads in the exactly same second
+        # Give a chance not to start few downloads in the exactly same second
         time.sleep(random.randint(0, 5))
 
         # If another parallel downloading has been started already, wait while it will be completed
-        if os.path.exists(placeholder_file):
+        if download_in_progress_file.exists():
             print(f"Another download running into '{version_dir}'. Waiting for parallel downloading finished")
-            wait_for_parallel_download_finish(placeholder_file)
+            wait_for_parallel_download_finish(placeholder_file=download_in_progress_file.absolute())
         else:
             try:
                 os.makedirs(version_dir)
             except FileExistsError as exc:
                 # If parallel process created the folder first, let to the parallel download to finish
                 print(f"Another download running into '{version_dir}'. Waiting for parallel downloading finished")
-                wait_for_parallel_download_finish(placeholder_file)
+                wait_for_parallel_download_finish(placeholder_file=download_in_progress_file.absolute())
             else:
-                run(f'touch {placeholder_file}')
-                package_version = download_packages(version_dir, packages, s3_url, scylla_product, version, verbose)
-                run(f'touch {placeholder_file}')
+                download_in_progress_file.touch()
+                package_version = download_packages(version_dir=version_dir, packages=packages, s3_url=s3_url,
+                                                    scylla_product=scylla_product, version=version, verbose=verbose)
+                download_in_progress_file.touch()
 
                 # install using scylla install.sh
-                run_scylla_install_script(os.path.join(version_dir, 'scylla-core-package'),
-                                          version_dir, package_version)
+                run_scylla_install_script(install_dir=os.path.join(version_dir, 'scylla-core-package'),
+                                          target_dir=version_dir,
+                                          package_version=package_version)
                 print(f"Completed to install Scylla in the folder '{version_dir}'")
-                os.remove(placeholder_file)
+                download_in_progress_file.unlink()
 
     setup_scylla_manager()
 
@@ -239,13 +242,13 @@ def download_packages(version_dir, packages, s3_url, scylla_product, version, ve
 
     tmp_download = tempfile.mkdtemp()
 
-    package_version = download_version(version, verbose=verbose, url=packages.scylla_package,
+    package_version = download_version(version=version, verbose=verbose, url=packages.scylla_package,
                                        target_dir=os.path.join(tmp_download, 'scylla-core-package'))
 
-    download_version(version, verbose=verbose, url=packages.scylla_tools_package,
+    download_version(version=version, verbose=verbose, url=packages.scylla_tools_package,
                      target_dir=os.path.join(tmp_download, 'scylla-tools-java'))
 
-    download_version(version, verbose=verbose, url=packages.scylla_jmx_package,
+    download_version(version=version, verbose=verbose, url=packages.scylla_jmx_package,
                      target_dir=os.path.join(tmp_download, 'scylla-jmx'))
 
     shutil.rmtree(version_dir)
@@ -347,7 +350,7 @@ def download_version(version, url=None, verbose=False, target_dir=None):
                 "unsupported url or file doesn't exist\n\turl={}".format(url))
 
         if verbose:
-            print_("Extracting %s (%s, %s) as version %s ..." % (target, url, target_dir, version))
+            print_(f"Extracting {target} ({url}, {target_dir}) as version {version} ...")
         tar = tarfile.open(target)
         tar.extractall(path=target_dir)
         tar.close()
