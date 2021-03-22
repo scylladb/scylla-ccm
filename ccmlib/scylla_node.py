@@ -560,6 +560,7 @@ class ScyllaNode(Node):
         if replace_address:
             args += ['--replace-address', replace_address]
         args += ['--unsafe-bypass-fsync', '1']
+        args += ['--kernel-page-cache', '1']
 
         ext_env = {}
         scylla_ext_env = os.getenv('SCYLLA_EXT_ENV', "").strip()
