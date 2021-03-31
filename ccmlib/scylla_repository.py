@@ -86,7 +86,7 @@ def release_packages(s3_url, version):
         # If found packages for released version
         if version.count('.') == 1:
             # Choose relocatable packages for latest release version
-            a = re.findall(f'-{version}\.(\d+)-', ','.join(candidates))
+            a = re.findall(f'-{version}\.(\d+)(?:-|\.)', ','.join(candidates))
             latest_candidate = f"{version}.{max(set(a))}" if a else ''
         elif version.count('.') == 2:
              # Choose relocatable packages for supplied version
@@ -94,7 +94,7 @@ def release_packages(s3_url, version):
         else:
             raise ValueError(f"Not expected version number: {version}. S3_URL: {s3_url}")
 
-        release_packages = [package for package in candidates if f"-{latest_candidate}-" in package]
+        release_packages = [package for package in candidates if f"-{latest_candidate}" in package]
     else:
         # Choose relocatables for latest release candidate
         if '.rc' in version:
