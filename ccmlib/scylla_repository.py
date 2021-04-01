@@ -33,6 +33,9 @@ from ccmlib.utils.download import download_file, download_version_from_s3
 
 GIT_REPO = "http://github.com/scylladb/scylla.git"
 
+CORE_PACKAGE_DIR_NAME = 'scylla-core-package'
+SCYLLA_VERSION_FILE = 'SCYLLA-VERSION-FILE'
+
 RELOCATABLE_URLS_BASE = ['https://s3.amazonaws.com/downloads.scylladb.com/unstable/scylla/{0}/relocatable/{1}',
                          'https://s3.amazonaws.com/downloads.scylladb.com/relocatable/unstable/{0}/{1}']
 RELEASE_RELOCATABLE_URLS_BASE = 'https://s3.amazonaws.com/downloads.scylladb.com/downloads/scylla/relocatable/scylladb-{0}'
@@ -208,7 +211,7 @@ def setup(version, verbose=True):
                 download_in_progress_file.touch()
 
                 # install using scylla install.sh
-                run_scylla_install_script(install_dir=os.path.join(version_dir, 'scylla-core-package'),
+                run_scylla_install_script(install_dir=os.path.join(version_dir, CORE_PACKAGE_DIR_NAME),
                                           target_dir=version_dir,
                                           package_version=package_version)
                 print(f"Completed to install Scylla in the folder '{version_dir}'")

@@ -11,6 +11,7 @@ import stat
 import subprocess
 import time
 import threading
+from distutils.version import LooseVersion
 
 import psutil
 import yaml
@@ -26,7 +27,7 @@ from ccmlib.node import Node, NodeUpgradeError
 from ccmlib.node import Status
 from ccmlib.node import NodeError
 from ccmlib.node import TimeoutError
-from ccmlib.scylla_repository import setup
+from ccmlib.scylla_repository import setup, CORE_PACKAGE_DIR_NAME, SCYLLA_VERSION_FILE
 
 
 def wait_for(func, timeout, first=0.0, step=1.0, text=None):
@@ -252,7 +253,7 @@ class ScyllaNode(Node):
         while not self.grep_log(starting_message, from_mark=from_mark):
             process.poll()
             if process.returncode is not None:
-                self.print_process_output(self.name, process, verbose)
+                self.print_process_output(self.name, process, verbose=True)
                 if process.returncode != 0:
                     raise RuntimeError("The process is dead, returncode={}".format(process.returncode))
             repair_pattern = r'repair - Repair \d+ out of \d+ ranges'
@@ -407,6 +408,19 @@ class ScyllaNode(Node):
 
         return java_up
 
+    @property
+    def node_install_dir_version(self):
+        if not self.node_install_dir:
+            return ""
+
+        scylla_version_file_path = os.path.join(self.node_install_dir, CORE_PACKAGE_DIR_NAME, SCYLLA_VERSION_FILE)
+        if not os.path.exists(scylla_version_file_path):
+            print(f"'{scylla_version_file_path}' wasn't found")
+            return ""
+
+        with open(scylla_version_file_path, 'r') as f:
+            version = f.readline()
+        return version.strip()
 
     # Scylla Overload start
     def start(self, join_ring=True, no_wait=False, verbose=False,
@@ -560,7 +574,12 @@ class ScyllaNode(Node):
         if replace_address:
             args += ['--replace-address', replace_address]
         args += ['--unsafe-bypass-fsync', '1']
-        args += ['--kernel-page-cache', '1']
+
+        # The '--kernel-page-cache' was introduced by
+        # https://github.com/scylladb/scylla/commit/8785dd62cb740522d80eb12f8272081f85be9b7e from 4.5 version
+        current_node_version = self.node_install_dir_version
+        if current_node_version and LooseVersion('666.development') < LooseVersion(current_node_version) >= LooseVersion('4.5'):
+            args += ['--kernel-page-cache', '1']
 
         ext_env = {}
         scylla_ext_env = os.getenv('SCYLLA_EXT_ENV', "").strip()

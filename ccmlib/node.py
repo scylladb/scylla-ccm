@@ -214,7 +214,7 @@ class Node(object):
         """
         Returns the path to the cassandra source directory used by this node.
         """
-        if self.__install_dir is None:
+        if not self.__install_dir:
             return self.cluster.get_install_dir()
         else:
             common.validate_install_dir(self.__install_dir)
