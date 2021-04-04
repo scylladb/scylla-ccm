@@ -217,7 +217,12 @@ def setup(version, verbose=True):
                 print(f"Completed to install Scylla in the folder '{version_dir}'")
                 download_in_progress_file.unlink()
 
-    setup_scylla_manager()
+    scylla_ext_opts = os.environ.get('SCYLLA_EXT_OPTS', '')
+    scylla_manager_package = os.environ.get('SCYLLA_MANAGER_PACKAGE')
+    if scylla_manager_package:
+        manager_install_dir = setup_scylla_manager(scylla_manager_package)
+        scylla_ext_opts += ' --scylla-manager={}'.format(manager_install_dir)
+        os.environ['SCYLLA_EXT_OPTS'] = scylla_ext_opts
 
     return version_dir, get_scylla_version(version_dir)
 
@@ -234,14 +239,6 @@ def download_packages(version_dir, packages, s3_url, scylla_product, version, ve
             raise EnvironmentError("Not found environment parameters: 'SCYLLA_JMX_PACKAGE' and "
                                    "('SCYLLA_TOOLS_JAVA_PACKAGE' or 'SCYLLA_JAVA_TOOLS_PACKAGE) and"
                                    "'SCYLLA_CORE_PACKAGE'")
-
-    scylla_ext_opts = os.environ.get('SCYLLA_EXT_OPTS', '')
-    scylla_manager_package = os.environ.get('SCYLLA_MANAGER_PACKAGE')
-
-    if scylla_manager_package:
-        manager_install_dir = setup_scylla_manager(scylla_manager_package)
-        scylla_ext_opts += ' --scylla-manager={}'.format(manager_install_dir)
-        os.environ['SCYLLA_EXT_OPTS'] = scylla_ext_opts
 
     tmp_download = tempfile.mkdtemp()
 
