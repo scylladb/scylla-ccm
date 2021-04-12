@@ -11,12 +11,13 @@ import stat
 import subprocess
 import time
 import threading
-from distutils.version import LooseVersion
 
 import psutil
 import yaml
 import glob
 import re
+
+from pkg_resources import parse_version
 
 from ccmlib.common import CASSANDRA_SH, BIN_DIR
 from six import print_
@@ -577,8 +578,9 @@ class ScyllaNode(Node):
 
         # The '--kernel-page-cache' was introduced by
         # https://github.com/scylladb/scylla/commit/8785dd62cb740522d80eb12f8272081f85be9b7e from 4.5 version
-        current_node_version = self.node_install_dir_version
-        if current_node_version and LooseVersion('666.development') < LooseVersion(current_node_version) >= LooseVersion('4.5'):
+        major_node_scylla_version = self.get_release_major_scylla_version()
+
+        if major_node_scylla_version and parse_version(major_node_scylla_version) >= parse_version('4.5'):
             args += ['--kernel-page-cache', '1']
 
         ext_env = {}
@@ -1239,6 +1241,12 @@ class ScyllaNode(Node):
     def flush(self):
         self.nodetool("flush")
         self._wait_no_pending_flushes()
+
+    def get_release_major_scylla_version(self):
+        version = self.get_node_scylla_version()
+        find = re.search(r"^(\d+.\d+).*", version)
+
+        return find.groups()[0] if find else ''
 
     def get_node_scylla_version(self, scylla_exec_path=None):
         if not scylla_exec_path:
