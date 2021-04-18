@@ -137,7 +137,7 @@ def get_relocatable_s3_url(branch, s3_version, links):
     raise CCMError(f"s3 url was not found for {branch}:{s3_version}")
 
 
-def setup(version, verbose=True):
+def setup(version, manager_package=None, verbose=True):
     """
     :param version:
             Supported version values (examples):
@@ -218,7 +218,7 @@ def setup(version, verbose=True):
                 download_in_progress_file.unlink()
 
     scylla_ext_opts = os.environ.get('SCYLLA_EXT_OPTS', '')
-    scylla_manager_package = os.environ.get('SCYLLA_MANAGER_PACKAGE')
+    scylla_manager_package = os.environ.get('SCYLLA_MANAGER_PACKAGE') or manager_package
     if scylla_manager_package:
         manager_install_dir = setup_scylla_manager(scylla_manager_package)
         scylla_ext_opts += ' --scylla-manager={}'.format(manager_install_dir)
