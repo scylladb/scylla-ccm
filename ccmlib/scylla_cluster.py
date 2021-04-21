@@ -457,3 +457,28 @@ class ScyllaManager:
         if exit_status != 0:
             raise Exception(" ".join(args), exit_status, stdout, stderr)
         return stdout, stderr
+
+    def agent_download_files(self, node, location_list, snapshot_tag, keyspace_filter_list=None):
+        """
+        The function receives a node object, bucket location list and a snapshot tag
+        and afterwards uses the agent's download-files command to download the snapshot
+        files to the node's upload directory.
+        optional -  keyspace_filter_list: list of glob strings. only the files of keyspaces
+        that match the glob filters will be downloaded.
+        """
+        node_id = node.hostid()
+        agent_config_file = os.path.join(node.get_path(), "conf/scylla-manager-agent.yaml")
+        agent_bin = os.path.join(self._get_path(), 'bin', 'scylla-manager-agent')
+        locations_names = ','.join(location_list)
+        args = [agent_bin, "download-files", "-c", agent_config_file, "-n",  node_id, "-L", str(locations_names),
+                "--mode", "upload", "-T", snapshot_tag, "-d", os.path.join(node.get_path(), "data")]
+        if keyspace_filter_list:
+            args.extend(["-K", ",".join(keyspace_filter_list)])
+
+        print(f"Issuing: {args}")
+        p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        stdout, stderr = p.communicate()
+        exit_status = p.wait()
+        if exit_status != 0:
+            raise Exception(" ".join(args), exit_status, stdout, stderr)
+        return stdout, stderr
