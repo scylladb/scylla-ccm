@@ -429,6 +429,17 @@ class Cluster(object):
                     mark = node.mark_log()
 
                 p = node.start(update_pid=False, jvm_args=jvm_args, profile_options=profile_options, verbose=verbose, quiet_start=quiet_start)
+                # Adding multiple nodes to the cluster in parallel is not
+                # supported by Scylla, at least for now. Scylla is becoming
+                # more strict to check if there are other pending node
+                # operations when a node bootstraps. It fails the bootstrap if
+                # there are pending node operations. To workaround the existing
+                # dtests that adding multiple in parallel, add delay to allow
+                # the second bootstrap node to detect the first bootstrap is in
+                # process and wait until the first node has finished. Starting
+                # nodes at the exact same time makes it very hard to detect
+                # other pending operations in the cluster.
+                time.sleep(2)
                 started.append((node, p, mark))
 
         if no_wait and not verbose:
