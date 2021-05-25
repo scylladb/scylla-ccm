@@ -341,10 +341,26 @@ class ScyllaNode(Node):
             yaml.safe_dump(data, f, default_flow_style=False)
         return conf_file
 
-    def start_scylla_manager_agent(self):
+    def update_agent_config(self, new_settings, restart_agent_after_change=True):
+        conf_file = os.path.join(self.get_conf_dir(), 'scylla-manager-agent.yaml')
+        with open(conf_file, 'r') as f:
+            current_config = yaml.safe_load(f)
+
+        current_config.update(new_settings)
+
+        with open(conf_file, 'w') as f:
+            yaml.safe_dump(current_config, f, default_flow_style=False)
+
+        if restart_agent_after_change:
+            self.restart_scylla_manager_agent(gently=True, recreate_config=False)
+
+    def start_scylla_manager_agent(self, create_config=True):
         agent_bin = os.path.join(self.scylla_manager._get_path(), BIN_DIR, 'scylla-manager-agent')
         log_file = os.path.join(self.get_path(), 'logs', 'system.log.manager_agent')
-        config_file = self._create_agent_config()
+        if create_config:
+            config_file = self._create_agent_config()
+        else:
+            config_file = os.path.join(self.get_conf_dir(), 'scylla-manager-agent.yaml')
 
         args = [agent_bin,
                 '--config-file', config_file]
@@ -365,16 +381,21 @@ class ScyllaNode(Node):
         with open(pid_filename, 'w') as pid_file:
             pid_file.write(str(self._process_agent.pid))
 
-        api_interface = common.parse_interface(self.address(), 10001)
+        with open(config_file, 'r') as f:
+            current_config = yaml.safe_load(f)
+            # Extracting currently configured port
+            current_listening_port = int(current_config['https'].split(":")[1])
+
+        api_interface = common.parse_interface(self.address(), current_listening_port)
         if not common.check_socket_listening(api_interface, timeout=180):
             raise Exception(
                 "scylla manager agent interface %s:%s is not listening after 180 seconds, scylla manager agent may have failed to start."
                 % (api_interface[0], api_interface[1]))
     
-    def restart_scylla_manager_agent(self, gently):
+    def restart_scylla_manager_agent(self, gently, recreate_config=True):
         self.stop_scylla_manager_agent(gently=gently)
         
-        self.start_scylla_manager_agent()
+        self.start_scylla_manager_agent(create_config=recreate_config)
 
     def stop_scylla_manager_agent(self, gently):
         if gently:
