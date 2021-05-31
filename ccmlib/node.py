@@ -220,7 +220,7 @@ class Node(object):
             common.validate_install_dir(self.__install_dir)
             return self.__install_dir
 
-    def set_install_dir(self, install_dir=None, version=None, verbose=False):
+    def set_install_dir(self, install_dir=None, version=None, verbose=False, upgrade=False):
         """
         Sets the path to the cassandra source directory for use by this node.
         """
@@ -232,7 +232,10 @@ class Node(object):
             dir, v = setup(version, verbose=verbose)
             self.__install_dir = dir
         self.import_config_files()
-        self.import_bin_files()
+        if upgrade:
+            self.import_bin_files(exist_ok=True, replace=True)
+        else:
+            self.import_bin_files()
         self.__conf_updated = False
         return self
 
@@ -1380,7 +1383,7 @@ class Node(object):
             if os.path.isfile(filename):
                 shutil.copy(filename, self.get_conf_dir())
 
-    def import_bin_files(self):
+    def import_bin_files(self, exist_ok=False, replace=False):
         bin_dir = os.path.join(self.get_install_dir(), 'bin')
         for name in os.listdir(bin_dir):
             filename = os.path.join(bin_dir, name)
