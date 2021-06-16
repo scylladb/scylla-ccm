@@ -360,7 +360,7 @@ def download_version(version, url=None, verbose=False, target_dir=None):
         if os.path.exists(package_version_file):
             with open(package_version_file) as f:
                 package_version = packaging.version.parse(f.read().strip())
-            if package_version > packaging.version.parse('2.1'):
+            if package_version > packaging.version.parse('3'):
                 print(f'Unknown relocatable package format version: {package_version}')
                 sys.exit(1)
             print(f'Relocatable package format version {package_version} detected.')
