@@ -1004,9 +1004,9 @@ class ScyllaNode(Node):
                                    os.path.join(self.get_bin_dir(), 'scylla-jmx'), replace=replace)
         else:
             self.hard_link_or_copy(os.path.join(self.get_jmx_dir(relative_repos_root), 'target', 'scylla-jmx-1.0.jar'),
-                                   os.path.join(self.get_bin_dir(), 'scylla-jmx-1.0.jar'))
+                                   os.path.join(self.get_bin_dir(), 'scylla-jmx-1.0.jar'), replace=replace)
             self.hard_link_or_copy(os.path.join(self.get_jmx_dir(relative_repos_root), 'scripts', 'scylla-jmx'),
-                                   os.path.join(self.get_bin_dir(), 'scylla-jmx'))
+                                   os.path.join(self.get_bin_dir(), 'scylla-jmx'), replace=replace)
 
         os.makedirs(os.path.join(self.get_bin_dir(), 'symlinks'), exist_ok=exist_ok)
         scylla_jmx_file = os.path.join(self.get_bin_dir(), 'symlinks', 'scylla-jmx')
