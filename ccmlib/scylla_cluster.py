@@ -459,13 +459,16 @@ class ScyllaManager:
             raise Exception(" ".join(args), exit_status, stdout, stderr)
         return stdout, stderr
 
-    def agent_download_files(self, node, location_list, snapshot_tag, keyspace_filter_list=None):
+    def agent_download_files(self, node, location_list, snapshot_tag, keyspace_filter_list=None, dry_run=False):
         """
         The function receives a node object, bucket location list and a snapshot tag
         and afterwards uses the agent's download-files command to download the snapshot
         files to the node's upload directory.
-        optional -  keyspace_filter_list: list of glob strings. only the files of keyspaces
-        that match the glob filters will be downloaded.
+        optional:
+            - keyspace_filter_list: list of glob strings. only the files of keyspaces
+            that match the glob filters will be downloaded.
+            - dry_run: The requested files will not be downloaded, but instead the agent
+            will print out the names of the backed up tables and the size of their snapshots
         """
         node_id = node.hostid()
         agent_config_file = os.path.join(node.get_path(), "conf/scylla-manager-agent.yaml")
@@ -475,6 +478,8 @@ class ScyllaManager:
                 "--mode", "upload", "-T", snapshot_tag, "-d", os.path.join(node.get_path(), "data")]
         if keyspace_filter_list:
             args.extend(["-K", ",".join(keyspace_filter_list)])
+        if dry_run:
+            args.append("--dry-run")
 
         print(f"Issuing: {args}")
         p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
