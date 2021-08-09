@@ -291,7 +291,7 @@ def setup_scylla_manager(scylla_manager_package=None):
             for rpm_file in ['scylla-manager-client', 'scylla-manager-server', 'scylla-manager-agent']:
                 try:
                     f_regex = re.compile(
-                        r'="({}.*?x86_64.rpm)"'.format(rpm_file))
+                        r'="({}.*?64.rpm)"'.format(rpm_file))
                     f_rpm = f_regex.search(data.decode('utf-8')).groups()[0]
                     files_to_download.append(f_rpm)
                 except Exception:
