@@ -11,7 +11,7 @@ import stat
 import subprocess
 import time
 import threading
-from distutils.version import LooseVersion
+from pkg_resources import parse_version
 
 import psutil
 import yaml
@@ -429,15 +429,14 @@ class ScyllaNode(Node):
 
         return java_up
 
-    @property
     def node_install_dir_version(self):
         if not self.node_install_dir:
-            return ""
+            return None
 
         scylla_version_file_path = os.path.join(self.node_install_dir, CORE_PACKAGE_DIR_NAME, SCYLLA_VERSION_FILE)
         if not os.path.exists(scylla_version_file_path):
-            print(f"'{scylla_version_file_path}' wasn't found")
-            return ""
+            self.debug(f"'{scylla_version_file_path}' wasn't found")
+            return None
 
         with open(scylla_version_file_path, 'r') as f:
             version = f.readline()
@@ -598,8 +597,8 @@ class ScyllaNode(Node):
 
         # The '--kernel-page-cache' was introduced by
         # https://github.com/scylladb/scylla/commit/8785dd62cb740522d80eb12f8272081f85be9b7e from 4.5 version
-        current_node_version = self.node_install_dir_version
-        if current_node_version and LooseVersion('666.development') < LooseVersion(current_node_version) >= LooseVersion('4.5'):
+        current_node_version = self.node_install_dir_version() or self.cluster.version()
+        if parse_version(current_node_version) >= parse_version('4.5.dev'):
             args += ['--kernel-page-cache', '1']
 
         ext_env = {}
