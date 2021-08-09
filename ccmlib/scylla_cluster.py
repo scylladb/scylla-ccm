@@ -287,7 +287,7 @@ class ScyllaManager:
         data['database']['hosts'] = [self.scylla_cluster.get_node_ip(1)]
         data['database']['replication_factor'] = 3
         if install_dir and (self.version < LooseVersion("2.5") or
-                            self.version < LooseVersion('666.dev-0.20210430.2217cc84')):
+                            LooseVersion('666') < self.version < LooseVersion('666.dev-0.20210430.2217cc84')):
             data['database']['migrate_dir'] = os.path.join(install_dir, 'schema', 'cql')
         if 'https' in data:
             del data['https']
