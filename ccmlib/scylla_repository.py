@@ -316,7 +316,10 @@ def setup_scylla_manager(scylla_manager_package=None):
                     mkdir -p dist/etc
                     mkdir schema
                     cp -r ./etc/scylla-manager/* ./dist/etc/
-                    cp -r ./etc/scylla-manager/cql ./schema/
+                    if [ -d "./etc/scylla-manager/cql" ]
+                    then
+                        cp -r ./etc/scylla-manager/cql ./schema/
+                    fi
                 ''',
                 cwd=manager_install_dir)
 
