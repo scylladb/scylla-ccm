@@ -206,8 +206,22 @@ def setup(version, verbose=True):
                 wait_for_parallel_download_finish(placeholder_file=download_in_progress_file.absolute())
             else:
                 download_in_progress_file.touch()
-                package_version = download_packages(version_dir=version_dir, packages=packages, s3_url=s3_url,
-                                                    scylla_product=scylla_product, version=version, verbose=verbose)
+                try:
+                    package_version = download_packages(version_dir=version_dir, packages=packages, s3_url=s3_url,
+                                                        scylla_product=scylla_product, version=version, verbose=verbose)
+                except requests.HTTPError as err:
+                    if '404' in err.args[0]:
+                        packages_x86_64 = RelocatablePackages(
+                            scylla_jmx_package=os.path.join(s3_url, f'{scylla_product}-jmx-package.tar.gz'),
+                            scylla_tools_package=os.path.join(s3_url, f'{scylla_product}-tools-package.tar.gz'),
+                            scylla_package=os.path.join(s3_url, f'{scylla_product}-x86_64-package.tar.gz')
+                        )
+                        package_version = download_packages(version_dir=version_dir, packages=packages_x86_64,
+                                                            s3_url=s3_url, scylla_product=scylla_product,
+                                                            version=version, verbose=verbose)
+                    else:
+                        raise
+
                 download_in_progress_file.touch()
 
                 # install using scylla install.sh
