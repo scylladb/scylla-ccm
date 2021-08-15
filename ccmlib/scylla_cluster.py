@@ -24,7 +24,7 @@ class ScyllaCluster(Cluster):
 
     def __init__(self, path, name, partitioner=None, install_dir=None,
                  create_directory=True, version=None, verbose=False,
-                 force_wait_for_cluster_start=False, manager=None, **kwargs):
+                 force_wait_for_cluster_start=False, manager=None, skip_manager_server=False, **kwargs):
         install_func = common.scylla_extract_install_dir_and_mode
 
         cassandra_version = kwargs.get('cassandra_version', version)
@@ -43,6 +43,7 @@ class ScyllaCluster(Cluster):
         self.started = False
         self.force_wait_for_cluster_start = (force_wait_for_cluster_start != False)
         self._scylla_manager = None
+        self.skip_manager_server = skip_manager_server
         self.scylla_version = cassandra_version
 
         super(ScyllaCluster, self).__init__(path, name, partitioner,
@@ -146,7 +147,7 @@ class ScyllaCluster(Cluster):
         kwargs = dict(**locals())
         del kwargs['self']
         started = self.start_nodes(**kwargs)
-        if self._scylla_manager:
+        if self._scylla_manager and not self.skip_manager_server:
             self._scylla_manager.start()
 
         return started
@@ -175,7 +176,7 @@ class ScyllaCluster(Cluster):
         return [node for node in nodes if not node.is_running()]
 
     def stop(self, wait=True, gently=True, wait_other_notice=False, other_nodes=None, wait_seconds=None):
-        if self._scylla_manager:
+        if self._scylla_manager and not self.skip_manager_server:
             self._scylla_manager.stop(gently)
         kwargs = dict(**locals())
         del kwargs['self']
@@ -228,12 +229,12 @@ class ScyllaCluster(Cluster):
         return self._scylla_manager.sctool(cmd)
 
     def start_scylla_manager(self):
-        if not self._scylla_manager:
+        if not self._scylla_manager or self.skip_manager_server:
             return
         self._scylla_manager.start()
 
     def stop_scylla_manager(self, gently=True):
-        if not self._scylla_manager:
+        if not self._scylla_manager or self.skip_manager_server:
             return
         self._scylla_manager.stop(gently)
 
