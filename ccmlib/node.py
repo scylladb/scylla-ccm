@@ -1923,22 +1923,6 @@ class Node(object):
     def error(self, message):
         self.cluster.error(self._log_message(message))
 
-
-    def _log_message(self, message):
-        return "{}: {}".format(self.name, message)
-
-    def debug(self, message):
-        self.cluster.debug(self._log_message(message))
-
-    def info(self, message):
-        self.cluster.info(self._log_message(message))
-
-    def warning(self, message):
-        self.cluster.warning(self._log_message(message))
-
-    def error(self, message):
-        self.cluster.error(self._log_message(message))
-
     def get_node_scylla_version(selff, scylla_exec_path=None): ...
 
 
