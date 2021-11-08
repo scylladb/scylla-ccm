@@ -286,56 +286,14 @@ def setup_scylla_manager(scylla_manager_package=None):
         manager_install_dir = directory_name(os.path.join('manager', m.hexdigest()))
         if not os.path.exists(manager_install_dir):
             os.makedirs(manager_install_dir)
-
-            # download and traverse the repo data, for getting the url for the RPMs
-            url = os.path.join(scylla_manager_package, 'repodata/repomd.xml')
-            page = requests.get(url).text
-
-            primary_regex = re.compile(r'="(.*?primary.xml.gz)"')
-            primary_path = primary_regex.search(page).groups()[0]
-
-            url = os.path.join(scylla_manager_package, primary_path)
-            data = requests.get(url).content
-
-            # unzip the repo primary listing
-            zf = gzip.GzipFile(fileobj=BytesIO(data))
-            data = zf.read()
-
-            files_to_download = []
-            for rpm_file in ['scylla-manager-client', 'scylla-manager-server', 'scylla-manager-agent']:
-                try:
-                    f_regex = re.compile(
-                        r'="({}.*?64.rpm)"'.format(rpm_file))
-                    f_rpm = f_regex.search(data.decode('utf-8')).groups()[0]
-                    files_to_download.append(f_rpm)
-                except Exception:
-                    pass
-
-            # download the RPMs and extract them into place
-            for rpm_file in files_to_download:
-                url = os.path.join(scylla_manager_package, rpm_file)
-                rpm_data = requests.get(url).content
-
-                p = Popen(['bash', '-c', 'rpm2cpio - | cpio -id'],
-                          stdout=PIPE, stdin=PIPE, stderr=STDOUT, cwd=manager_install_dir)
-                grep_stdout = p.communicate(input=rpm_data)[0]
-                print_(grep_stdout.decode())
-
-            # TODO: remove this, and make the code the correct paths directly
-            # final touch to align the files structure to how it in mermaid repo
-            run('''
-                    cp ./usr/bin/sctool .
-                    cp ./usr/bin/scylla-manager .
-                    
-                    mkdir -p dist/etc
-                    mkdir schema
-                    cp -r ./etc/scylla-manager/* ./dist/etc/
-                    if [ -d "./etc/scylla-manager/cql" ]
-                    then
-                        cp -r ./etc/scylla-manager/cql ./schema/
-                    fi
-                ''',
-                cwd=manager_install_dir)
+            tar_data = requests.get(scylla_manager_package, stream=True)
+            destination_file = os.path.join(manager_install_dir, "manager.tar.gz")
+            with open(destination_file, mode="wb") as f:
+                f.write(tar_data.raw.read())
+            run(f"""
+                tar -xvf {destination_file} -C {manager_install_dir}
+                rm -f {destination_file}
+                """)
 
         return manager_install_dir
 

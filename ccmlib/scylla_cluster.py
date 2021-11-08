@@ -321,30 +321,22 @@ class ScyllaManager:
             yaml.safe_dump(data, f, default_flow_style=False)
 
     def _copy_config_files(self, install_dir):
-        conf_dir = os.path.join(install_dir, 'dist', 'etc')
+        conf_dir = os.path.join(install_dir, 'etc')
         if not os.path.exists(conf_dir):
             raise Exception("%s is not a valid scylla-manager install dir" % install_dir)
         for name in os.listdir(conf_dir):
             filename = os.path.join(conf_dir, name)
             if os.path.isfile(filename):
                 shutil.copy(filename, self._get_path())
-        agent_conf = os.path.join(install_dir, 'etc/scylla-manager-agent/scylla-manager-agent.yaml')
-        if os.path.exists(agent_conf):
-            shutil.copy(agent_conf, self._get_path())
 
     def _copy_bin_files(self, install_dir):
         os.mkdir(os.path.join(self._get_path(), 'bin'))
-        files = ['scylla-manager', 'sctool']
+        files = ['sctool', 'scylla-manager', 'scylla-manager-agent']
         for name in files:
-            src = os.path.join(install_dir, 'usr', 'bin',name)
+            src = os.path.join(install_dir, name)
             if not os.path.exists(src):
-               raise Exception("%s not found in scylla-manager install dir" % src)
-            shutil.copy(src,
-                        os.path.join(self._get_path(), 'bin', name))
-
-        agent_bin = os.path.join(install_dir, 'usr', 'bin', 'scylla-manager-agent')
-        if os.path.exists(agent_bin):
-            shutil.copy(agent_bin, os.path.join(self._get_path(), 'bin', 'scylla-manager-agent'))
+                raise Exception("%s not found in scylla-manager install dir" % src)
+            shutil.copy(src,os.path.join(self._get_path(), 'bin', name))
 
     @property
     def is_agent_available(self):
