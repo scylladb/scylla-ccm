@@ -1081,7 +1081,7 @@ class Node(object):
         if dry_run:
             cmd = sstableofflinerelevel + ["--dry-run", keyspace, cf]
         else:
-            cmd = sstableofflinerelevel +[keyspace, cf]
+            cmd = sstableofflinerelevel + [keyspace, cf]
 
         if output:
             p = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, env=env, universal_newlines=True)
@@ -1095,7 +1095,8 @@ class Node(object):
         sstableverify = self.get_tool('sstableverify')
         env = self.get_env()
         sstablefiles = self.__cleanup_sstables(keyspace, cf)
-
+        if not isinstance(sstableverify, list):
+            sstableverify = [sstableverify]
         cmd = sstableverify + [keyspace, cf]
         if options is not None:
             cmd[1:1] = options
