@@ -56,16 +56,16 @@ jobs:
     - name: Download versions
       if: steps.cache-versions.outputs.cache-hit != 'true'
       run: |
-        if [ ! -f ~/.ccm/scylla-repository/unstable/master/2020-08-29T22_24_05Z ]; then
-          RELOC_VERSION="2020-08-29T22:24:05Z"
-          AWS_BASE=s3://downloads.scylladb.com/relocatable/unstable/master/${RELOC_VERSION}
+        if [ ! -f ~/.ccm/scylla-repository/unstable/master/2021-11-18T04_00_29Z ]; then
+          RELOC_VERSION="2021-11-18T04:00:29Z"
+          AWS_BASE=s3://downloads.scylladb.com/unstable/scylla/master/relocatable/${RELOC_VERSION}
 
-          aws s3 --only-show-errors --no-sign-request cp ${AWS_BASE}/scylla-package.tar.gz .
+          aws s3 --only-show-errors --no-sign-request cp ${AWS_BASE}/scylla-x86_64-package.tar.gz .
           aws s3 --only-show-errors --no-sign-request cp ${AWS_BASE}/scylla-tools-package.tar.gz .
           aws s3 --only-show-errors --no-sign-request cp ${AWS_BASE}/scylla-jmx-package.tar.gz .
 
           ./ccm create temp -n 1 --scylla --version unstable/master:${RELOC_VERSION} \
-            --scylla-core-package-uri=./scylla-package.tar.gz \
+            --scylla-core-package-uri=./scylla-x86_64-package.tar.gz \
             --scylla-tools-java-package-uri=./scylla-tools-package.tar.gz \
             --scylla-jmx-package-uri=./scylla-jmx-package.tar.gz
           ./ccm remove

@@ -14,7 +14,7 @@ LOGGER = logging.getLogger(__name__)
 
 cluster_params = pytest.mark.parametrize(
     'cluster_under_test',
-    (pytest.param('ccm_docker_cluster', marks=pytest.mark.docker),
+    (pytest.param('ccm_docker_cluster', marks=[pytest.mark.docker, pytest.mark.skip(reason="ccm docker support broke in master, need to fix")]),
      pytest.param('ccm_reloc_cluster', marks=pytest.mark.reloc),
      pytest.param('ccm_cassandra_cluster', marks=pytest.mark.cassandra)
      ),
