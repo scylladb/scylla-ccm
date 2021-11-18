@@ -594,14 +594,15 @@ class ScyllaNode(Node):
         if replace_address:
             args += ['--replace-address', replace_address]
         args += ['--unsafe-bypass-fsync', '1']
-        if '--max-networking-io-control-blocks' not in args:
-            args += ['--max-networking-io-control-blocks', '100']
 
         # The '--kernel-page-cache' was introduced by
         # https://github.com/scylladb/scylla/commit/8785dd62cb740522d80eb12f8272081f85be9b7e from 4.5 version
         current_node_version = self.node_install_dir_version() or self.cluster.version()
         if parse_version(current_node_version) >= parse_version('4.5.dev'):
             args += ['--kernel-page-cache', '1']
+
+        if parse_version(current_node_version) >= parse_version('4.7.dev') and '--max-networking-io-control-blocks' not in args:
+            args += ['--max-networking-io-control-blocks', '100']
 
         ext_env = {}
         scylla_ext_env = os.getenv('SCYLLA_EXT_ENV', "").strip()

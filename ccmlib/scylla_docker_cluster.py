@@ -321,9 +321,9 @@ class ScyllaDockerNode(ScyllaNode):
         # TODO: handle the cases args are changing between reboots (if there are any like that)
         self.create_docker(args)
 
-        scylla_status = self.service_status('scylla')
+        scylla_status = self.service_status('scylla-server')
         if scylla_status and scylla_status.upper() != 'RUNNING':
-            self.service_start('scylla')
+            self.service_start('scylla-server')
             # self.service_start('scylla-jmx')
 
         if wait_other_notice:
@@ -346,7 +346,7 @@ class ScyllaDockerNode(ScyllaNode):
         """
         if gently:
             self.service_stop('scylla-jmx')
-            self.service_stop('scylla')
+            self.service_stop('scylla-server')
         else:
             res = run(['bash', '-c', f"docker exec {self.pid} bash -c 'kill -9 `supervisorctl pid scylla`'"],
                       stdout=PIPE, stderr=PIPE)
@@ -388,7 +388,7 @@ class ScyllaDockerNode(ScyllaNode):
                 self.status = Status.DOWN
             return
 
-        scylla_status = self.service_status('scylla')
+        scylla_status = self.service_status('scylla-server')
         if scylla_status and scylla_status.upper() == 'RUNNING':
             self.status = Status.UP
         else:

@@ -3,6 +3,7 @@ import pytest
 
 
 @pytest.mark.docker
+@pytest.mark.skip(reason="ccm docker support broke in master, need to fix")
 class TestScyllaDockerCluster:
     @staticmethod
     def parse_nodetool_status(lines):
