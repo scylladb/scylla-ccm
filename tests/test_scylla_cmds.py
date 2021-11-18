@@ -193,7 +193,7 @@ class TestCCMClusterManagerSctool:
         try:
             cluster_under_test.run_command(cluster_under_test.get_create_cmd(args=['-n', '3',
                 '--scylla-manager-package',
-                'http://downloads.scylladb.com/manager/rpm/unstable/centos/branch-2.2/latest/scylla-manager/x86_64/']))
+                'http://downloads.scylladb.com.s3.amazonaws.com/manager/relocatable/unstable/master/2021-11-08T22%3A06%3A29Z/scylla-manager_2.6-dev-0.20211108.5f1e01cbb34-SNAPSHOT-5f1e01cbb34.linux_amd64.tar.gz']))
             cluster_under_test.validate_command_result()
 
             cluster_under_test.run_command(cluster_under_test.get_updateconf_cmd())
