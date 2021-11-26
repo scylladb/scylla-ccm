@@ -293,7 +293,7 @@ class Cluster(object):
         binary = None
         if parse_version(self.version()) >= parse_version('1.2'):
             binary = self.get_binary_interface(i)
-        node = self.create_node(name='node{}'.format(i),
+        node = self.create_node(name='node{0:02d}'.format(i),
                                 auto_bootstrap=auto_bootstrap,
                                 thrift_interface=self.get_thrift_interface(i),
                                 storage_interface=self.get_storage_interface(i),
