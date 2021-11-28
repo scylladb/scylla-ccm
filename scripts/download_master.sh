@@ -10,7 +10,7 @@ AWS_BASE=s3://downloads.scylladb.com/unstable/scylla/${BRANCH}/relocatable/${LAT
 
 rm scylla-*.tar.gz
 
-aws s3 --no-sign-request cp ${AWS_BASE}/scylla-package.tar.gz .
+aws s3 --no-sign-request cp ${AWS_BASE}/scylla-x86_64-package.tar.gz .
 aws s3 --no-sign-request cp ${AWS_BASE}/scylla-tools-package.tar.gz .
 aws s3 --no-sign-request cp ${AWS_BASE}/scylla-jmx-package.tar.gz .
 
@@ -18,7 +18,7 @@ NAME=master_$LATEST_MASTER_JOB_ID
 NAME=$(echo master_$LATEST_MASTER_JOB_ID | sed 's/:/_/g')
 
 ccm create scylla-driver-temp -n 1 --scylla --version $NAME \
-  --scylla-core-package-uri=./scylla-package.tar.gz \
+  --scylla-core-package-uri=./scylla-x86_64-package.tar.gz \
   --scylla-tools-java-package-uri=./scylla-tools-package.tar.gz \
   --scylla-jmx-package-uri=./scylla-jmx-package.tar.gz
 
