@@ -25,7 +25,7 @@ class Cluster(object):
         self.id = 0
         self.ipprefix = None
         self.ipformat = None
-        self.nodes = {}
+        self.nodes = OrderedDict()
         self.seeds = []
         self.partitioner = partitioner
         self.snitch = snitch
@@ -216,7 +216,7 @@ class Cluster(object):
         return False
 
     def nodelist(self):
-        return [self.nodes[name] for name in sorted(self.nodes.keys())]
+        return [self.nodes[name] for name in self.nodes.keys()]
 
     def version(self):
         return self.__version
