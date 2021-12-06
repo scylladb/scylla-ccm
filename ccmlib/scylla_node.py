@@ -601,8 +601,8 @@ class ScyllaNode(Node):
         if parse_version(current_node_version) >= parse_version('4.5.dev'):
             args += ['--kernel-page-cache', '1']
 
-        if parse_version(current_node_version) >= parse_version('4.7.dev') and '--max-networking-io-control-blocks' not in args:
-            args += ['--max-networking-io-control-blocks', '100']
+        if parse_version(current_node_version) >= parse_version('4.6') and '--max-networking-io-control-blocks' not in args:
+            args += ['--max-networking-io-control-blocks', '1000']
 
         ext_env = {}
         scylla_ext_env = os.getenv('SCYLLA_EXT_ENV', "").strip()
