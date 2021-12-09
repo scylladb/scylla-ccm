@@ -55,7 +55,7 @@ class RelocatablePackages(NamedTuple):
     scylla_jmx_package: str
 
 
-def release_packages(s3_url, version):
+def release_packages(s3_url, version, arch='x86_64'):
     """
     Choose RELEASE relocatable packages for download.
     It covers 3 cases:
@@ -78,7 +78,14 @@ def release_packages(s3_url, version):
         raise RuntimeError(
             f"Failed to get release packages list for version {major_version}. URL: {s3_url}.")
 
-    all_packages = [name for name in files_in_bucket if 'jmx' in name or 'tools' in name or 'scylla-package' in name]
+    scylla_package_mark = 'scylla-package'
+
+    for file_name in files_in_bucket:
+        if f'scylla-{arch}-package' in file_name:
+            scylla_package_mark = f'scylla-{arch}-package'
+            break
+
+    all_packages = [name for name in files_in_bucket if 'jmx' in name or 'tools' in name or scylla_package_mark in name]
 
     candidates = []
     # Search for released version packages
@@ -117,11 +124,14 @@ def release_packages(s3_url, version):
     for package in release_packages:
         # Expected packages names (examples):
         #  'scylla-jmx-package-4.3.0-0.20210110.000585522.tar.gz'
-        #  'scylla-package-4.3.0-0.20210110.000585522.tar.gz'
+        #  'scylla-package-4.3.0-0.20210110.000585522.tar.gz' or
+        #   'scylla-x86_64-package-4.6.0-0.20211010.000585522.tar.gz'
         #  'scylla-tools-package-4.3.0-0.20210110.000585522.tar.gz'
-        release_packages_dict[package.split("-")[1]] = package
+        for package_type in ['jmx', 'tools', scylla_package_mark]:
+            if package_type in package:
+                release_packages_dict[package_type] = package
 
-    packages = RelocatablePackages(scylla_package=os.path.join(s3_url, release_packages_dict['package']),
+    packages = RelocatablePackages(scylla_package=os.path.join(s3_url, release_packages_dict[scylla_package_mark]),
                                    scylla_jmx_package=os.path.join(s3_url, release_packages_dict['jmx']),
                                    scylla_tools_package=os.path.join(s3_url, release_packages_dict['tools']))
 
@@ -155,6 +165,7 @@ def setup(version, verbose=True):
     s3_url = ''
     type_n_version = version.split(':', 1)
     scylla_product = os.environ.get('SCYLLA_PRODUCT', 'scylla')
+    scylla_arch = os.environ.get('SCYLLA_ARCH', 'x86_64')
 
     packages = None
     if len(type_n_version) == 2:
@@ -166,7 +177,7 @@ def setup(version, verbose=True):
                 s3_url = ENTERPRISE_RELEASE_RELOCATABLE_URLS_BASE
             else:
                 s3_url = RELEASE_RELOCATABLE_URLS_BASE
-            packages, type_n_version[1] = release_packages(s3_url=s3_url, version=s3_version)
+            packages, type_n_version[1] = release_packages(s3_url=s3_url, version=s3_version, arch=scylla_arch)
         else:
             _, branch = type_n_version[0].split("/")
             if 'enterprise' in scylla_product:
@@ -174,12 +185,24 @@ def setup(version, verbose=True):
             else:
                 s3_url = get_relocatable_s3_url(branch, s3_version, RELOCATABLE_URLS_BASE)
 
-            packages = RelocatablePackages(scylla_jmx_package=os.path.join(s3_url,
-                                                                           f'{scylla_product}-jmx-package.tar.gz'),
-                                           scylla_tools_package=os.path.join(s3_url,
-                                                                             f'{scylla_product}-tools-package.tar.gz'),
-                                           scylla_package=os.path.join(s3_url,
-                                                                       f'{scylla_product}-package.tar.gz'))
+            scylla_arch_package_path = f'{scylla_product}-{scylla_arch}-package.tar.gz'
+            scylla_noarch_package_path = f'{scylla_product}-package.tar.gz'
+
+            aws_files = aws_bucket_ls(s3_url)
+
+            if scylla_arch_package_path in aws_files:
+                scylla_package_path = scylla_arch_package_path
+            elif scylla_noarch_package_path in aws_files:
+                scylla_package_path = scylla_noarch_package_path
+            else:
+                raise RuntimeError("Can't find %s or %s in the %s",
+                                   scylla_arch_package_path, scylla_noarch_package_path, s3_url)
+
+            packages = RelocatablePackages(
+                scylla_jmx_package=os.path.join(s3_url, f'{scylla_product}-jmx-package.tar.gz'),
+                scylla_tools_package=os.path.join(s3_url, f'{scylla_product}-tools-package.tar.gz'),
+                scylla_package=os.path.join(s3_url, scylla_package_path)
+            )
 
         version = os.path.join(*type_n_version)
 
