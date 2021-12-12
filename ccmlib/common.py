@@ -429,16 +429,17 @@ def scylla_extract_mode(path):
     #   build/dev/
     #   ../build/release/scylla
     #   url=../scylla/build/debug/scylla-package.tar.gz
-    m = re.search('(^|/)build/(\w+)(/|$)', path)
+    m = re.search(r'(^|/)build/(\w+)(/|$)', path)
     if m:
         return m.group(2)
 
     # path/url examples:
     #   /jenkins/data/relocatable/unstable/master/202001192256/scylla-package.tar.gz
     #   url=https://downloads.scylla.com/relocatable/unstable/master/202001192256/scylla-debug-package.tar.gz
-    m = re.search('(^|/)scylla(-(\w+))?-package([./][\w./]+|$)', path)
+    m = re.search(r'(^|/)scylla(-(\w+))?(-(\w+))?-package([-./][\w./]+|$)', path)
     if m:
-        return m.group(3) if m.group(3) else 'release' 
+        mode = m.groups()
+        return mode[2] if mode[4] or mode[2] in ('debug', 'dev') else 'release'
 
     return None
 
