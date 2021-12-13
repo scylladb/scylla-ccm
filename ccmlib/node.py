@@ -23,6 +23,7 @@ from six.moves import xrange
 
 from ccmlib import common
 from ccmlib.cli_session import CliSession
+from ccmlib.common import wait_for
 from ccmlib.repository import setup
 
 
@@ -438,7 +439,7 @@ class Node(object):
 
         log_file = os.path.join(self.get_path(), 'logs', filename)
         while not os.path.exists(log_file):
-            time.sleep(.1)
+            time.sleep(0.1)
             if process:
                 process.poll()
                 if process.returncode is not None:
@@ -480,7 +481,7 @@ class Node(object):
                 else:
                     # yep, it's ugly
                     time.sleep(0.01)
-                    elapsed = elapsed + 1
+                    elapsed += 1
                     if elapsed > 100 * timeout:
                         raise TimeoutError(time.strftime("%d %b %Y %H:%M:%S", time.gmtime()) + " [" + self.name + "] Missing: " + str(
                             [e.pattern for e in tofind]) + ":\n" + reads[:50] + ".....\nSee {} for remainder".format(filename))
@@ -714,22 +715,12 @@ class Node(object):
                 for node, mark in marks:
                     node.watch_log_for_death(self, from_mark=mark)
             else:
-                time.sleep(.1)
+                time.sleep(0.1)
 
             still_running = self.is_running()
             if still_running and wait:
-                # The sum of 7 sleeps starting at 1 and doubling each time
-                # is 2**7-1 (=127). So to sleep an arbitrary wait_seconds
-                # we need the first sleep to be wait_seconds/(2**7-1).
-                wait_time_sec = wait_seconds/(2**7-1.0)
-                for i in xrange(0, 7):
-                    # we'll double the wait time each try and cassandra should
-                    # not take more than 1 minute to shutdown
-                    time.sleep(wait_time_sec)
-                    if not self.is_running():
-                        return True
-                    wait_time_sec = wait_time_sec * 2
-                raise NodeError("Problem stopping node %s" % self.name)
+                if not wait_for(func=self.is_running, timeout=wait_seconds, expected_result=False, step=0.5):
+                    raise NodeError("Problem stopping node %s" % self.name)
             else:
                 return True
         else:
@@ -739,12 +730,9 @@ class Node(object):
         """
         Wait for all compactions to finish on this node.
         """
-        pattern = re.compile("pending tasks: 0")
-        while True:
-            output, err = self.nodetool("compactionstats", capture_output=True)
-            if pattern.search(output):
-                break
-            time.sleep(10)
+        timeout = 24 * 60 * 60  # Wait 24 hours
+        wait_for(func=lambda: re.compile("pending tasks: 0").search(self.nodetool(
+            "compactionstats", capture_output=True)[0]), expected_result=True, timeout=timeout, step=1)
 
     def nodetool(self, cmd, capture_output=True, wait=True, timeout=None):
         """

@@ -23,42 +23,12 @@ from six import print_
 from six.moves import xrange
 
 from ccmlib import common
+from ccmlib.common import wait_for
 from ccmlib.node import Node, NodeUpgradeError
 from ccmlib.node import Status
 from ccmlib.node import NodeError
 from ccmlib.node import TimeoutError
 from ccmlib.scylla_repository import setup, CORE_PACKAGE_DIR_NAME, SCYLLA_VERSION_FILE
-
-
-def wait_for(func, timeout, first=0.0, step=1.0, text=None):
-    """
-    Wait until func() evaluates to True.
-
-    If func() evaluates to True before timeout expires, return the
-    value of func(). Otherwise return None.
-
-    :param func: Function that will be evaluated.
-    :param timeout: Timeout in seconds
-    :param first: Time to sleep before first attempt
-    :param step: Time to sleep between attempts in seconds
-    :param text: Text to print while waiting, for debug purposes
-    """
-    start_time = time.time()
-    end_time = time.time() + timeout
-
-    time.sleep(first)
-
-    while time.time() < end_time:
-        if text:
-            print_("%s (%f secs)" % (text, (time.time() - start_time)))
-
-        output = func()
-        if output:
-            return output
-
-        time.sleep(step)
-
-    return None
 
 
 class ScyllaNode(Node):
@@ -249,7 +219,7 @@ class ScyllaNode(Node):
             return False
         prev_mark = from_mark
         prev_mark_time = time.time()
-        sleep_time = 10 if timeout >= 100 else 1
+        sleep_time = 0.5
         while not self.grep_log(starting_message, from_mark=from_mark):
             process.poll()
             if process.returncode is not None:
@@ -410,16 +380,16 @@ class ScyllaNode(Node):
                 pass
 
     def _wait_java_up(self, ip_addr, jmx_port):
-        start_time = time.time()
-        while (time.time() - start_time) < 30:
+        def _wait_java_up_logic():
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as _socket:
                 _socket.settimeout(1.0)
                 try:
                     _socket.connect((ip_addr, jmx_port))
                     return True
                 except (socket.timeout, ConnectionRefusedError):
-                    time.sleep(0.05)
-        return False
+                    return False
+
+        return wait_for(func=_wait_java_up_logic, timeout=30, expected_result=True)
 
     def node_install_dir_version(self):
         if not self.node_install_dir:
@@ -673,7 +643,7 @@ class ScyllaNode(Node):
                             os.stat(pidfile).st_size if os.path.exists(pidfile) else -1))
                 break
             else:
-                time.sleep(0.1)
+                time.sleep(0.05)
 
         if os.path.isfile(pidfile) and os.stat(pidfile).st_size > 0:
             try:
@@ -714,7 +684,7 @@ class ScyllaNode(Node):
                         os.stat(pidfile).st_size if os.path.exists(pidfile) else -1))
                 break
             else:
-                time.sleep(0.1)
+                time.sleep(0.05)
 
         try:
             with open(pidfile, 'r') as f:
@@ -760,19 +730,7 @@ class ScyllaNode(Node):
         return did_stop
 
     def _wait_until_stopped(self, wait_seconds):
-        start_time = time.time()
-        wait_time_sec = 1
-        while True:
-            if not self.is_running():
-                return True
-            elapsed = time.time() - start_time
-            if elapsed >= wait_seconds:
-                return False
-            time.sleep(wait_time_sec)
-            if elapsed + wait_time_sec > wait_seconds:
-                wait_time_sec = wait_seconds - elapsed
-            elif wait_time_sec <= 16:
-                wait_time_sec *= 2
+        return wait_for(func=self.is_running, timeout=wait_seconds, expected_result=False)
 
     def wait_until_stopped(self, wait_seconds=None, marks=[], dump_core=True):
         """
@@ -807,10 +765,9 @@ class ScyllaNode(Node):
         while self.jmx_pid and time.time() - start < wait_seconds:
             try:
                 os.kill(self.jmx_pid, 0)
-                time.sleep(1)
+                time.sleep(0.05)
             except OSError:
                 self.jmx_pid = None
-                pass
 
         if self.jmx_pid:
             try:
@@ -1246,8 +1203,7 @@ class ScyllaNode(Node):
                     if pending_flushes_count > 0:
                         pending_flushes = True
             return not pending_flushes
-        result = wait_for(no_pending_flushes, timeout=wait_timeout, step=1.0)
-        if result is None:
+        if not wait_for(no_pending_flushes, timeout=wait_timeout, step=1.0, expected_result=True):
             raise NodeError("Node %s still has pending flushes after "
                             "%s seconds" % (self.name, wait_timeout))
 

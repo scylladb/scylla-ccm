@@ -383,7 +383,7 @@ class Cluster(object):
                     removed = True
                 except:
                     tries = tries + 1
-                    time.sleep(.1)
+                    time.sleep(0.1)
                     if tries == 5:
                         raise
 

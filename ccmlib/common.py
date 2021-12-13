@@ -461,31 +461,45 @@ def scylla_extract_install_dir_and_mode(install_dir):
     return install_dir, scylla_mode
 
 
+def wait_for(func, timeout, expected_result, first=0.0, step=0.05, text=None) -> bool:
+    """
+    Wait until func() result will be the value that user's expected result.
+    The "wait_for" returns a boolean value, and it depends on the user's expected result or not.
+
+    :param func: Function that will be evaluated.
+    :param timeout: Timeout in seconds
+    :param expected_result: The expected value that should to return from func()
+    :param first: Time to sleep before first attempt
+    :param step: Time to sleep between attempts in seconds
+    :param text: Text to print while waiting, for debug purposes
+    """
+    start_time = time.time()
+
+    if first:
+        print_(f"Wanting '%d' second before run the first attempt", first)
+        time.sleep(first)
+
+    while timeout > (time.time() - start_time):
+        if text:
+            print_("%s (%f secs)" % (text, (time.time() - start_time)))
+
+        if func() == expected_result:
+            return True
+        time.sleep(step)
+
+    return False
+
+
 def check_file_exists(path_to_file):
     if os.path.exists(path_to_file):
         return True
     return False
 
 
-def _wait_until_false(wait_seconds, func, kwargs):
-    start_time = time.time()
-    wait_time_sec = 5
-    while True:
-        if not func(**kwargs):
-            return True
-        elapsed = time.time() - start_time
-        if elapsed >= wait_seconds:
-            return False
-        time.sleep(wait_time_sec)
-        if elapsed + wait_time_sec > wait_seconds:
-            wait_time_sec = wait_seconds - elapsed
-        elif wait_time_sec <= 16:
-            wait_time_sec *= 2
-
-
 def wait_for_parallel_download_finish(placeholder_file):
     if check_file_exists(placeholder_file):
-        if not _wait_until_false(wait_seconds=3600, func=check_file_exists, kwargs={'path_to_file': placeholder_file}):
+        if not wait_for(func=lambda: check_file_exists(**{'path_to_file': placeholder_file}), timeout=3600,
+                        expected_result=False):
             raise TimeoutError(f"Relocatables download still runs in parallel from another test after 60 min. "
                                f"Placeholder file exists: {placeholder_file}")
 
@@ -543,19 +557,15 @@ def check_socket_available(itf):
 
 
 def check_socket_listening(itf, timeout=60):
-    end = time.time() + timeout
-    while time.time() <= end:
-        try:
-            sock = socket.socket()
-            sock.connect(itf)
-            sock.close()
-            return True
-        except socket.error:
-            # Try again in another 200ms
-            time.sleep(.2)
-            continue
+    def _check_socket_listening():
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as _socket:
+            try:
+                _socket.connect(itf)
+                return True
+            except socket.error:
+                return False
 
-    return False
+    return wait_for(func=_check_socket_listening, timeout=timeout, expected_result=True)
 
 
 def interface_is_ipv6(itf):
