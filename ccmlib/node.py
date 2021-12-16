@@ -1505,7 +1505,10 @@ class Node(object):
             # cassandra 0.8
             data['seed_provider'][0]['parameters'][0]['seeds'] = ','.join(self.cluster.get_seeds())
         data['listen_address'], data['storage_port'] = self.network_interfaces['storage']
-        data['rpc_address'], data['rpc_port'] = self.network_interfaces['thrift']
+        if self.get_base_cassandra_version() >= 4.0:
+            data['rpc_address'], data['native_transport_port'] = self.network_interfaces['thrift']
+        else:
+            data['rpc_address'], data['rpc_port'] = self.network_interfaces['thrift']
         if self.network_interfaces['binary'] is not None and self.get_base_cassandra_version() >= 1.2:
             _, data['native_transport_port'] = self.network_interfaces['binary']
 
