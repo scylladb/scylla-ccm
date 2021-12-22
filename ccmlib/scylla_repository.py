@@ -408,7 +408,7 @@ def version_directory(version):
 def __get_dir():
     repo = os.path.join(get_default_path(), 'scylla-repository')
     if not os.path.exists(repo):
-        os.mkdir(repo)
+        os.makedirs(repo, exist_ok=True)
     return repo
 
 
