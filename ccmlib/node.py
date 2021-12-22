@@ -735,16 +735,30 @@ class Node(object):
         else:
             return False
 
-    def wait_for_compactions(self):
+    def wait_for_compactions(self, idle_timeout=300):
         """
         Wait for all compactions to finish on this node.
+        idle_timeout is the time in seconds to wait for progress.
+        Total time to wait is undeteremined, as long as we observe forward progress.
         """
-        pattern = re.compile("pending tasks: 0")
-        while True:
+        pending_tasks = None
+        last_change = None
+        pattern = re.compile(r"pending tasks:\s*(?P<tasks>\d+)")
+        while not last_change or time.time() - last_change < idle_timeout:
             output, err = self.nodetool("compactionstats", capture_output=True)
-            if pattern.search(output):
-                break
-            time.sleep(10)
+            m = pattern.search(output)
+            if not m:
+                raise RuntimeError(f"Cannot find 'pending tasks' in nodetool output.\nOutput: {output}")
+            n = int(m.group('tasks'))
+            if n == 0:
+                return
+            if n != pending_tasks:
+                pending_tasks = n
+                last_change = time.time()
+                if n > pending_tasks:     # background progress
+                    self.warning(f"Pending compaction tasks increased from {pending_tasks} to {n} while waiting for compactions.")
+            time.sleep(1)
+        raise TimeoutError(f"Waiting for compactions timed out after {idle_timeout} seconds with {pending_tasks} pending tasks remaining.")
 
     def nodetool(self, cmd, capture_output=True, wait=True, timeout=None):
         """
