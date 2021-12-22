@@ -453,7 +453,7 @@ def __download(url, target, username=None, password=None, show_progress=False):
 def __get_dir():
     repo = os.path.join(get_default_path(), 'repository')
     if not os.path.exists(repo):
-        os.mkdir(repo)
+        os.makedirs(repo, exist_ok=True)
     return repo
 
 
