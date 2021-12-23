@@ -71,7 +71,7 @@ class NodetoolError(Exception):
 
 
 # Groups: 1 = cf, 2 = tmp or none, 3 = suffix (Compacted or Data.db)
-_sstable_regexp = re.compile('((?P<keyspace>[^\s-]+)-(?P<cf>[^\s-]+)-)?(?P<tmp>tmp(link)?-)?(?P<version>[^\s-]+)-(?P<number>\d+)-(?P<big>big-)?(?P<suffix>[a-zA-Z]+)\.[a-zA-Z0-9]+$')
+_sstable_regexp = re.compile(r'((?P<keyspace>[^\s-]+)-(?P<cf>[^\s-]+)-)?(?P<tmp>tmp(link)?-)?(?P<version>[^\s-]+)-(?P<number>\d+)-(?P<big>big-)?(?P<suffix>[a-zA-Z]+)\.[a-zA-Z0-9]+$')
 
 
 class Node(object):
@@ -1259,15 +1259,15 @@ class Node(object):
         # Set locale to the user's default value (usually specified in the LANG)
         locale.setlocale(locale.LC_NUMERIC, '')
         if "[" in val:
-            p = re.compile('^\s*([\d\.\,]+\d?)\s*\[.*')
+            p = re.compile(r'^\s*([\d\.\,]+\d?)\s*\[.*')
             m = p.match(val)
             if m:
                 res[key] = locale.atof(m.group(1))
-            p = re.compile('^.*READ:\s*([\d\.\,]+\d?)[^\d].*')
+            p = re.compile(r'^.*READ:\s*([\d\.\,]+\d?)[^\d].*')
             m = p.match(val)
             if m:
                 res[key + ":read"] = locale.atof(m.group(1))
-            p = re.compile('.*WRITE:\s*([\d\.\,]+\d?)[^\d].*')
+            p = re.compile(r'.*WRITE:\s*([\d\.\,]+\d?)[^\d].*')
             m = p.match(val)
             if m:
                 res[key + ":write"] = locale.atof(m.group(1))
@@ -1281,7 +1281,7 @@ class Node(object):
         out, err = self.stress(stress_options, True, **kwargs)
         if not ignore_errors and err != "" and not err.startswith("Failed to connect over JMX; not collecting these stats") and not err.startswith("Picked up JAVA_TOOL_OPTIONS"):
             return err
-        p = re.compile('^\s*([^:]+)\s*:\s*(\S.*)\s*$')
+        p = re.compile(r'^\s*([^:]+)\s*:\s*(\S.*)\s*$')
         res = {}
         start = False
         for line in [s.strip() for s in out.splitlines()]:
@@ -1426,7 +1426,7 @@ class Node(object):
 
         # escape the double quotes in name of the lib files in the classpath
         jar_file_pattern = "do call :append \"%%i\""
-        for_statement = "for %%i in (\"%CASSANDRA_HOME%\lib\*.jar\")"
+        for_statement = r'for %%i in ("%CASSANDRA_HOME%\lib\*.jar")'
         common.replace_in_file(bat_file, jar_file_pattern, for_statement + " do call :append \\\"%%i\\\"")
 
         # escape double quotes in java agent path
@@ -1625,7 +1625,7 @@ class Node(object):
         # The cassandra-env.ps1 file has been introduced in 2.1
         if common.is_win() and self.get_base_cassandra_version() >= 2.1:
             conf_file = os.path.join(self.get_conf_dir(), common.CASSANDRA_WIN_ENV)
-            jmx_port_pattern = '^\s+\$JMX_PORT='
+            jmx_port_pattern = r'^\s+\$JMX_PORT='
             jmx_port_setting = f'    $JMX_PORT="{self.jmx_port}"'
             remote_debug_options = f'    $env:JVM_OPTS="$env:JVM_OPTS -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address={self.jmx_port}"'
         else:
@@ -1863,7 +1863,7 @@ class Node(object):
         if self.get_base_cassandra_version() >= 2.1:
             sh_file = os.path.join(common.CASSANDRA_CONF_DIR, common.CASSANDRA_WIN_ENV)
             dst = os.path.join(self.get_path(), sh_file)
-            common.replace_in_file(dst, "^\s+\$JMX_PORT=", "    $JMX_PORT=\"" + self.jmx_port + "\"")
+            common.replace_in_file(dst, r"^\s+\$JMX_PORT=", "    $JMX_PORT=\"" + self.jmx_port + "\"")
 
             # properly use single and double quotes to count for single quotes in the CASSANDRA_CONF path
             common.replace_in_file(
