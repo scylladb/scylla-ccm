@@ -83,13 +83,14 @@ class ScyllaCluster(Cluster):
         for node, p, _ in started:
             node._update_pid(p)
 
-    def start_nodes(self, nodes=None, no_wait=True, verbose=False, wait_for_binary_proto=None,
+    def start_nodes(self, nodes=None, no_wait=False, verbose=False, wait_for_binary_proto=None,
               wait_other_notice=None, jvm_args=None, profile_options=None,
               quiet_start=False):
         if wait_for_binary_proto is None:
             wait_for_binary_proto = self.force_wait_for_cluster_start
         if wait_other_notice is None:
             wait_other_notice = self.force_wait_for_cluster_start
+        self.debug(f"start_nodes: no_wait={no_wait} wait_for_binary_proto={wait_for_binary_proto} wait_other_notice={wait_other_notice} force_wait_for_cluster_start={self.force_wait_for_cluster_start}")
         self.started=True
 
         p = None
@@ -143,7 +144,7 @@ class ScyllaCluster(Cluster):
         return started
 
     # override cluster
-    def start(self, no_wait=True, verbose=False, wait_for_binary_proto=None,
+    def start(self, no_wait=False, verbose=False, wait_for_binary_proto=None,
               wait_other_notice=None, jvm_args=None, profile_options=None,
               quiet_start=False):
         kwargs = dict(**locals())
