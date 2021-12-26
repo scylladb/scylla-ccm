@@ -659,8 +659,8 @@ def get_version_from_build(install_dir=None, node_path=None):
 
 
 def _get_scylla_version(install_dir):
-    scylla_version_files = [ os.path.join(install_dir, 'build', 'SCYLLA-VERSION-FILE'),
-                                os.path.join(install_dir, 'scylla-core-package', 'SCYLLA-VERSION-FILE') ]
+    scylla_version_files = [os.path.join(install_dir, 'build', 'SCYLLA-VERSION-FILE'),
+                            os.path.join(install_dir, 'scylla-core-package', 'SCYLLA-VERSION-FILE')]
     for version_file in scylla_version_files:
         if os.path.exists(version_file):
             with open(version_file) as file:
@@ -670,7 +670,24 @@ def _get_scylla_version(install_dir):
             # 'i.j(.|-)dev[N]' < 'i.j.rc[N]' < 'i.j.k' < i.j(.|-)post[N]
             if re.fullmatch('(\d+!)?\d+([.-]\d+)*([a-z]+\d*)?([.-](post|dev|rc)\d*)*', v):
                 return v
-    return '3.0'
+
+    for scylla_exec in [
+        os.path.join(install_dir, 'scylla'),
+        os.path.join(install_dir, 'build', 'debug', 'scylla'),
+        os.path.join(install_dir, 'build', 'dev', 'scylla'),
+        os.path.join(install_dir, 'build', 'release', 'scylla'),
+        os.path.join(install_dir, 'bin', 'scylla'),
+        os.path.join(install_dir, 'scylla-core-package', 'bin', 'scylla'),
+    ]:
+        try:
+            scylla_version = subprocess.run(f"{scylla_exec} --version", shell=True, capture_output=True, text=True)
+            if scylla_version.returncode:
+                raise Exception("Failed to get Scylla version. Error:\n%s" % scylla_version.stderr)
+            return scylla_version.stdout.strip().split('-')[0]
+        except:
+            pass
+    else:
+        return '3.0'
 
 
 def _get_scylla_release(install_dir):
