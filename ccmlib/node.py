@@ -855,7 +855,8 @@ class Node(object):
                         print_(log, end='')
                     i = i + 1
 
-    def run_cqlsh(self, cmds=None, show_output=False, cqlsh_options=[], return_output=False):
+    def run_cqlsh(self, cmds=None, show_output=False, cqlsh_options=None, return_output=False):
+        cqlsh_options = cqlsh_options or []
         cqlsh = self.get_tool('cqlsh')
         if not isinstance(cqlsh, list):
             cqlsh = [cqlsh]
