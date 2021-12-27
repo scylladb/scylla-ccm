@@ -1251,8 +1251,8 @@ class ScyllaNode(Node):
             raise NodeError("Node %s still has pending flushes after "
                             "%s seconds" % (self.name, wait_timeout))
 
-    def flush(self):
-        self.nodetool("flush")
+    def flush(self, ks=None, table=None):
+        super(ScyllaNode, self).flush(ks, table)
         self._wait_no_pending_flushes()
 
     def get_node_scylla_version(self, scylla_exec_path=None):
