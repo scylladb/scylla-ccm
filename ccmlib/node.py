@@ -1317,8 +1317,13 @@ class Node(object):
         info = self.nodetool('info', capture_output=True)[0]
         return _get_row_cache_entries_from_info_output(info)
 
-    def flush(self):
-        self.nodetool("flush")
+    def flush(self, ks=None, table=None):
+        cmd = "flush"
+        if ks:
+            cmd += f" {ks}"
+        if table:
+            cmd += f" {table}"
+        self.nodetool(cmd)
 
     def compact(self):
         self.nodetool("compact")
