@@ -18,7 +18,7 @@ import yaml
 import glob
 import re
 
-from ccmlib.common import CASSANDRA_SH, BIN_DIR
+from ccmlib.common import CASSANDRA_SH, BIN_DIR, wait_for
 from six import print_
 from six.moves import xrange
 
@@ -28,37 +28,6 @@ from ccmlib.node import Status
 from ccmlib.node import NodeError
 from ccmlib.node import TimeoutError
 from ccmlib.scylla_repository import setup, CORE_PACKAGE_DIR_NAME, SCYLLA_VERSION_FILE
-
-
-def wait_for(func, timeout, first=0.0, step=1.0, text=None):
-    """
-    Wait until func() evaluates to True.
-
-    If func() evaluates to True before timeout expires, return the
-    value of func(). Otherwise return None.
-
-    :param func: Function that will be evaluated.
-    :param timeout: Timeout in seconds
-    :param first: Time to sleep before first attempt
-    :param step: Time to sleep between attempts in seconds
-    :param text: Text to print while waiting, for debug purposes
-    """
-    start_time = time.time()
-    end_time = time.time() + timeout
-
-    time.sleep(first)
-
-    while time.time() < end_time:
-        if text:
-            print_("%s (%f secs)" % (text, (time.time() - start_time)))
-
-        output = func()
-        if output:
-            return output
-
-        time.sleep(step)
-
-    return None
 
 
 class ScyllaNode(Node):
