@@ -548,19 +548,15 @@ def check_socket_available(itf):
 
 
 def check_socket_listening(itf, timeout=60):
-    end = time.time() + timeout
-    while time.time() <= end:
-        try:
-            sock = socket.socket()
-            sock.connect(itf)
-            sock.close()
-            return True
-        except socket.error:
-            # Try again in another 200ms
-            time.sleep(.2)
-            continue
+    def _check_socket_listening() -> bool:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as _socket:
+            try:
+                _socket.connect(itf)
+                return True
+            except socket.error:
+                return False
 
-    return False
+    return wait_for(func=_check_socket_listening, timeout=timeout, step=0.2)
 
 
 def interface_is_ipv6(itf):
