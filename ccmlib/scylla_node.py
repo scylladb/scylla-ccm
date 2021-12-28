@@ -729,19 +729,7 @@ class ScyllaNode(Node):
         return did_stop
 
     def _wait_until_stopped(self, wait_seconds):
-        start_time = time.time()
-        wait_time_sec = 1
-        while True:
-            if not self.is_running():
-                return True
-            elapsed = time.time() - start_time
-            if elapsed >= wait_seconds:
-                return False
-            time.sleep(wait_time_sec)
-            if elapsed + wait_time_sec > wait_seconds:
-                wait_time_sec = wait_seconds - elapsed
-            elif wait_time_sec <= 16:
-                wait_time_sec *= 2
+        return wait_for(func=lambda: not self.is_running(), timeout=wait_seconds)
 
     def wait_until_stopped(self, wait_seconds=None, marks=None, dump_core=True):
         """
