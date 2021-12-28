@@ -489,33 +489,10 @@ def wait_for(func: Callable, timeout: int, first: float = 0.0, step: float = 1.0
     return False
 
 
-def check_file_exists(path_to_file):
-    if os.path.exists(path_to_file):
-        return True
-    return False
-
-
-def _wait_until_false(wait_seconds, func, kwargs):
-    start_time = time.time()
-    wait_time_sec = 5
-    while True:
-        if not func(**kwargs):
-            return True
-        elapsed = time.time() - start_time
-        if elapsed >= wait_seconds:
-            return False
-        time.sleep(wait_time_sec)
-        if elapsed + wait_time_sec > wait_seconds:
-            wait_time_sec = wait_seconds - elapsed
-        elif wait_time_sec <= 16:
-            wait_time_sec *= 2
-
-
 def wait_for_parallel_download_finish(placeholder_file):
-    if check_file_exists(placeholder_file):
-        if not _wait_until_false(wait_seconds=3600, func=check_file_exists, kwargs={'path_to_file': placeholder_file}):
-            raise TimeoutError(f"Relocatables download still runs in parallel from another test after 60 min. "
-                               f"Placeholder file exists: {placeholder_file}")
+    if not wait_for(func=lambda: not os.path.exists(placeholder_file), timeout=3600):
+        raise TimeoutError(f"Relocatables download still runs in parallel from another test after 60 min. "
+                           f"Placeholder file exists: {placeholder_file}")
 
 
 def validate_install_dir(install_dir):
