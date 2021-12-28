@@ -379,16 +379,16 @@ class ScyllaNode(Node):
                 pass
 
     def _wait_java_up(self, ip_addr, jmx_port):
-        start_time = time.time()
-        while (time.time() - start_time) < 30:
+        def is_java_up():
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as _socket:
                 _socket.settimeout(1.0)
                 try:
                     _socket.connect((ip_addr, jmx_port))
                     return True
                 except (socket.timeout, ConnectionRefusedError):
-                    time.sleep(0.05)
-        return False
+                    return False
+
+        return wait_for(func=is_java_up, timeout=30, step=0.05)
 
     def node_install_dir_version(self):
         if not self.node_install_dir:
