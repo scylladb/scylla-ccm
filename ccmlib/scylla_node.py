@@ -1204,17 +1204,17 @@ class ScyllaNode(Node):
         raise NotImplementedError('ScyllaNode._write_agent_log4j_properties')
 
     def _wait_no_pending_flushes(self, wait_timeout=60):
-        def no_pending_flushes():
-            stdout, _ = self.nodetool('cfstats', timeout=wait_timeout)
+        pending_flushes_re = re.compile(r"^\s*Pending flushes:\s*(?P<count>\d+)\s*$", flags=re.MULTILINE)
+
+        def no_pending_flushes() -> bool:
+            stdout = self.nodetool('cfstats', timeout=wait_timeout)[0]
             pending_flushes = False
-            for line in stdout.splitlines():
-                line = line.strip()
-                if line.startswith('Pending flushes'):
-                    _, pending_flushes_str = line.split(':')
-                    pending_flushes_count = int(pending_flushes_str.strip())
-                    if pending_flushes_count > 0:
-                        pending_flushes = True
+            for match in pending_flushes_re.finditer(stdout):
+                if int(match.group("count")):
+                    pending_flushes = True
+                    break
             return not pending_flushes
+
         if not wait_for(no_pending_flushes, timeout=wait_timeout, step=1.0):
             raise NodeError("Node %s still has pending flushes after "
                             "%s seconds" % (self.name, wait_timeout))
