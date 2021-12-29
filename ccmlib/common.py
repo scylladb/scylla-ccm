@@ -14,6 +14,7 @@ import sys
 import time
 import tempfile
 import logging
+from typing import Callable
 
 import yaml
 from boto3.session import Session
@@ -461,18 +462,18 @@ def scylla_extract_install_dir_and_mode(install_dir):
     return install_dir, scylla_mode
 
 
-def wait_for(func, timeout, first=0.0, step=1.0, text=None):
+def wait_for(func: Callable, timeout: int, first: float = 0.0, step: float = 1.0, text: str = ""):
     """
     Wait until func() evaluates to True.
 
-    If func() evaluates to True before timeout expires, return the
-    value of func(). Otherwise return None.
+    If func() evaluates to True before timeout expires, return True.
+    Otherwise, return False.
 
-    :param func: Function that will be evaluated.
-    :param timeout: Timeout in seconds
-    :param first: Time to sleep before first attempt
-    :param step: Time to sleep between attempts in seconds
-    :param text: Text to print while waiting, for debug purposes
+    param func: Function that will be evaluated.
+    param timeout: Timeout in seconds.
+    param first: Time to sleep in seconds before first attempt.
+    param step: Time to sleep in seconds between attempts in seconds.
+    param text: Text to print while waiting, for debug purposes.
     """
     start_time = time.time()
     end_time = time.time() + timeout
@@ -482,14 +483,10 @@ def wait_for(func, timeout, first=0.0, step=1.0, text=None):
     while time.time() < end_time:
         if text:
             print_("%s (%f secs)" % (text, (time.time() - start_time)))
-
-        output = func()
-        if output:
-            return output
-
+        if func():
+            return True
         time.sleep(step)
-
-    return None
+    return False
 
 
 def check_file_exists(path_to_file):
