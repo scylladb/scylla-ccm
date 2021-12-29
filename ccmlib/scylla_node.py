@@ -1216,8 +1216,7 @@ class ScyllaNode(Node):
                     if pending_flushes_count > 0:
                         pending_flushes = True
             return not pending_flushes
-        result = wait_for(no_pending_flushes, timeout=wait_timeout, step=1.0)
-        if result is None:
+        if not wait_for(no_pending_flushes, timeout=wait_timeout, step=1.0):
             raise NodeError("Node %s still has pending flushes after "
                             "%s seconds" % (self.name, wait_timeout))
 
