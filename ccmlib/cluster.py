@@ -1,5 +1,5 @@
 # ccm clusters
-
+import logging
 import os
 import random
 import shutil
@@ -16,6 +16,9 @@ from six.moves import xrange
 from ccmlib import common, repository
 from ccmlib.node import Node, NodeError
 from ccmlib.common import logger
+
+
+logger = logging.getLogger(__name__)
 
 
 class Cluster(object):
@@ -406,7 +409,7 @@ class Cluster(object):
             print_("No node in this cluster yet")
             return
         for node in list(self.nodes.values()):
-            if (verbose):
+            if verbose:
                 node.show(show_cluster=False)
                 print_("")
             else:
@@ -516,7 +519,7 @@ class Cluster(object):
     def stress(self, stress_options):
         livenodes = [node.network_interfaces['storage'][0] for node in list(self.nodes.values()) if node.is_live()]
         if len(livenodes) == 0:
-            print_("No live node")
+            logger.debug("No live node")
             return
         self.nodelist()[0].stress(stress_options=stress_options + ['-node', ','.join(livenodes)] )
         return self

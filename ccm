@@ -7,6 +7,15 @@ from six import print_
 from ccmlib import common
 from ccmlib.cmds import command, cluster_cmds, node_cmds
 
+import logging
+import sys
+
+
+basic_log_format = "%(asctime)s %(name)s %(levelname)s %(filename)s %(lineno)d %(message)s"
+logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format=basic_log_format)
+logging.getLogger("botocore").setLevel(logging.INFO)
+logging.getLogger("urllib3").setLevel(logging.INFO)
+
 
 def get_command(kind, cmd):
     cmd_name = kind.lower().capitalize() + cmd.lower().capitalize() + "Cmd"

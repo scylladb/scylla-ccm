@@ -1,5 +1,6 @@
 from __future__ import with_statement
 
+import logging
 import random
 import time
 from pathlib import Path
@@ -17,7 +18,6 @@ import glob
 import hashlib
 import requests
 
-from six import print_
 from six.moves import urllib
 
 import packaging.version
@@ -27,6 +27,8 @@ from ccmlib.common import (
     DOWNLOAD_IN_PROGRESS_FILE, wait_for_parallel_download_finish)
 from ccmlib.utils.download import download_file, download_version_from_s3
 
+
+logger = logging.getLogger(__name__)
 GIT_REPO = "http://github.com/scylladb/scylla.git"
 
 CORE_PACKAGE_DIR_NAME = 'scylla-core-package'
@@ -346,7 +348,7 @@ def download_version(version, url=None, verbose=False, target_dir=None):
                 "unsupported url or file doesn't exist\n\turl={}".format(url))
 
         if verbose:
-            print_(f"Extracting {target} ({url}, {target_dir}) as version {version} ...")
+            logger.debug("Extracting %s (%s, %s) as version %s ...", target, url, target_dir, version)
         tar = tarfile.open(target)
         tar.extractall(path=target_dir)
         tar.close()

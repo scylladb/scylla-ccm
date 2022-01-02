@@ -20,9 +20,10 @@ import yaml
 from boto3.session import Session
 from botocore import UNSIGNED
 from botocore.client import Config
-from six import print_
 from six.moves import zip_longest
 
+
+logger = logging.getLogger(__name__)
 BIN_DIR = "bin"
 CASSANDRA_CONF_DIR = "conf"
 DSE_CASSANDRA_CONF_DIR = "resources/cassandra/conf"
@@ -292,7 +293,7 @@ def is_ps_unrestricted():
             p = subprocess.Popen(['powershell', 'Get-ExecutionPolicy'], stdout=subprocess.PIPE)
         # pylint: disable=E0602
         except WindowsError:
-            print_("ERROR: Could not find powershell. Is it in your path?")
+            logger.error("Could not find powershell. Is it in your path?")
         if "Unrestricted" in p.communicate()[0]:
             return True
         else:
@@ -482,7 +483,7 @@ def wait_for(func: Callable, timeout: int, first: float = 0.0, step: float = 1.0
 
     while time.time() < end_time:
         if text:
-            print_("%s (%f secs)" % (text, (time.time() - start_time)))
+            logger.debug("%s (%f secs)" % (text, (time.time() - start_time)))
         if func():
             return True
         time.sleep(step)
@@ -622,8 +623,8 @@ def parse_settings(args):
 def copy_file(src_file, dst_file):
     try:
         shutil.copy2(src_file, dst_file)
-    except (IOError, shutil.Error) as e:
-        print_(str(e), file=sys.stderr)
+    except (IOError, shutil.Error) as err:
+        logger.error(str(err))
         exit(1)
 
 
@@ -750,7 +751,7 @@ def get_jdk_version():
 
 def assert_jdk_valid_for_cassandra_version(cassandra_version):
     if cassandra_version >= '3.0' and get_jdk_version() < '1.8':
-        print_('ERROR: Cassandra 3.0+ requires Java >= 1.8, found Java {}'.format(get_jdk_version()))
+        logger.error('Cassandra 3.0+ requires Java >= 1.8, found Java %s', get_jdk_version())
         exit(1)
 
 

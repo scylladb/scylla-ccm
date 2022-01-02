@@ -105,12 +105,9 @@ class CCMCluster:
             return:
             [(node1, UP)]
         """
-        nodes_status = []
-        for line in stdout.split("\n")[2:]:
-            node, status = line.split(":")
-            nodes_status.append((node.strip(), status.strip()))
-
-        return nodes_status
+        lines = stdout.split("\n")
+        start_line_idx = next(line_idx + 1 for line_idx, line in enumerate(lines) if not line.replace("-", ""))
+        return [tuple(line.split(":")) for line in lines[start_line_idx:]]
 
     def get_nodetool_cmd(self, node, subcmd, args=None):
         cmd = [self.ccm_bin, node, 'nodetool', subcmd]

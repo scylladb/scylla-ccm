@@ -1,4 +1,5 @@
 # ccm clusters
+import logging
 import os
 import shutil
 import time
@@ -8,7 +9,6 @@ import yaml
 import uuid
 import datetime
 
-from six import print_
 from distutils.version import LooseVersion
 
 from ccmlib import common
@@ -17,6 +17,8 @@ from ccmlib.scylla_node import ScyllaNode
 from ccmlib.node import NodeError
 from ccmlib import scylla_repository
 
+
+logger = logging.getLogger(__name__)
 SNITCH = 'org.apache.cassandra.locator.GossipingPropertyFileSnitch'
 
 
@@ -359,11 +361,11 @@ class ScyllaManager:
         pidfile = self._get_pid_file()
         while not (os.path.isfile(pidfile) and os.stat(pidfile).st_size > 0):
             if time.time() - start > 30.0:
-                print_("Timed out waiting for pidfile {} to be filled (current time is %s): File {} size={}".format(
-                        pidfile,
-                        datetime.now(),
-                        'exists' if os.path.isfile(pidfile) else 'does not exist' if not os.path.exists(pidfile) else 'is not a file',
-                        os.stat(pidfile).st_size if os.path.exists(pidfile) else -1))
+                logger.debug("Timed out waiting for pidfile %s to be filled (current time is %s): File %s size=%d",
+                             pidfile,
+                             datetime.now(),
+                             'exists' if os.path.isfile(pidfile) else 'does not exist' if not os.path.exists(pidfile) else 'is not a file',
+                             os.stat(pidfile).st_size if os.path.exists(pidfile) else -1)
                 break
             else:
                 time.sleep(0.1)

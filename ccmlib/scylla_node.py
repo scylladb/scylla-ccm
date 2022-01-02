@@ -1,6 +1,7 @@
 # ccm node
 from __future__ import with_statement
 
+import logging
 from datetime import datetime
 import errno
 import os
@@ -19,7 +20,6 @@ import glob
 import re
 
 from ccmlib.common import CASSANDRA_SH, BIN_DIR, wait_for
-from six import print_
 from six.moves import xrange
 
 from ccmlib import common
@@ -28,6 +28,8 @@ from ccmlib.node import Status
 from ccmlib.node import NodeError
 from ccmlib.node import TimeoutError
 from ccmlib.scylla_repository import setup, CORE_PACKAGE_DIR_NAME, SCYLLA_VERSION_FILE
+
+logger = logging.getLogger(__name__)
 
 
 class ScyllaNode(Node):
@@ -635,11 +637,11 @@ class ScyllaNode(Node):
             elapsed = time.time() - start
             if elapsed > 30.0 or not wait:
                 if wait:
-                    print_("Timed out waiting for pidfile {} to be filled (after {} seconds): File {} size={}".format(
-                            pidfile,
-                            elapsed,
-                            'exists' if os.path.isfile(pidfile) else 'does not exist' if not os.path.exists(pidfile) else 'is not a file',
-                            os.stat(pidfile).st_size if os.path.exists(pidfile) else -1))
+                    logger.debug("Timed out waiting for pidfile %s to be filled (after %s seconds): File %s size=%d",
+                                 pidfile,
+                                 elapsed,
+                                 'exists' if os.path.isfile(pidfile) else 'does not exist' if not os.path.exists(pidfile) else 'is not a file',
+                                 os.stat(pidfile).st_size if os.path.exists(pidfile) else -1)
                 break
             else:
                 time.sleep(0.1)
@@ -676,11 +678,11 @@ class ScyllaNode(Node):
         start = time.time()
         while not (os.path.isfile(pidfile) and os.stat(pidfile).st_size > 0):
             if time.time() - start > 30.0:
-                print_("Timed out waiting for pidfile {} to be filled (current time is %s): File {} size={}".format(
-                        pidfile,
-                        datetime.now(),
-                        'exists' if os.path.isfile(pidfile) else 'does not exist' if not os.path.exists(pidfile) else 'is not a file',
-                        os.stat(pidfile).st_size if os.path.exists(pidfile) else -1))
+                logger.debug("Timed out waiting for pidfile %s to be filled (current time is %s): File %s size=%d",
+                             pidfile,
+                             datetime.now(),
+                             'exists' if os.path.isfile(pidfile) else 'does not exist' if not os.path.exists(pidfile) else 'is not a file',
+                             os.stat(pidfile).st_size if os.path.exists(pidfile) else -1)
                 break
             else:
                 time.sleep(0.1)
