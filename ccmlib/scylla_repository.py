@@ -11,18 +11,14 @@ import tempfile
 import shutil
 import subprocess
 import re
-import gzip
 import sys
 import glob
-
-from subprocess import Popen, PIPE, STDOUT
 
 import hashlib
 import requests
 
 from six import print_
 from six.moves import urllib
-from six import BytesIO
 
 import packaging.version
 
@@ -168,9 +164,13 @@ def setup(version, verbose=True):
     scylla_arch = os.environ.get('SCYLLA_ARCH', 'x86_64')
 
     packages = None
-    if len(type_n_version) == 2:
+
+    # if version_dir exist skip downloading a version
+    version = os.path.join(*type_n_version)
+    version_dir = version_directory(version)
+
+    if len(type_n_version) == 2 and version_dir is None:
         s3_version = type_n_version[1]
-        packages = None
 
         if type_n_version[0] == 'release':
             if 'enterprise' in scylla_product:
@@ -205,8 +205,6 @@ def setup(version, verbose=True):
             )
 
         version = os.path.join(*type_n_version)
-
-    version_dir = version_directory(version)
 
     if version_dir is None:
         # Create version folder and add placeholder file to prevent parallel downloading from another test.
