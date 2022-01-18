@@ -303,7 +303,7 @@ def compile_version(version, target_dir, verbose=False):
             # Similar patch seen with buildbot
             attempt = 0
             ret_val = 1
-            while attempt < 3 and ret_val is not 0:
+            while attempt < 3 and ret_val != 0:
                 if attempt > 0:
                     lf.write("\n\n`ant jar` failed. Retry #%s...\n\n" % attempt)
                 ret_val = subprocess.call([platform_binary('ant'), 'jar'], cwd=target_dir, stdout=lf, stderr=lf)
