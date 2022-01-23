@@ -123,6 +123,7 @@ class ScyllaCluster(Cluster):
                                wait_for_binary_proto=wait_for_binary_proto,
                                wait_other_notice=wait_other_notice)
                 started.append((node, p, mark))
+                marks.append((node, mark))
 
         self.__update_pids(started)
 
