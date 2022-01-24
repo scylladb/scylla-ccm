@@ -277,6 +277,12 @@ class ScyllaNode(Node):
             for node, mark in marks:
                 t = timeout if timeout is not None else 120 if self.cluster.scylla_mode != 'debug' else 360
                 node.watch_log_for_alive(self, from_mark=mark, timeout=t)
+                def check_gossip():
+                    gossip, _ = node.nodetool('gossipinfo')
+                    return self.address() in gossip
+                ok = wait_for(check_gossip, step=0.001, timeout=t)
+                if not ok:
+                    raise RuntimeError(f"{self.name} wasn't found in {node.name} gossip")
 
         if wait_for_binary_proto:
             try:

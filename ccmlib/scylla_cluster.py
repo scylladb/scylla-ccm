@@ -7,6 +7,7 @@ import signal
 import yaml
 import uuid
 import datetime
+import logging
 
 from six import print_
 from distutils.version import LooseVersion
@@ -16,9 +17,11 @@ from ccmlib.cluster import Cluster
 from ccmlib.scylla_node import ScyllaNode
 from ccmlib.node import NodeError
 from ccmlib import scylla_repository
+from ccmlib.common import wait_for
 
 SNITCH = 'org.apache.cassandra.locator.GossipingPropertyFileSnitch'
 
+logger = logging.getLogger(__name__)
 
 class ScyllaCluster(Cluster):
 
@@ -141,7 +144,12 @@ class ScyllaCluster(Cluster):
                 for node, _, _ in started:
                     if old_node is not node:
                         old_node.watch_log_for_alive(node, from_mark=mark)
-
+                        def check_gossip():
+                            gossip, _ = old_node.nodetool('gossipinfo')
+                            return node.address() in gossip
+                        ok = wait_for(check_gossip, step=0.001, timeout=30)
+                        if not ok:
+                            raise RuntimeError(f"{node.name} wasn't found in {old_node.name} gossip")
         return started
 
     # override cluster
