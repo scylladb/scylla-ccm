@@ -536,6 +536,12 @@ class Node(object):
             warnings.warn("Binary interface %s:%s is not listening after 10 seconds, node may have failed to start."
                           % (binary_itf[0], binary_itf[1]))
 
+    def watch_log_for_initialization_completed(self, from_mark=None, timeout=60):
+        """
+        Watch the log of this node until it detects that the provided that initialization completed.
+        """
+        self.watch_log_for("[Ss]cylla version.*initialization completed", from_mark=from_mark, timeout=timeout)
+
     def start(self,
               join_ring=True,
               no_wait=False,

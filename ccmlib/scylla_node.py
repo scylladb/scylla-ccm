@@ -596,6 +596,7 @@ class ScyllaNode(Node):
         self.is_running()
         if self.scylla_manager and self.scylla_manager.is_agent_available:
             self.start_scylla_manager_agent()
+        self.watch_log_for_initialization_completed(from_mark=self.mark)
         return scylla_process
 
     def start_dse(self,
