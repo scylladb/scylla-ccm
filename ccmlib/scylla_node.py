@@ -580,10 +580,20 @@ class ScyllaNode(Node):
         message = "Starting scylla: args={} wait_other_notice={} wait_for_binary_proto={}".format(args, wait_other_notice, wait_for_binary_proto)
         self.debug(message)
 
-        scylla_process = self._start_scylla(args, marks, update_pid,
-                                            wait_other_notice,
-                                            wait_for_binary_proto,
-                                            ext_env)
+        try:
+            scylla_process = self._start_scylla(args, marks, update_pid,
+                                                wait_other_notice,
+                                                wait_for_binary_proto,
+                                                ext_env)
+        except Exception:
+            if os.environ.get("KILL_SCYLLA_PROCESS_AT_FAILURE", False):
+                for node in self.cluster.nodelist():
+                    process_scylla = node._process_scylla
+                    if process_scylla.poll() is None:
+                        self.error(f"Killing scylla process for node '{node.name}'")
+                        os.kill(process_scylla.pid, signal.SIGKILL)
+            raise
+
         self._start_jmx(data)
 
         ip_addr, _ = self.network_interfaces['thrift']
