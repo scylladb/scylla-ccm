@@ -41,6 +41,7 @@ class ScyllaNode(Node):
                  save=True, binary_interface=None, scylla_manager=None):
         self._node_install_dir = None
         self._node_scylla_version = None
+        self._relative_repos_root = None
         super(ScyllaNode, self).__init__(name, cluster, auto_bootstrap,
                                          thrift_interface, storage_interface,
                                          jmx_port, remote_debug_port,
@@ -834,10 +835,10 @@ class ScyllaNode(Node):
                 shutil.copy(filename, self.get_conf_dir())
 
     def get_tools_java_dir(self):
-        return common.get_tools_java_dir(self.node_install_dir)
+        return common.get_tools_java_dir(self.node_install_dir, self._relative_repos_root or '..')
 
-    def get_jmx_dir(self, relative_repos_root):
-        return os.environ.get('SCYLLA_JMX_DIR', os.path.join(self.node_install_dir, relative_repos_root, 'scylla-jmx'))
+    def get_jmx_dir(self):
+        return common.get_jmx_dir(self.node_install_dir, self._relative_repos_root or '..')
 
     def __copy_logback_files(self):
         shutil.copy(os.path.join(self.get_tools_java_dir(), 'conf', 'logback-tools.xml'),
@@ -905,14 +906,14 @@ class ScyllaNode(Node):
 
         # TODO: - currently no scripts only executable - copying exec
         if self.is_scylla_reloc():
-            relative_repos_root = '../..'
+            self._relative_repos_root = '../..'
             self.hard_link_or_copy(src=os.path.join(self.node_install_dir, BIN_DIR, 'scylla'),
                                    dst=os.path.join(self.get_bin_dir(), 'scylla'),
                                    extra_perms=stat.S_IEXEC,
                                    replace=replace)
             os.environ['GNUTLS_SYSTEM_PRIORITY_FILE'] = os.path.join(self.node_install_dir, 'scylla-core-package/libreloc/gnutls.config')
         else:
-            relative_repos_root = '..'
+            self._relative_repos_root = '..'
             src = os.path.join(self.get_install_dir(), 'build', self.scylla_mode(), 'scylla')
             dst = os.path.join(self.get_bin_dir(), 'scylla')
             dbuild_so_dir = os.environ.get('SCYLLA_DBUILD_SO_DIR')
@@ -955,9 +956,9 @@ class ScyllaNode(Node):
             self.hard_link_or_copy(os.path.join(self.node_install_dir, 'scylla-jmx', 'scylla-jmx'),
                                    os.path.join(self.get_bin_dir(), 'scylla-jmx'), replace=replace)
         else:
-            self.hard_link_or_copy(os.path.join(self.get_jmx_dir(relative_repos_root), 'target', 'scylla-jmx-1.0.jar'),
+            self.hard_link_or_copy(os.path.join(self.get_jmx_dir(), 'target', 'scylla-jmx-1.0.jar'),
                                    os.path.join(self.get_bin_dir(), 'scylla-jmx-1.0.jar'), replace=replace)
-            self.hard_link_or_copy(os.path.join(self.get_jmx_dir(relative_repos_root), 'scripts', 'scylla-jmx'),
+            self.hard_link_or_copy(os.path.join(self.get_jmx_dir(), 'scripts', 'scylla-jmx'),
                                    os.path.join(self.get_bin_dir(), 'scylla-jmx'), replace=replace)
 
         os.makedirs(os.path.join(self.get_bin_dir(), 'symlinks'), exist_ok=exist_ok)

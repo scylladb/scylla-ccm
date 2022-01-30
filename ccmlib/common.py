@@ -333,11 +333,33 @@ def parse_bin(executable):
     tokens = re.split(os.sep, executable)
     return tokens[-1]
 
-def get_tools_java_dir(install_dir):
+def get_tools_java_dir(install_dir, relative_repos_root='..'):
     if 'scylla-repository' in install_dir:
         return os.path.join(install_dir, 'scylla-tools-java')
     else:
-        return os.environ.get('TOOLS_JAVA_DIR', os.path.join(install_dir, 'resources', 'cassandra'))
+        dir = os.environ.get('TOOLS_JAVA_DIR')
+        if dir:
+            return dir
+        candidates = [
+            os.path.join(install_dir, 'resources', 'cassandra'),
+            os.path.join(install_dir, 'tools', 'java'),
+            os.path.join(install_dir, relative_repos_root, 'scylla-tools-java')
+        ]
+        for dir in candidates:
+            if os.path.isdir(dir):
+                return dir
+
+def get_jmx_dir(install_dir, relative_repos_root='..'):
+    dir = os.environ.get('SCYLLA_JMX_DIR')
+    if dir:
+        return dir
+    candidates = [
+        os.path.join(install_dir, 'tools', 'jmx'),
+        os.path.join(install_dir, relative_repos_root, 'scylla-jmx')
+    ]
+    for dir in candidates:
+        if os.path.isdir(dir):
+            return dir
 
 def get_stress_bin(install_dir):
     candidates = [
