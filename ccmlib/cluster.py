@@ -356,7 +356,7 @@ class Cluster(object):
         tokens.extend(new_tokens)
         return tokens
 
-    def remove(self, node=None, wait_other_notice=False, other_nodes=None):
+    def remove(self, node=None, wait_other_notice=False, other_nodes=None, remove_node_dir=True):
         if node is not None:
             if node.name not in self.nodes:
                 return
@@ -366,10 +366,12 @@ class Cluster(object):
                 self.seeds.remove(node)
             self._update_config()
             node.stop(gently=False, wait_other_notice=wait_other_notice, other_nodes=other_nodes)
-            self.remove_dir_with_retry(node.get_path())
         else:
             self.stop(gently=False, wait_other_notice=wait_other_notice, other_nodes=other_nodes)
-            self.remove_dir_with_retry(self.get_path())
+
+        if remove_node_dir:
+            node_path = node.get_path() if node is not None else self.get_path()
+            self.remove_dir_with_retry(node_path)
 
     # We can race w/shutdown on Windows and get Access is denied attempting to delete node logs.
     # see CASSANDRA-10075
