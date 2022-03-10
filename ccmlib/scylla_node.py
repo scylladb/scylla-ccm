@@ -11,6 +11,8 @@ import stat
 import subprocess
 import time
 import threading
+from pathlib import Path
+
 from pkg_resources import parse_version
 
 import psutil
@@ -18,7 +20,7 @@ import yaml
 import glob
 import re
 
-from ccmlib.common import CASSANDRA_SH, BIN_DIR, wait_for
+from ccmlib.common import CASSANDRA_SH, BIN_DIR, wait_for, copy_directory
 from six import print_
 from six.moves import xrange
 
@@ -1231,6 +1233,9 @@ class ScyllaNode(Node):
     def upgrade(self, upgrade_to_version):
         self.upgrader.upgrade(upgrade_version=upgrade_to_version)
 
+    def rollback(self, upgrade_to_version):
+        self.upgrader.upgrade(upgrade_version=upgrade_to_version, recover_system_tables=True)
+
 class NodeUpgrader:
 
     """
@@ -1272,12 +1277,63 @@ class NodeUpgrader:
             self.node.node_install_dir = self.orig_install_dir
             raise NodeUpgradeError("Failed to import executables files. %s" % exc)
 
-    def upgrade(self, upgrade_version: str):
+    def _recover_system_tables(self):
+        """
+        Part of the rollback procedure is to restore system tables.
+        For this goal a snapshot will be taken before downgrade and restore the system tables after downgrade
+        """
+        def _get_snapshot_folder_name():
+            """
+            Some new table may not exist in old version. "peer" table exists in the all versions.
+            Find snapshot folder name
+            """
+            system_peers = [p for p in node_system_ks_directory.iterdir() if p.name.startswith("peers-")]
+            # Choose first created snapshot folder
+            snapshot_folder = [snap for snap in sorted((system_peers[0] / 'snapshots').iterdir(), key=os.path.getmtime)]
+
+            if not snapshot_folder:
+                raise NodeError("Unable to recover '%s' sstables: snapshot is not found", system_folder)
+
+            return snapshot_folder[0].name
+
+        node_data_directory = Path(self.node.get_path()) / 'data'
+        if not node_data_directory.exists():
+            raise NodeError("Data directory %s is not found", node_data_directory.name)
+
+        snapshot_folder_name = None
+        for system_folder in ['system', 'system_schema']:
+            node_system_ks_directory = node_data_directory / system_folder
+            if not snapshot_folder_name:
+                snapshot_folder_name = _get_snapshot_folder_name()
+
+            for recover_table in node_system_ks_directory.iterdir():
+                if not recover_table.is_dir():
+                    continue
+
+                recover_keyspace_snapshot = recover_table / 'snapshots' / snapshot_folder_name
+                if not recover_keyspace_snapshot.exists():
+                    continue
+
+                # Remove all data file before copying snapshot
+                for the_file in recover_table.iterdir():
+                    if the_file.is_file():
+                        the_file.unlink()
+
+                copy_directory(recover_keyspace_snapshot, recover_table)
+
+    def upgrade(self, upgrade_version: str, recover_system_tables: bool = False):
         """
         :param upgrade_version: relocatables folder. Example: unstable/master:2020-11-18T08:57:53Z
+        :param recover_system_tables: restore system tables during rollback (https://docs.scylladb.com/upgrade/
+                                     upgrade-enterprise/upgrade-guide-from-2018.1-to-2019.1/
+                                     upgrade-guide-from-2018.1-to-2019.1-rpm/#restore-system-tables)
         """
+        # Part of the rollback procedure is to restore system tables.
+        # For this goal a snapshot will be taken before downgrade and restore the system tables after downgrade
         self.scylla_version_for_upgrade = upgrade_version
         cdir = self._setup_relocatable_packages()
+
+        self.node.nodetool("snapshot")
 
         self.node.stop(wait_other_notice=True)
         if self.node.status != Status.DOWN:
@@ -1285,6 +1341,9 @@ class NodeUpgrader:
 
         self._import_executables(cdir)
         self.node.clean_runtime_file()
+
+        if recover_system_tables:
+            self._recover_system_tables()
 
         try:
             self.node.start(wait_other_notice=True, wait_for_binary_proto=True)
