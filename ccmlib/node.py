@@ -335,7 +335,7 @@ class Node(object):
 
     def check_node_sstables_format(self, timeout=10):
         node_system_folder = os.path.join(self.get_path(), 'data', 'system')
-        find_cmd = f"find {node_system_folder} -type f ! -path '*snapshots*' -printf %f\\n".split()
+        find_cmd = f"find {node_system_folder} -type f ! -path *snapshots* -printf %f\\n".split()
         try:
             result = subprocess.run(find_cmd, capture_output=True, timeout=timeout, text=True)
             assert not result.stderr, result.stderr
