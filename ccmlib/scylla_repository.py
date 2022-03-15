@@ -51,7 +51,7 @@ class RelocatablePackages(NamedTuple):
     scylla_jmx_package: str
 
 
-def release_packages(s3_url, version, arch='x86_64'):
+def release_packages(s3_url, version, arch='x86_64', scylla_product='scylla'):
     """
     Choose RELEASE relocatable packages for download.
     It covers 3 cases:
@@ -77,8 +77,8 @@ def release_packages(s3_url, version, arch='x86_64'):
     scylla_package_mark = 'scylla-package'
 
     for file_name in files_in_bucket:
-        if f'scylla-{arch}-package' in file_name:
-            scylla_package_mark = f'scylla-{arch}-package'
+        if f'{scylla_product}-{arch}-package' in file_name:
+            scylla_package_mark = f'{scylla_product}-{arch}-package'
             break
 
     all_packages = [name for name in files_in_bucket if 'jmx' in name or 'tools' in name or scylla_package_mark in name]
@@ -177,7 +177,7 @@ def setup(version, verbose=True):
                 s3_url = ENTERPRISE_RELEASE_RELOCATABLE_URLS_BASE
             else:
                 s3_url = RELEASE_RELOCATABLE_URLS_BASE
-            packages, type_n_version[1] = release_packages(s3_url=s3_url, version=s3_version, arch=scylla_arch)
+            packages, type_n_version[1] = release_packages(s3_url=s3_url, version=s3_version, arch=scylla_arch, scylla_product=scylla_product)
         else:
             _, branch = type_n_version[0].split("/")
             if 'enterprise' in scylla_product:
