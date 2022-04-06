@@ -89,6 +89,10 @@ class ScyllaNode(Node):
     def node_scylla_version(self, install_dir):
         self._node_scylla_version = self.get_node_scylla_version(install_dir)
 
+    @property
+    def scylla_build_id(self):
+        return self._run_scylla_executable_with_option(option="--build-id")
+
     def scylla_mode(self):
         return self.cluster.get_scylla_mode()
 
@@ -1215,7 +1219,7 @@ class ScyllaNode(Node):
         super(ScyllaNode, self).flush(ks, table)
         self._wait_no_pending_flushes()
 
-    def get_node_scylla_version(self, scylla_exec_path=None):
+    def _run_scylla_executable_with_option(self, option, scylla_exec_path=None):
         if not scylla_exec_path:
             scylla_exec_path = self.get_path()
 
@@ -1224,11 +1228,14 @@ class ScyllaNode(Node):
 
         scylla_exec = os.path.join(scylla_exec_path, 'scylla')
 
-        scylla_version = subprocess.run(f"{scylla_exec} --version", shell=True, capture_output=True, text=True)
-        if scylla_version.returncode:
-            raise NodeError("Failed to get Scylla version. Error:\n%s" % scylla_version.stderr)
+        run_output = subprocess.run(f"{scylla_exec} {option}", shell=True, capture_output=True, text=True)
+        if run_output.returncode:
+            raise NodeError(f"Failed to run Scylla executable with option '{option}'. Error:\n{run_output.stderr}")
 
-        return scylla_version.stdout.strip()
+        return run_output.stdout.strip()
+
+    def get_node_scylla_version(self, scylla_exec_path=None):
+        return self._run_scylla_executable_with_option(option="--version", scylla_exec_path=scylla_exec_path)
 
     def upgrade(self, upgrade_to_version):
         self.upgrader.upgrade(upgrade_version=upgrade_to_version)
