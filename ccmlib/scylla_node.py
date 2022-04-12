@@ -1004,7 +1004,7 @@ class ScyllaNode(Node):
         else:
             # cassandra 0.8
             data['seed_provider'][0]['parameters'][0]['seeds'] = (
-                ','.join(self.cluster.get_seeds()))
+                ','.join(self.cluster.get_seeds(node=self)))
         data['listen_address'], data['storage_port'] = (
             self.network_interfaces['storage'])
         data['rpc_address'], data['rpc_port'] = (

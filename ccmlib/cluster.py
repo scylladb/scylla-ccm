@@ -397,8 +397,15 @@ class Cluster(object):
     def get_path(self):
         return os.path.join(self.path, self.name)
 
-    def get_seeds(self):
-        return [s.network_interfaces['storage'][0] for s in self.seeds]
+    def get_seeds(self, node=None):
+        # if first node, or there is now seeds at all
+        # or node added is not a seed, return 
+        # all cluster seed nodes
+        if not node or not self.seeds or node not in self.seeds:
+            return [s.network_interfaces['storage'][0] for s in self.seeds]
+
+        seed_index = self.seeds.index(node)
+        return [s.network_interfaces['storage'][0] for s in self.seeds[:seed_index + 1]]
 
     def show(self, verbose):
         msg = "Cluster: '%s'" % self.name
