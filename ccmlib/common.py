@@ -242,7 +242,6 @@ def make_cassandra_env(install_dir, node_path, update_conf=True):
     env['cassandra.config'] = "file://" + os.path.join(node_path, 'conf', 'cassandra.yaml')
     env['CASSANDRA_HOME'] = install_dir
     env['CASSANDRA_CONF'] = os.path.join(node_path, 'conf')
-
     return env
 
 

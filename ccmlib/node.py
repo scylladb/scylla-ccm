@@ -779,7 +779,8 @@ class Node(object):
 
         if not isinstance(nodetool, list):
             nodetool = [nodetool]
-        nodetool.extend(['-h', host, '-p', str(self.jmx_port)])
+        # see https://www.oracle.com/java/technologies/javase/8u331-relnotes.html#JDK-8278972
+        nodetool.extend(['-h', host, '-p', str(self.jmx_port), '-Dcom.sun.jndi.rmiURLParsing=legacy'])
         nodetool.extend(cmd.split())
         if capture_output:
             p = subprocess.Popen(nodetool, universal_newlines=True, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
