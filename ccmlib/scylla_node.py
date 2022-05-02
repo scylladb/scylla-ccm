@@ -219,7 +219,7 @@ class ScyllaNode(Node):
             from_mark = self.mark_log()
         process=self._process_scylla
         starting_message = 'Starting listening for CQL clients'
-        bootstrap_message = 'storage_service - JOINING: Starting to bootstrap'
+        bootstrap_message = r'storage_service .* Starting to bootstrap'
         resharding_message = r'(compaction|database) -.*Resharding'
         if not self.watch_log_for("{}|{}|{}".format(starting_message, bootstrap_message, resharding_message), from_mark=from_mark, timeout=timeout, process=process):
             return False
