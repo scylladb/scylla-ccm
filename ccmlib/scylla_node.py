@@ -563,13 +563,23 @@ class ScyllaNode(Node):
             args += ['--replace-address', replace_address]
         args += ['--unsafe-bypass-fsync', '1']
 
-        # The '--kernel-page-cache' was introduced by
-        # https://github.com/scylladb/scylla/commit/8785dd62cb740522d80eb12f8272081f85be9b7e from 4.5 version
         current_node_version = self.node_install_dir_version() or self.cluster.version()
-        if parse_version(current_node_version) >= parse_version('4.5.dev'):
+        current_node_is_enterprise = parse_version(current_node_version) > parse_version("2018.1")
+
+        # The '--kernel-page-cache' was introduced by
+        # https://github.com/scylladb/scylla/commit/8785dd62cb740522d80eb12f8272081f85be9b7e from 4.5 version 
+        # and 2022.1 Enterprise version
+        kernel_page_cache_supported = not current_node_is_enterprise and parse_version(current_node_version) >= parse_version('4.5.dev')
+        kernel_page_cache_supported |= current_node_is_enterprise and parse_version(current_node_version) >= parse_version('2022.1.dev')
+        if kernel_page_cache_supported and '--kernel-page-cache' not in args:
             args += ['--kernel-page-cache', '1']
 
-        if parse_version(current_node_version) >= parse_version('4.6') and '--max-networking-io-control-blocks' not in args:
+        # The '--max-networking-io-control-blocks' was introduced by
+        # https://github.com/scylladb/scylla/commit/2cfc517874e98c5780c1b1b4c38440a8123f86f6 from 4.6 version
+        # and 2022.1 Enterprise version
+        max_networking_io_control_blocks_supported = not current_node_is_enterprise and parse_version(current_node_version) >= parse_version('4.6')
+        max_networking_io_control_blocks_supported |= current_node_is_enterprise and parse_version(current_node_version) >= parse_version('2022.1.dev')        
+        if max_networking_io_control_blocks_supported and '--max-networking-io-control-blocks' not in args:
             args += ['--max-networking-io-control-blocks', '1000']
 
         ext_env = {}
