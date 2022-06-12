@@ -1,6 +1,7 @@
 import os
 import subprocess
 import sys
+import tempfile
 
 from six import print_
 
@@ -15,6 +16,8 @@ from ccmlib.scylla_docker_cluster import ScyllaDockerCluster, ScyllaDockerNode
 from ccmlib.scylla_node import ScyllaNode
 from ccmlib.dse_node import DseNode
 from ccmlib.node import Node, NodeError
+from ccmlib.utils.ssl_utils import generate_ssl_stores
+from ccmlib.utils.sni_proxy import get_cluster_info, start_sni_proxy, refresh_certs
 
 os.environ['SCYLLA_CCM_STANDALONE'] = '1'
 
@@ -628,6 +631,9 @@ class ClusterStartCmd(Cmd):
         parser.add_option('--profile-opts', type="string", action="store", dest="profile_options",
                           help="Yourkit options when profiling", default=None)
         parser.add_option('--quiet-windows', action="store_true", dest="quiet_start", help="Pass -q on Windows 2.2.4+ and 3.0+ startup. Ignored on linux.", default=False)
+
+        parser.add_option('--sni-proxy', action="store_true", dest="sni_proxy", help="Start sniproxy infront of the cluster", default=False)
+
         return parser
 
     def validate(self, parser, options, args):
@@ -644,7 +650,17 @@ class ClusterStartCmd(Cmd):
             if len(self.cluster.nodes) == 0:
                 print_("No node in this cluster yet. Use the populate command before starting.")
                 sys.exit(1)
-
+            if self.options.sni_proxy:
+                generate_ssl_stores(self.cluster.get_path())
+                self.cluster.set_configuration_options(dict(
+                        client_encryption_options=
+                            dict(require_client_auth=True,
+                                 truststore=os.path.join(self.cluster.get_path(), 'ccm_node.cer'),
+                                 certificate=os.path.join(self.cluster.get_path(), 'ccm_node.pem'),
+                                 keyfile=os.path.join(self.cluster.get_path(), 'ccm_node.key'),
+                                 enabled=True),
+                        native_transport_port_ssl=9142))
+                self.options.wait_for_binary_proto = True
             if self.cluster.start(no_wait=self.options.no_wait,
                                   wait_other_notice=self.options.wait_other_notice,
                                   wait_for_binary_proto=self.options.wait_for_binary_proto,
@@ -657,6 +673,16 @@ class ClusterStartCmd(Cmd):
                     details = " (you can use --verbose for more information)"
                 print_("Error starting nodes, see above for details%s" % details, file=sys.stderr)
                 sys.exit(1)
+            if self.options.sni_proxy:
+                nodes_info = get_cluster_info(self.cluster,
+                                              port=9142)
+                refresh_certs(self.cluster, nodes_info)
+                docker_id, listen_address, listen_port = \
+                    start_sni_proxy(self.cluster.get_path(), nodes_info=nodes_info)
+                print('sni_proxy listening on: {}:{}'.format(listen_address, listen_port))
+                self.cluster.sni_proxy_docker_id = docker_id
+                self.cluster._update_config()
+
         except NodeError as e:
             print_(str(e), file=sys.stderr)
             if e.process is not None:

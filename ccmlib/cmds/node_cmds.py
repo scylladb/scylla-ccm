@@ -7,6 +7,7 @@ from six import print_
 from ccmlib import common
 from ccmlib.cmds.command import Cmd
 from ccmlib.node import NodeError
+from ccmlib.utils.sni_proxy import get_cluster_info, refresh_certs, start_sni_proxy, stop_sni_proxy
 
 
 def node_cmds():
@@ -199,6 +200,17 @@ class NodeStartCmd(Cmd):
                             replace_address=self.options.replace_address,
                             jvm_args=self.options.jvm_args,
                             quiet_start=self.options.quiet_start)
+
+            if getattr(self.cluster, 'sni_proxy_docker_id', None):
+                nodes_info = get_cluster_info(self.cluster, port=9142)
+                refresh_certs(self.cluster, nodes_info)
+                stop_sni_proxy(self.cluster.sni_proxy_docker_id)
+                docker_id, listen_address, listen_port = \
+                    start_sni_proxy(self.cluster.get_path(), nodes_info=nodes_info)
+                print('sni_proxy listening on: {}:{}'.format(listen_address, listen_port))
+                self.cluster.sni_proxy_docker_id = docker_id
+                self.cluster._update_config()
+
         except NodeError as e:
             print_(str(e), file=sys.stderr)
             print_("Standard error output is:", file=sys.stderr)

@@ -615,8 +615,8 @@ class Cluster(object):
         node_list = [node.name for node in list(self.nodes.values())]
         seed_list = [node.name for node in self.seeds]
         filename = os.path.join(self.path, self.name, 'cluster.conf')
-        with open(filename, 'w') as f:
-            yaml.safe_dump({
+
+        cluster_config = {
                 'name': self.name,
                 'nodes': node_list,
                 'seeds': seed_list,
@@ -628,7 +628,12 @@ class Cluster(object):
                 'use_vnodes': self.use_vnodes,
                 'id': self.id,
                 'ipprefix': self.ipprefix
-            }, f)
+            }
+        if getattr(self, 'sni_proxy_docker_id', None):
+            cluster_config['sni_proxy_docker_id'] = self.sni_proxy_docker_id
+
+        with open(filename, 'w') as f:
+            yaml.safe_dump(cluster_config, f)
 
     def __update_pids(self, started):
         for node, p, _ in started:
