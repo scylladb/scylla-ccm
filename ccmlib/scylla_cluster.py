@@ -16,6 +16,7 @@ from ccmlib.cluster import Cluster
 from ccmlib.scylla_node import ScyllaNode
 from ccmlib.node import NodeError
 from ccmlib import scylla_repository
+from ccmlib.utils.sni_proxy import stop_sni_proxy
 
 SNITCH = 'org.apache.cassandra.locator.GossipingPropertyFileSnitch'
 
@@ -186,6 +187,10 @@ class ScyllaCluster(Cluster):
         return [node for node in nodes if not node.is_running()]
 
     def stop(self, wait=True, gently=True, wait_other_notice=False, other_nodes=None, wait_seconds=None):
+        if getattr(self, 'sni_proxy_docker_id', None):
+            stop_sni_proxy(self.sni_proxy_docker_id)
+            self.sni_proxy_docker_id = None
+
         if self._scylla_manager and not self.skip_manager_server:
             self._scylla_manager.stop(gently)
         kwargs = dict(**locals())

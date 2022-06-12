@@ -48,6 +48,9 @@ class ClusterFactory():
                 cluster.__log_level = data['log_level']
             if 'use_vnodes' in data:
                 cluster.use_vnodes = data['use_vnodes']
+            if 'sni_proxy_docker_id' in data and data['sni_proxy_docker_id']:
+                cluster.sni_proxy_docker_id = data['sni_proxy_docker_id']
+
         except KeyError as k:
             raise common.LoadError("Error Loading " + filename + ", missing property:" + str(k))
 
