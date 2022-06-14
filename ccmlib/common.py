@@ -443,6 +443,7 @@ def isOpscenter(install_dir):
     opscenter_script = os.path.join(bin_dir, 'opscenter')
     return os.path.exists(opscenter_script)
 
+
 def scylla_extract_mode(path):
     # path/url examples:
     #   build/dev
@@ -458,12 +459,13 @@ def scylla_extract_mode(path):
     # path/url examples:
     #   /jenkins/data/relocatable/unstable/master/202001192256/scylla-package.tar.gz
     #   url=https://downloads.scylla.com/relocatable/unstable/master/202001192256/scylla-debug-package.tar.gz
-    m = re.search(r'(^|/)scylla(-(\w+))?(-(\w+))?-package([-./][\w./]+|$)', path)
+    m = re.search(r'(^|/)(scylla|scylla-enterprise)(-(?P<mode>\w+))?(-(\w+))?-package([-./][\w./]+|$)', path)
     if m:
-        mode = m.groups()
-        return mode[2] if mode[4] or mode[2] in ('debug', 'dev') else 'release'
+        mode = m.groupdict().get('mode')
+        return mode if mode in ('debug', 'dev') else 'release'
 
     return None
+
 
 def scylla_extract_install_dir_and_mode(install_dir):
     scylla_mode = scylla_extract_mode(install_dir)
