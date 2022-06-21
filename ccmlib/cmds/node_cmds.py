@@ -7,7 +7,7 @@ from six import print_
 from ccmlib import common
 from ccmlib.cmds.command import Cmd
 from ccmlib.node import NodeError
-from ccmlib.utils.sni_proxy import get_cluster_info, refresh_certs, start_sni_proxy, stop_sni_proxy
+from ccmlib.utils.sni_proxy import get_cluster_info, refresh_certs, configure_sni_proxy, reload_sni_proxy
 
 
 def node_cmds():
@@ -192,6 +192,8 @@ class NodeStartCmd(Cmd):
 
     def run(self):
         try:
+            if getattr(self.cluster, 'sni_proxy_docker_id', None):
+                self.options.wait_for_binary_proto = True
             self.node.start(not self.options.no_join_ring,
                             no_wait=self.options.no_wait,
                             wait_other_notice=self.options.wait_other_notice,
@@ -203,13 +205,11 @@ class NodeStartCmd(Cmd):
 
             if getattr(self.cluster, 'sni_proxy_docker_id', None):
                 nodes_info = get_cluster_info(self.cluster, port=9142)
-                refresh_certs(self.cluster, nodes_info)
-                stop_sni_proxy(self.cluster.sni_proxy_docker_id)
-                docker_id, listen_address, listen_port = \
-                    start_sni_proxy(self.cluster.get_path(), nodes_info=nodes_info)
-                print('sni_proxy listening on: {}:{}'.format(listen_address, listen_port))
-                self.cluster.sni_proxy_docker_id = docker_id
-                self.cluster._update_config()
+                if getattr(self.cluster, 'sni_generate_ssl_automatic', False):
+                    refresh_certs(self.cluster, nodes_info)
+                listen_port = getattr(self.cluster, 'sni_proxy_listen_port', None)
+                configure_sni_proxy(self.cluster.get_path(), nodes_info, listen_port=listen_port)
+                reload_sni_proxy(self.cluster.sni_proxy_docker_id)
 
         except NodeError as e:
             print_(str(e), file=sys.stderr)

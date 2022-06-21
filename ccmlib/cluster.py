@@ -631,6 +631,8 @@ class Cluster(object):
             }
         if getattr(self, 'sni_proxy_docker_id', None):
             cluster_config['sni_proxy_docker_id'] = self.sni_proxy_docker_id
+        if getattr(self, 'sni_proxy_listen_port', None):
+            cluster_config['sni_proxy_listen_port'] = self.sni_proxy_listen_port
 
         with open(filename, 'w') as f:
             yaml.safe_dump(cluster_config, f)

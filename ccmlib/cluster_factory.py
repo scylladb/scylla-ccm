@@ -50,6 +50,11 @@ class ClusterFactory():
                 cluster.use_vnodes = data['use_vnodes']
             if 'sni_proxy_docker_id' in data and data['sni_proxy_docker_id']:
                 cluster.sni_proxy_docker_id = data['sni_proxy_docker_id']
+            if 'sni_proxy_listen_port' in data and data['sni_proxy_listen_port']:
+                cluster.sni_proxy_listen_port = data['sni_proxy_listen_port']
+            if 'sni_generate_ssl_automatic' in data and data['sni_generate_ssl_automatic']:
+                cluster.sni_generate_ssl_automatic = data['sni_generate_ssl_automatic']
+
 
         except KeyError as k:
             raise common.LoadError("Error Loading " + filename + ", missing property:" + str(k))

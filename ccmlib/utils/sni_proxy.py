@@ -72,6 +72,10 @@ def create_cloud_config(ssl_dir, host, port, username='cassandra', password='cas
     return os.path.join(ssl_dir, 'config_data.yaml'), os.path.join(ssl_dir, 'config_path.yaml')
 
 
+def reload_sni_proxy(docker_id):
+    subprocess.check_output(['/bin/bash', '-c', f'docker kill --signal=SIGHUP {docker_id}'])
+
+
 def stop_sni_proxy(docker_id):
     subprocess.check_output(['/bin/bash', '-c', f'docker rm -f {docker_id}'])
 
@@ -81,16 +85,8 @@ def configure_sni_proxy(conf_dir, nodes_info, listen_port=443):
         user sniproxy
         pidfile /var/run/sniproxy/sniproxy.pid
 
-        error_log {
-          filename /dev/stderr
-          priority debug
-        }
-
         listener $FIRST_ADDRESS $listen_port {
           proto tls
-          access_log {
-            filename /dev/stdout
-          }
         }
 
         table {
@@ -118,10 +114,10 @@ def configure_sni_proxy(conf_dir, nodes_info, listen_port=443):
 
 def start_sni_proxy(conf_dir, nodes_info, listen_port=443):
     address, _, _ = list(nodes_info)[0]
-    sniproxy_conf_path = configure_sni_proxy(conf_dir, nodes_info, listen_port=443)
+    sniproxy_conf_path = configure_sni_proxy(conf_dir, nodes_info, listen_port=listen_port)
     sniproxy_dockerfile = os.path.join(os.path.dirname(__file__), '..', 'resources', 'docker', 'sniproxy')
     subprocess.check_output(['/bin/bash', '-c', f'docker build {sniproxy_dockerfile} -t sniproxy'], universal_newlines=True)
-    docker_id = subprocess.check_output(['/bin/bash', '-c', f'docker run -d --network=host -v {sniproxy_conf_path}:/etc/sniproxy.conf:z -p 443 -it sniproxy'], universal_newlines=True)
+    docker_id = subprocess.check_output(['/bin/bash', '-c', f'docker run -d --network=host -v {sniproxy_conf_path}:/etc/sniproxy.conf:z -p {listen_port} -it sniproxy'], universal_newlines=True)
 
     return docker_id.strip(), address, listen_port
 
