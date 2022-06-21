@@ -1993,12 +1993,20 @@ def _get_row_cache_entries_from_info_output(info):
 
 
 def _grep_log_for_errors(log, distinct_errors=False, search_str=None, case_sensitive=True):
+    def make_pat_for_log_level(level):
+        flags = 0 if case_sensitive else re.IGNORECASE
+        return re.compile(rf'\b{level}\b', flags=flags)
+
+    error_pat = make_pat_for_log_level("ERROR")
+    info_pat = make_pat_for_log_level("INFO")
+    debug_pat = make_pat_for_log_level("DEBUG")
+
     matchings = []
     it = iter(log.splitlines())
     for line in it:
         l = line if case_sensitive else line.lower()
-        is_error_line = ('ERROR' in l and
-                         'DEBUG' not in l.split('ERROR')[0]) if not search_str else search_str in l
+        is_error_line = (error_pat.search(l) and
+                         not debug_pat.search(error_pat.split(l)[0])) if not search_str else search_str in l
         if is_error_line:
             append_line = line if not search_str else l[l.rfind(search_str):]
             if not distinct_errors:
@@ -2007,7 +2015,7 @@ def _grep_log_for_errors(log, distinct_errors=False, search_str=None, case_sensi
             if not distinct_errors:
                 try:
                     it, peeker = itertools.tee(it)
-                    while 'INFO' not in next(peeker):
+                    while not info_pat.search(next(peeker)):
                         matchings[-1].append(next(it))
                 except StopIteration:
                     break

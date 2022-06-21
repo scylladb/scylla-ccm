@@ -270,3 +270,7 @@ class TestErrorLogGrepping(ccmtest.Tester):
         err = ('ERROR: You have made a terrible mistake\n'
                '  2015-05-12 14:12:12,720 INFO: why would you ever do that\n')
         self.assertGreppedLog(err, [['ERROR: You have made a terrible mistake']])
+
+    def test_ignore_error_as_a_part_of_word(self):
+        err = ('INFO: Feature MORE_VERBOSE_ERRORS is enabled')
+        self.assertGreppedLog(err, [])
