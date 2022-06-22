@@ -194,7 +194,10 @@ class ScyllaNode(Node):
         env_copy = os.environ
         env_copy['SCYLLA_HOME'] = self.get_path()
 
+        message = f"Starting scylla-jmx: args={args}"
+        self.debug(message)
         with open(log_file, 'a') as jmx_log:
+            jmx_log.write(f"{message}\n")
             self._process_jmx = subprocess.Popen(args, stdout=jmx_log, stderr=jmx_log, close_fds=True, env=env_copy)
         self._process_jmx.poll()
         # When running on ccm standalone, the waiter thread would block
