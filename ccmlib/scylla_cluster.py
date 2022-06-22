@@ -71,6 +71,12 @@ class ScyllaCluster(Cluster):
         install_dir, self.scylla_mode = common.scylla_extract_install_dir_and_mode(install_dir)
         return install_dir, version
 
+    # override get_node_jmx_port for scylla-jmx
+    # scylla-jmx listens on the unique node address (127.0.<cluster.id><node.id>)
+    # so there's no need to listen on a different port for every jmx instance
+    def get_node_jmx_port(self,nodeid):
+        return 7199
+
     def create_node(self, name, auto_bootstrap, thrift_interface,
                     storage_interface, jmx_port, remote_debug_port,
                     initial_token, save=True, binary_interface=None):
