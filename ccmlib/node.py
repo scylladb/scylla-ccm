@@ -1994,8 +1994,8 @@ def _get_row_cache_entries_from_info_output(info):
 
 def _grep_log_for_errors(log, distinct_errors=False, search_str=None, case_sensitive=True):
     def make_pat_for_log_level(level):
-        flags = 0 if case_sensitive else re.IGNORECASE
-        return re.compile(rf'\b{level}\b', flags=flags)
+        kwargs = {} if case_sensitive else {'flags': re.IGNORECASE}
+        return re.compile(rf'\b{level}\b', **kwargs)
 
     error_pat = make_pat_for_log_level("ERROR")
     info_pat = make_pat_for_log_level("INFO")
