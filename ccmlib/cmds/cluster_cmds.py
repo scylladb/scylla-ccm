@@ -704,7 +704,7 @@ class ClusterStartCmd(Cmd):
                 else:
                     docker_id, listen_address, listen_port = \
                         start_sni_proxy(self.cluster.get_path(), nodes_info=nodes_info, listen_port=self.options.sni_port)
-                    create_cloud_config(self.cluster.get_path(), listen_address, listen_port)
+                    create_cloud_config(self.cluster.get_path(), listen_port)
 
                     print('sni_proxy listening on: {}:{}'.format(listen_address, listen_port))
                     self.cluster.sni_proxy_docker_id = docker_id

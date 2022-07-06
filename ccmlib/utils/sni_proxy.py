@@ -32,7 +32,7 @@ def file_or_memory(path=None, data=None):
         yield path
 
 
-def create_cloud_config(ssl_dir, host, port, username='cassandra', password='cassandra'):
+def create_cloud_config(ssl_dir, port, username='cassandra', password='cassandra'):
 
     def encode_base64(filename):
         return base64.b64encode(open(os.path.join(ssl_dir, filename), 'rb').read()).decode()
@@ -42,7 +42,7 @@ def create_cloud_config(ssl_dir, host, port, username='cassandra', password='cas
     key_data = encode_base64('ccm_node.key')
 
     config = dict(datacenters={'eu-west-1': dict(certificateAuthorityData=cadata,
-                                                 server=f'{host}:{port}',
+                                                 server=f'any.cluster-id.scylla.com:{port}',
                                                  nodeDomain='cluster-id.scylla.com')},
                   authInfos={'default': dict(clientCertificateData=certificate_data,
                                              clientKeyData=key_data,
@@ -56,7 +56,7 @@ def create_cloud_config(ssl_dir, host, port, username='cassandra', password='cas
         config_file.write(yaml.safe_dump(config, sort_keys=False))
 
     config = dict(datacenters={'eu-west-1': dict(certificateAuthorityPath=os.path.join(ssl_dir, 'ccm_node.cer'),
-                                                 server=f'{host}:{port}',
+                                                 server=f'any.cluster-id.scylla.com:{port}',
                                                  nodeDomain='cluster-id.scylla.com')},
                   authInfos={'default': dict(clientCertificatePath=os.path.join(ssl_dir, 'ccm_node.cer'),
                                              clientKeyPath=os.path.join(ssl_dir, 'ccm_node.key'),
