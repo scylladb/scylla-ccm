@@ -1997,7 +1997,7 @@ def _grep_log_for_errors(log, distinct_errors=False, search_str=None, case_sensi
     it = iter(log.splitlines())
     for line in it:
         l = line if case_sensitive else line.lower()
-        is_error_line = ('ERROR' in l and
+        is_error_line = ('ERROR ' in l and
                          'DEBUG' not in l.split('ERROR')[0]) if not search_str else search_str in l
         if is_error_line:
             append_line = line if not search_str else l[l.rfind(search_str):]
