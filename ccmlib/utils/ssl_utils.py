@@ -22,7 +22,7 @@ def generate_ssl_stores(base_dir, passphrase='cassandra', dns_names=None):
         return
 
     legacy = ['-legacy'] if '-legacy' in subprocess.run(['openssl', 'pkcs12', '--help'],
-                                                      universal_newlines=True, stderr=subprocess.PIPE).stderr else ''
+                                                        universal_newlines=True, stderr=subprocess.PIPE).stderr else []
     dns_names = dns_names or ['any.cluster-id.scylla.com']
     ext = ",".join(["dns:{}".format(name) for name in dns_names])
     print("generating keystore.jks in [{0}]".format(base_dir))
