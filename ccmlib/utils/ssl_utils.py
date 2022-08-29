@@ -56,7 +56,11 @@ def generate_ssl_stores(base_dir, passphrase='cassandra', dns_names=None):
                            '-out', os.path.join(base_dir, 'ccm_node.tmp')] + legacy)
     subprocess.check_call(['openssl', 'pkcs8', '-in', os.path.join(base_dir, 'ccm_node.tmp'),
                            '-passin', 'pass:{0}'.format(passphrase),
+                           '-passout', 'pass:{0}'.format(passphrase),
                            '-topk8',
+                           '-out', os.path.join(base_dir, 'ccm_node.pkcs8')])
+    subprocess.check_call(['openssl', 'rsa', '-in', os.path.join(base_dir, 'ccm_node.tmp'),
+                           '-passin', 'pass:{0}'.format(passphrase),
                            '-out', os.path.join(base_dir, 'ccm_node.key')])
 
 
