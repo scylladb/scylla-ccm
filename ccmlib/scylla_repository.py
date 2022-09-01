@@ -80,6 +80,9 @@ def release_packages(s3_url, version, arch='x86_64', scylla_product='scylla'):
         if f'{scylla_product}-{arch}-package' in file_name:
             scylla_package_mark = f'{scylla_product}-{arch}-package'
             break
+        elif f'{arch}.tar.gz' in file_name:
+            scylla_package_mark = list(filter(re.compile(f'{scylla_product}-[0-9].*.{arch}.tar.gz').match, files_in_bucket))[0]
+            break
 
     all_packages = [name for name in files_in_bucket if 'jmx' in name or 'tools' in name or scylla_package_mark in name]
 
@@ -187,8 +190,15 @@ def setup(version, verbose=True):
 
             scylla_arch_package_path = f'{scylla_product}-{scylla_arch}-package.tar.gz'
             scylla_noarch_package_path = f'{scylla_product}-package.tar.gz'
+            scylla_java_reloc = f'{scylla_product}-tools-package.tar.gz'
+            scylla_jmx_reloc = f'{scylla_product}-jmx-package.tar.gz'
 
             aws_files = aws_bucket_ls(s3_url)
+
+            if scylla_arch_package_path not in aws_files:
+                scylla_java_reloc = list(filter(re.compile(f'{scylla_product}-tools-[0-9].*.noarch.tar.gz').match, aws_files))[0]
+                scylla_jmx_reloc = list(filter(re.compile(f'{scylla_product}-jmx-[0-9].*.noarch.tar.gz').match, aws_files))[0]
+                scylla_arch_package_path = list(filter(re.compile(f'{scylla_product}-[0-9].*.{scylla_arch}.tar.gz').match, aws_files))[0]
 
             if scylla_arch_package_path in aws_files:
                 scylla_package_path = scylla_arch_package_path
@@ -199,8 +209,8 @@ def setup(version, verbose=True):
                                    scylla_arch_package_path, scylla_noarch_package_path, s3_url)
 
             packages = RelocatablePackages(
-                scylla_jmx_package=os.path.join(s3_url, f'{scylla_product}-jmx-package.tar.gz'),
-                scylla_tools_package=os.path.join(s3_url, f'{scylla_product}-tools-package.tar.gz'),
+                scylla_jmx_package=os.path.join(s3_url, scylla_jmx_reloc),
+                scylla_tools_package=os.path.join(s3_url, scylla_java_reloc),
                 scylla_package=os.path.join(s3_url, scylla_package_path)
             )
 
