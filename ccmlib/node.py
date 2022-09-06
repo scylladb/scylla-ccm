@@ -16,6 +16,7 @@ import warnings
 from datetime import datetime
 import locale
 from pkg_resources import parse_version
+from collections import namedtuple
 
 import yaml
 from six import iteritems, print_, string_types
@@ -51,7 +52,7 @@ class TimeoutError(Exception):
         Exception.__init__(self, str(data))
 
 
-class NodetoolError(Exception):
+class ToolError(Exception):
 
     def __init__(self, command, exit_status, stdout=None, stderr=None):
         self.command = command
@@ -59,16 +60,23 @@ class NodetoolError(Exception):
         self.stdout = stdout
         self.stderr = stderr
 
-        message = "Nodetool command '%s' failed; exit status: %d" % (command, exit_status)
+        message = "Subprocess {} exited with non-zero status; exit status: {}".format(command, exit_status)
         if stdout:
-            message += "; stdout: "
-            message += stdout
+            message += "; \nstdout: "
+            message += self.__decode(stdout)
         if stderr:
-            message += "; stderr: "
-            message += stderr
+            message += "; \nstderr: "
+            message += self.__decode(stderr)
 
         Exception.__init__(self, message)
 
+    def __decode(self, value):
+        if isinstance(value, bytes):
+            return bytes.decode(value, locale.getpreferredencoding(False))
+        return value
+
+
+NodetoolError = ToolError
 
 # Groups: 1 = cf, 2 = tmp or none, 3 = suffix (Compacted or Data.db)
 _sstable_regexp = re.compile(r'((?P<keyspace>[^\s-]+)-(?P<cf>[^\s-]+)-)?(?P<tmp>tmp(link)?-)?(?P<version>[^\s-]+)-(?P<number>\d+)-(?P<big>big-)?(?P<suffix>[a-zA-Z]+)\.[a-zA-Z0-9]+$')
@@ -1196,7 +1204,7 @@ class Node(object):
                 files.remove(f)
         return files
 
-    def stress(self, stress_options=None, capture_output=False, **kwargs):
+    def stress_process(self, stress_options, **kwargs):
         if stress_options is None:
             stress_options = []
         else:
@@ -1237,22 +1245,19 @@ class Node(object):
                     stress_options.extend(['-port', 'jmx=' + self.jmx_port])
 
         args = stress + stress_options
-        try:
-            stdout_handle = kwargs.pop("stdout", subprocess.PIPE)
-            stderr_handle = kwargs.pop("stderr", subprocess.PIPE)
-            p = subprocess.Popen(args,
-                                 stdout=stdout_handle, stderr=stderr_handle, universal_newlines=True,
-                                 **kwargs)
-            stdout, stderr = p.communicate()
-            return_code = p.wait()
-            assert return_code == 0, "Stress command exited with error code: {return_code}\n" \
-                                     "stdout: {stdout}\n" \
-                                     "stderr: {stderr}\n".format(**locals())
-            if capture_output:
-                return stdout, stderr
-            else:
-                return None, None
+        stdout_handle = kwargs.pop("stdout", subprocess.PIPE)
+        stderr_handle = kwargs.pop("stderr", subprocess.PIPE)
+        p = subprocess.Popen(args,
+                             stdout=stdout_handle, stderr=stderr_handle, universal_newlines=True,
+                             **kwargs)
+        return p
 
+    def stress(self, stress_options=None, capture_output=False, **kwargs):
+        if capture_output:
+            self.warning("passing `capture_output` to stress_object() is deprecated")
+        p = self.stress_process(stress_options=stress_options, **kwargs)
+        try:
+            return handle_external_tool_process(p, ['stress'] + stress_options)
         except KeyboardInterrupt:
             pass
 
@@ -1279,14 +1284,14 @@ class Node(object):
             except ValueError:
                 res[key] = val
 
-    def stress_object(self, stress_options=[], ignore_errors = False, **kwargs):
-        out, err = self.stress(stress_options, True, **kwargs)
-        if not ignore_errors and err != "" and not err.startswith("Failed to connect over JMX; not collecting these stats") and not err.startswith("Picked up JAVA_TOOL_OPTIONS"):
-            return err
+    def stress_object(self, stress_options=None, ignore_errors=None, **kwargs):
+        if ignore_errors:
+            self.warning("passing `ignore_errors` to stress_object() is deprecated")
+        ret = self.stress(stress_options, **kwargs)
         p = re.compile(r'^\s*([^:]+)\s*:\s*(\S.*)\s*$')
         res = {}
         start = False
-        for line in [s.strip() for s in out.splitlines()]:
+        for line in [s.strip() for s in ret.stdout.splitlines()]:
             if start:
                 m = p.match(line)
                 if m:
@@ -2022,3 +2027,17 @@ def _grep_log_for_errors(log, distinct_errors=False, search_str=None, case_sensi
     if distinct_errors:
         matchings = list(set(matchings))
     return matchings
+
+def handle_external_tool_process(process, cmd_args):
+    out, err = process.communicate()
+    if (out is not None) and isinstance(out, bytes):
+        out = out.decode()
+    if (err is not None) and isinstance(err, bytes):
+        err = err.decode()
+    rc = process.returncode
+
+    if rc != 0:
+        raise ToolError(cmd_args, rc, out, err)
+
+    ret = namedtuple('Subprocess_Return', 'stdout stderr rc')
+    return ret(stdout=out, stderr=err, rc=rc)

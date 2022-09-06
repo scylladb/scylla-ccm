@@ -72,6 +72,6 @@ class TestScyllaDockerCluster:
 
     def test_node_stress(self, docker_cluster):
         node1, *_ = docker_cluster.nodelist()
-        stdout, _ = node1.stress(['write', 'n=1000'], capture_output=True)
-        assert '1,000 [WRITE: 1,000]' in stdout
-        assert 'END' in stdout
+        ret = node1.stress(['write', 'n=1000'])
+        assert '1,000 [WRITE: 1,000]' in ret.stdout
+        assert 'END' in ret.stdout
