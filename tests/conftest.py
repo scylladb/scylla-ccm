@@ -76,7 +76,9 @@ def relocatable_cluster(test_dir, test_id):
         'range_request_timeout_in_ms': timeout,
         'write_request_timeout_in_ms': timeout,
         'truncate_request_timeout_in_ms': timeout,
-        'request_timeout_in_ms': timeout
+        'request_timeout_in_ms': timeout,
+        'skip_wait_for_gossip_to_settle': 0,
+        'ring_delay_ms': 0,
     })
     cluster.populate(1)
     cluster.start(wait_for_binary_proto=True)
