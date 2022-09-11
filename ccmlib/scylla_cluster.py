@@ -29,7 +29,8 @@ class ScyllaCluster(Cluster):
 
         cassandra_version = kwargs.get('cassandra_version', version)
         docker_image = kwargs.get('docker_image')
-
+        self.scylla_product = kwargs.get('scylla_product', 'scylla')
+        
         if cassandra_version:
             self.scylla_reloc = True
             self.scylla_mode = None
@@ -67,7 +68,7 @@ class ScyllaCluster(Cluster):
             self._scylla_manager = ScyllaManager(self)
 
     def load_from_repository(self, version, verbose):
-        install_dir, version = scylla_repository.setup(version, verbose)
+        install_dir, version = scylla_repository.setup(version, verbose, self.scylla_product)
         install_dir, self.scylla_mode = common.scylla_extract_install_dir_and_mode(install_dir)
         return install_dir, version
 
