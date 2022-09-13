@@ -13,6 +13,7 @@ import subprocess
 import re
 import sys
 import glob
+from pkg_resources import parse_version
 
 import hashlib
 import requests
@@ -173,6 +174,8 @@ def setup(version, verbose=True):
         s3_version = type_n_version[1]
 
         if type_n_version[0] == 'release':
+            scylla_product = 'scylla-enterprise' if parse_version(s3_version) > parse_version("2018.1") else  'scylla'
+            scylla_product = os.environ.get('SCYLLA_PRODUCT', scylla_product)
             if 'enterprise' in scylla_product:
                 s3_url = ENTERPRISE_RELEASE_RELOCATABLE_URLS_BASE
             else:
