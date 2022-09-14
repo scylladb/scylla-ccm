@@ -120,7 +120,14 @@ class ScyllaNode(Node):
         return os.path.join(self.get_path(), 'conf')
 
     def get_tool(self, toolname):
-        return common.join_bin(self.get_tools_java_dir(), BIN_DIR, toolname)
+        candidates = [
+            common.join_bin(Path(self.node_install_dir) / 'share' / 'cassandra', BIN_DIR, toolname),
+            common.join_bin(self.get_tools_java_dir(), BIN_DIR, toolname)
+        ]
+        for candidate in candidates:
+            if os.path.exists(candidate):
+                return candidate
+        raise ValueError(f"tool {toolname} wasn't found in any path: {candidates}")
 
     def get_tool_args(self, toolname):
         raise NotImplementedError('ScyllaNode.get_tool_args')
@@ -972,9 +979,9 @@ class ScyllaNode(Node):
                     raise RuntimeError('{} exited with status {}.\nstdout:{}\nstderr:\n{}'.format(patchelf_cmd, returncode, stdout, stderr))
 
         if 'scylla-repository' in self.node_install_dir:
-            self.hard_link_or_copy(os.path.join(self.node_install_dir, 'scylla-jmx', 'scylla-jmx-1.0.jar'),
+            self.hard_link_or_copy(os.path.join(self.get_jmx_dir(), 'scylla-jmx-1.0.jar'),
                                    os.path.join(self.get_bin_dir(), 'scylla-jmx-1.0.jar'), replace=replace)
-            self.hard_link_or_copy(os.path.join(self.node_install_dir, 'scylla-jmx', 'scylla-jmx'),
+            self.hard_link_or_copy(os.path.join(self.get_jmx_dir(), 'scylla-jmx'),
                                    os.path.join(self.get_bin_dir(), 'scylla-jmx'), replace=replace)
         else:
             self.hard_link_or_copy(os.path.join(self.get_jmx_dir(), 'target', 'scylla-jmx-1.0.jar'),
