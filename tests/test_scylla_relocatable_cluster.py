@@ -50,3 +50,18 @@ class TestScyllaRelocatableCluster:
 
         with pytest.raises(ToolError):
             node1.stress_object(['abc', 'n=10'])
+
+    def test_cqlsh(self, relocatable_cluster):
+        node1, *_ = relocatable_cluster.nodelist()
+
+        node1.run_cqlsh(
+            '''
+            CREATE KEYSPACE ks WITH replication = { 'class' :'SimpleStrategy', 'replication_factor': 3};
+            USE ks;
+            CREATE TABLE test (key int PRIMARY KEY);
+            INSERT INTO test (key) VALUES (1);
+            ''')
+        rv = node1.run_cqlsh('SELECT * from ks.test', return_output=True)
+        for s in ['(1 rows)', 'key', '1']:
+            assert s in rv[0]
+        assert rv[1] == ''

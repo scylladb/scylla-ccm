@@ -140,6 +140,9 @@ class ClusterCreateCmd(Cmd):
         parser.add_option('--scylla-jmx-package-uri', type="string", dest="scylla_jmx_package_uri",
                           help="The path scylla jmx relocatable package", default=None)
 
+        parser.add_option('--scylla-unified-package-uri', type="string", dest="scylla_unified_package_uri",
+                          help="The path scylla relocatable unified package", default=None)
+
         parser.epilog = """
         
         Examples of using relocatable packages:
@@ -196,6 +199,8 @@ class ClusterCreateCmd(Cmd):
 
         if options.scylla_core_package_uri:
             os.environ['SCYLLA_CORE_PACKAGE'] = options.scylla_core_package_uri
+        if options.scylla_unified_package_uri:
+            os.environ['SCYLLA_UNIFIED_PACKAGE'] = options.scylla_unified_package_uri
         if options.scylla_tools_java_package_uri:
             os.environ['SCYLLA_TOOLS_JAVA_PACKAGE'] = options.scylla_tools_java_package_uri
             # TODO: remove this export eventually, it's for backward

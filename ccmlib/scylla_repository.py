@@ -1,5 +1,6 @@
 from __future__ import with_statement
 
+import logging
 import random
 import time
 from pathlib import Path
@@ -17,6 +18,7 @@ from pkg_resources import parse_version
 
 import hashlib
 import requests
+import yaml
 
 from six import print_
 from six.moves import urllib
@@ -47,9 +49,10 @@ def run(cmd, cwd=None):
 
 
 class RelocatablePackages(NamedTuple):
-    scylla_package: str
-    scylla_tools_package: str
-    scylla_jmx_package: str
+    scylla_package: str = None
+    scylla_tools_package: str = None
+    scylla_jmx_package: str = None
+    scylla_unified_package: str = None
 
 
 def release_packages(s3_url, version, arch='x86_64', scylla_product='scylla'):
@@ -74,6 +77,26 @@ def release_packages(s3_url, version, arch='x86_64', scylla_product='scylla'):
     if not files_in_bucket:
         raise RuntimeError(
             f"Failed to get release packages list for version {major_version}. URL: {s3_url}.")
+
+    all_unified_packages = [name for name in files_in_bucket if f'{scylla_product}-{arch}-unified-package' in name]
+    candidates = [package for package in all_unified_packages if ".rc" not in package and '.rc' not in version]
+
+    release_unified_packages = [package for package in candidates if version in package]
+
+    def extract_version(filename):
+        version_regex = re.compile(r'-(\d+!)?\d+([.-]\d+)?([.-]\d+)?([a-z]+\d*)?([.-](post|dev|rc)\d*)*')
+        match = version_regex.search(filename)
+        if match:
+            return filename[match.span()[0]+1:match.span()[1]]
+        logging.warning(f"file: {filename}, doesn't have version in it...")
+        return '0.0'
+
+    if release_unified_packages:
+        version_and_files = [(extract_version(release), release) for release in release_unified_packages]
+        version_and_files.sort(key=lambda x:  parse_version(x[0]))
+        packages = RelocatablePackages(scylla_unified_package=os.path.join(s3_url, version_and_files[-1][1]))
+
+        return packages, version_and_files[-1][0]
 
     scylla_package_mark = 'scylla-package'
 
@@ -147,6 +170,17 @@ def get_relocatable_s3_url(branch, s3_version, links):
     raise CCMError(f"s3 url was not found for {branch}:{s3_version}")
 
 
+def read_build_manifest(url):
+    build_url = f'{url}/00-Build.txt'
+    res = requests.get(build_url)
+    res.raise_for_status()
+    # example of 00-Build.txt content: (each line is formatted as 'key: value`)
+    #
+    #    url-id: 2022-08-29T08:05:34Z
+    #    docker-image-name: scylla-nightly:5.2.0-dev-0.20220829.67c91e8bcd61
+    return yaml.safe_load(res.content)
+
+
 def setup(version, verbose=True):
     """
     :param version:
@@ -177,7 +211,7 @@ def setup(version, verbose=True):
         s3_version = type_n_version[1]
 
         if type_n_version[0] == 'release':
-            scylla_product = 'scylla-enterprise' if parse_version(s3_version) > parse_version("2018.1") else  'scylla'
+            scylla_product = 'scylla-enterprise' if parse_version(s3_version) > parse_version("2018.1") else 'scylla'
             scylla_product = os.environ.get('SCYLLA_PRODUCT', scylla_product)
             if 'enterprise' in scylla_product:
                 s3_url = ENTERPRISE_RELEASE_RELOCATABLE_URLS_BASE
@@ -191,34 +225,43 @@ def setup(version, verbose=True):
             else:
                 s3_url = get_relocatable_s3_url(branch, s3_version, RELOCATABLE_URLS_BASE)
 
-            scylla_package_path = f'{scylla_product}-package.tar.gz'
-            scylla_arch_package_path = f'{scylla_product}-{scylla_arch}-package.tar.gz'
-            scylla_noarch_package_path = f'{scylla_product}-package.tar.gz'
-            scylla_java_reloc = f'{scylla_product}-tools-package.tar.gz'
-            scylla_jmx_reloc = f'{scylla_product}-jmx-package.tar.gz'
+            try:
+                build_manifest = read_build_manifest(s3_url)
+                url = build_manifest.get(f'unified-pack-url-{scylla_arch}')
+                assert url
+                url = f'http://{url}'
+                packages = RelocatablePackages(scylla_unified_package=url)
+            except Exception as ex:
+                logging.exception("could download relocatalble")
 
-            aws_files = aws_bucket_ls(s3_url)
+                scylla_package_path = f'{scylla_product}-package.tar.gz'
+                scylla_arch_package_path = f'{scylla_product}-{scylla_arch}-package.tar.gz'
+                scylla_noarch_package_path = f'{scylla_product}-package.tar.gz'
+                scylla_java_reloc = f'{scylla_product}-tools-package.tar.gz'
+                scylla_jmx_reloc = f'{scylla_product}-jmx-package.tar.gz'
 
-            if scylla_arch_package_path not in aws_files and scylla_package_path not in aws_files:
-                scylla_java_reloc = list(filter(re.compile(f'{scylla_product}-tools-[0-9].*.noarch.tar.gz').match, aws_files))[0]
-                scylla_jmx_reloc = list(filter(re.compile(f'{scylla_product}-jmx-[0-9].*.noarch.tar.gz').match, aws_files))[0]
-                scylla_arch_package_path = list(filter(re.compile(f'{scylla_product}-[0-9].*.{scylla_arch}.tar.gz').match, aws_files))[0]
+                aws_files = aws_bucket_ls(s3_url)
 
-            if scylla_arch_package_path in aws_files:
-                scylla_package_path = scylla_arch_package_path
-            elif scylla_noarch_package_path in aws_files:
-                scylla_package_path = scylla_noarch_package_path
-            elif scylla_package_path in aws_files:
-                scylla_package_path = scylla_package_path
-            else:
-                raise RuntimeError("Can't find %s or %s in the %s",
-                                   scylla_arch_package_path, scylla_noarch_package_path, s3_url)
+                if scylla_arch_package_path not in aws_files and scylla_package_path not in aws_files:
+                    scylla_java_reloc = list(filter(re.compile(f'{scylla_product}-tools-[0-9].*.noarch.tar.gz').match, aws_files))[0]
+                    scylla_jmx_reloc = list(filter(re.compile(f'{scylla_product}-jmx-[0-9].*.noarch.tar.gz').match, aws_files))[0]
+                    scylla_arch_package_path = list(filter(re.compile(f'{scylla_product}-[0-9].*.{scylla_arch}.tar.gz').match, aws_files))[0]
 
-            packages = RelocatablePackages(
-                scylla_jmx_package=os.path.join(s3_url, scylla_jmx_reloc),
-                scylla_tools_package=os.path.join(s3_url, scylla_java_reloc),
-                scylla_package=os.path.join(s3_url, scylla_package_path)
-            )
+                if scylla_arch_package_path in aws_files:
+                    scylla_package_path = scylla_arch_package_path
+                elif scylla_noarch_package_path in aws_files:
+                    scylla_package_path = scylla_noarch_package_path
+                elif scylla_package_path in aws_files:
+                    scylla_package_path = scylla_package_path
+                else:
+                    raise RuntimeError("Can't find %s or %s in the %s",
+                                       scylla_arch_package_path, scylla_noarch_package_path, s3_url)
+
+                packages = RelocatablePackages(
+                    scylla_jmx_package=os.path.join(s3_url, scylla_jmx_reloc),
+                    scylla_tools_package=os.path.join(s3_url, scylla_java_reloc),
+                    scylla_package=os.path.join(s3_url, scylla_package_path)
+                )
 
         version = os.path.join(*type_n_version)
 
@@ -244,8 +287,8 @@ def setup(version, verbose=True):
             else:
                 download_in_progress_file.touch()
                 try:
-                    package_version = download_packages(version_dir=version_dir, packages=packages, s3_url=s3_url,
-                                                        scylla_product=scylla_product, version=version, verbose=verbose)
+                    package_version, packages = download_packages(version_dir=version_dir, packages=packages, s3_url=s3_url,
+                                                                  scylla_product=scylla_product, version=version, verbose=verbose)
                 except requests.HTTPError as err:
                     if '404' in err.args[0]:
                         packages_x86_64 = RelocatablePackages(
@@ -253,18 +296,22 @@ def setup(version, verbose=True):
                             scylla_tools_package=os.path.join(s3_url, f'{scylla_product}-tools-package.tar.gz'),
                             scylla_package=os.path.join(s3_url, f'{scylla_product}-x86_64-package.tar.gz')
                         )
-                        package_version = download_packages(version_dir=version_dir, packages=packages_x86_64,
-                                                            s3_url=s3_url, scylla_product=scylla_product,
-                                                            version=version, verbose=verbose)
+                        package_version, packages = download_packages(version_dir=version_dir, packages=packages_x86_64,
+                                                                      s3_url=s3_url, scylla_product=scylla_product,
+                                                                      version=version, verbose=verbose)
                     else:
                         raise
 
                 download_in_progress_file.touch()
+                args = dict(install_dir=os.path.join(version_dir, CORE_PACKAGE_DIR_NAME),
+                            target_dir=version_dir,
+                            package_version=package_version)
 
                 # install using scylla install.sh
-                run_scylla_install_script(install_dir=os.path.join(version_dir, CORE_PACKAGE_DIR_NAME),
-                                          target_dir=version_dir,
-                                          package_version=package_version)
+                if packages.scylla_unified_package:
+                    run_scylla_unified_install_script(**args)
+                else:
+                    run_scylla_install_script(**args)
                 print(f"Completed to install Scylla in the folder '{version_dir}'")
                 download_in_progress_file.unlink()
 
@@ -283,7 +330,8 @@ def download_packages(version_dir, packages, s3_url, scylla_product, version, ve
         packages = RelocatablePackages(scylla_jmx_package=os.environ.get('SCYLLA_JMX_PACKAGE'),
                                        scylla_tools_package=os.environ.get("SCYLLA_TOOLS_JAVA_PACKAGE") or
                                                             os.environ.get("SCYLLA_JAVA_TOOLS_PACKAGE"),
-                                       scylla_package=os.environ.get('SCYLLA_CORE_PACKAGE')
+                                       scylla_package=os.environ.get('SCYLLA_CORE_PACKAGE'),
+                                       scylla_unified_package=os.environ.get('SCYLLA_UNIFIED_PACKAGE')
                                        )
 
         if not packages:
@@ -292,20 +340,27 @@ def download_packages(version_dir, packages, s3_url, scylla_product, version, ve
                                    "'SCYLLA_CORE_PACKAGE'")
 
     tmp_download = tempfile.mkdtemp()
+    if packages.scylla_unified_package:
+        package_version = download_version(version=version, verbose=verbose, url=packages.scylla_unified_package,
+                                           target_dir=tmp_download, unified=True)
+        shutil.rmtree(version_dir)
+        target_dir = Path(version_dir) / CORE_PACKAGE_DIR_NAME
+        target_dir.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(tmp_download, target_dir)
+    else:
+        package_version = download_version(version=version, verbose=verbose, url=packages.scylla_package,
+                                           target_dir=os.path.join(tmp_download, CORE_PACKAGE_DIR_NAME))
 
-    package_version = download_version(version=version, verbose=verbose, url=packages.scylla_package,
-                                       target_dir=os.path.join(tmp_download, 'scylla-core-package'))
+        download_version(version=version, verbose=verbose, url=packages.scylla_tools_package,
+                         target_dir=os.path.join(tmp_download, 'scylla-tools-java'))
 
-    download_version(version=version, verbose=verbose, url=packages.scylla_tools_package,
-                     target_dir=os.path.join(tmp_download, 'scylla-tools-java'))
+        download_version(version=version, verbose=verbose, url=packages.scylla_jmx_package,
+                         target_dir=os.path.join(tmp_download, 'scylla-jmx'))
 
-    download_version(version=version, verbose=verbose, url=packages.scylla_jmx_package,
-                     target_dir=os.path.join(tmp_download, 'scylla-jmx'))
+        shutil.rmtree(version_dir)
+        shutil.move(tmp_download, version_dir)
 
-    shutil.rmtree(version_dir)
-    shutil.move(tmp_download, version_dir)
-
-    return package_version
+    return package_version, packages
 
 
 def setup_scylla_manager(scylla_manager_package=None):
@@ -345,7 +400,7 @@ def is_valid(url, qualifying=None):
                 for qualifying_attr in qualifying])
 
 
-def download_version(version, url=None, verbose=False, target_dir=None):
+def download_version(version, url=None, verbose=False, target_dir=None, unified=False):
     """
     Download, scylla relocatable package tarballs.
     """
@@ -376,10 +431,11 @@ def download_version(version, url=None, verbose=False, target_dir=None):
                 print(f'Unknown relocatable package format version: {package_version}')
                 sys.exit(1)
             print(f'Relocatable package format version {package_version} detected.')
-            pkg_dir = glob.glob('{}/*/'.format(target_dir))[0]
-            shutil.move(str(pkg_dir), target_dir + '.new')
-            shutil.rmtree(target_dir)
-            shutil.move(target_dir + '.new', target_dir)
+            if not unified:
+                pkg_dir = glob.glob('{}/*/'.format(target_dir))[0]
+                shutil.move(str(pkg_dir), target_dir + '.new')
+                shutil.rmtree(target_dir)
+                shutil.move(target_dir + '.new', target_dir)
         else:
             package_version = packaging.version.parse('1')
             print('Legacy relocatable package format detected.')
@@ -446,3 +502,13 @@ def run_scylla_install_script(install_dir, target_dir, package_version):
         scylla_target_dir), cwd=install_dir)
     run('''ln -s {}/bin .'''.format(scylla_target_dir), cwd=target_dir)
     run('''ln -s {}/conf .'''.format(scylla_target_dir), cwd=target_dir)
+
+
+def run_scylla_unified_install_script(install_dir, target_dir, package_version):
+    install_opt = ''
+    if package_version >= packaging.version.parse('2.2'):
+        install_opt = ' --without-systemd'
+
+    run('''{0}/install.sh --prefix {1} --nonroot{2}'''.format(
+        install_dir, target_dir, install_opt), cwd=install_dir)
+    run('''ln -s {}/scylla/conf conf'''.format(install_dir), cwd=target_dir)

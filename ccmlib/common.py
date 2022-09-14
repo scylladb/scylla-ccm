@@ -332,9 +332,13 @@ def parse_bin(executable):
     tokens = re.split(os.sep, executable)
     return tokens[-1]
 
+
 def get_tools_java_dir(install_dir, relative_repos_root='..'):
     if 'scylla-repository' in install_dir:
-        return os.path.join(install_dir, 'scylla-tools-java')
+        candidates = [
+            os.path.join(install_dir, 'scylla-tools-java'),
+            os.path.join(install_dir, 'scylla-core-package', 'scylla-tools'),
+        ]
     else:
         dir = os.environ.get('TOOLS_JAVA_DIR')
         if dir:
@@ -344,9 +348,10 @@ def get_tools_java_dir(install_dir, relative_repos_root='..'):
             os.path.join(install_dir, 'tools', 'java'),
             os.path.join(install_dir, relative_repos_root, 'scylla-tools-java')
         ]
-        for dir in candidates:
-            if os.path.isdir(dir):
-                return dir
+    for candidate in candidates:
+        if os.path.isdir(candidate):
+            return candidate
+
 
 def get_jmx_dir(install_dir, relative_repos_root='..'):
     dir = os.environ.get('SCYLLA_JMX_DIR')
@@ -354,11 +359,15 @@ def get_jmx_dir(install_dir, relative_repos_root='..'):
         return dir
     candidates = [
         os.path.join(install_dir, 'tools', 'jmx'),
-        os.path.join(install_dir, relative_repos_root, 'scylla-jmx')
+        os.path.join(install_dir, relative_repos_root, 'scylla-jmx'),
+        os.path.join(install_dir, relative_repos_root, 'scylla-core-package', 'scylla-jmx'),
+        os.path.join(install_dir, 'scylla-core-package', 'scylla-jmx'),
+        os.path.join(install_dir, 'scylla-jmx'),
     ]
-    for dir in candidates:
-        if os.path.isdir(dir):
-            return dir
+    for candidate in candidates:
+        if os.path.isdir(candidate):
+            return candidate
+
 
 def get_stress_bin(install_dir):
     candidates = [
@@ -683,9 +692,12 @@ def get_version_from_build(install_dir=None, node_path=None):
 
 
 def _get_scylla_version(install_dir):
-    scylla_version_files = [ os.path.join(install_dir, 'build', 'SCYLLA-VERSION-FILE'),
-                             os.path.join(install_dir, '..', '..', 'build', 'SCYLLA-VERSION-FILE'),
-                                os.path.join(install_dir, 'scylla-core-package', 'SCYLLA-VERSION-FILE') ]
+    scylla_version_files = [
+        os.path.join(install_dir, 'build', 'SCYLLA-VERSION-FILE'),
+        os.path.join(install_dir, '..', '..', 'build', 'SCYLLA-VERSION-FILE'),
+        os.path.join(install_dir, 'scylla-core-package', 'SCYLLA-VERSION-FILE'),
+        os.path.join(install_dir, 'scylla-core-package', 'scylla', 'SCYLLA-VERSION-FILE'),
+    ]
     for version_file in scylla_version_files:
         if os.path.exists(version_file):
             with open(version_file) as file:
@@ -699,8 +711,11 @@ def _get_scylla_version(install_dir):
 
 
 def _get_scylla_release(install_dir):
-    scylla_release_files = [os.path.join(install_dir, 'build', 'SCYLLA-RELEASE-FILE'),
-                                os.path.join(install_dir, 'scylla-core-package', 'SCYLLA-RELEASE-FILE')]
+    scylla_release_files = [
+        os.path.join(install_dir, 'build', 'SCYLLA-RELEASE-FILE'),
+        os.path.join(install_dir, 'scylla-core-package', 'SCYLLA-RELEASE-FILE'),
+        os.path.join(install_dir, 'scylla-core-package', 'scylla', 'SCYLLA-RELEASE-FILE'),
+    ]
     for release_file in scylla_release_files:
         if os.path.exists(release_file):
             with open(release_file) as file:
