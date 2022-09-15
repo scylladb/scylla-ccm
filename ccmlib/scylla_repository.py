@@ -434,6 +434,9 @@ def run_scylla_install_script(install_dir, target_dir, package_version):
         # on relocatable package format 2.1 or later, use --packaging instead of sed
         install_opt = ' --packaging'
 
+    if package_version >= packaging.version.parse('2.2'):
+        install_opt += ' --without-systemd'
+
     run('''{0}/install.sh --prefix {1} --nonroot{2}'''.format(
         install_dir, scylla_target_dir, install_opt), cwd=install_dir)
     run('''mkdir -p {0}/conf; cp ./conf/scylla.yaml {0}/conf'''.format(
