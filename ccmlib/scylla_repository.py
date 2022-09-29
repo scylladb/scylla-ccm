@@ -423,9 +423,9 @@ def download_version(version, url=None, verbose=False, target_dir=None, unified=
         tar.close()
 
         # if relocatable package format >= 2, need to extract files under subdir
-        package_version_file = "{}/.relocatable_package_version".format(target_dir)
-        if os.path.exists(package_version_file):
-            with open(package_version_file) as f:
+        package_version_files = glob.glob("{}/**/.relocatable_package_version".format(Path(target_dir).parent))
+        if package_version_files and os.path.exists(package_version_files[0]):
+            with open(package_version_files[0]) as f:
                 package_version = packaging.version.parse(f.read().strip())
             if package_version > packaging.version.parse('3'):
                 print(f'Unknown relocatable package format version: {package_version}')
@@ -508,6 +508,9 @@ def run_scylla_unified_install_script(install_dir, target_dir, package_version):
     install_opt = ''
     if package_version >= packaging.version.parse('2.2'):
         install_opt = ' --without-systemd'
+
+    if package_version >= packaging.version.parse('3'):
+        run('''cd scylla-*; mv * ../''', cwd=install_dir)
 
     run('''{0}/install.sh --prefix {1} --nonroot{2}'''.format(
         install_dir, target_dir, install_opt), cwd=install_dir)
