@@ -1257,7 +1257,6 @@ class NodeUpgrader:
         self._scylla_version_for_upgrade = None
         self.orig_install_dir = node.node_install_dir
         self.install_dir_for_upgrade = None
-        self.scylla_product = None
 
     @property
     def scylla_version_for_upgrade(self):
@@ -1272,7 +1271,7 @@ class NodeUpgrader:
 
     def _setup_relocatable_packages(self):
         try:
-            cdir, _ = setup(self.scylla_version_for_upgrade, scylla_product=self.scylla_product)
+            cdir, _ = setup(self.scylla_version_for_upgrade)
         except Exception as exc:
             raise NodeUpgradeError("Failed to setup relocatable packages. %s" % exc)
         return cdir

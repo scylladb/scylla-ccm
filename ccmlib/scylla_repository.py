@@ -143,7 +143,7 @@ def get_relocatable_s3_url(branch, s3_version, links):
     raise CCMError(f"s3 url was not found for {branch}:{s3_version}")
 
 
-def setup(version, verbose=True, scylla_product='scylla'):
+def setup(version, verbose=True):
     """
     :param version:
             Supported version values (examples):
@@ -160,7 +160,7 @@ def setup(version, verbose=True, scylla_product='scylla'):
     """
     s3_url = ''
     type_n_version = version.split(':', 1)
-    scylla_product = os.environ.get('SCYLLA_PRODUCT', scylla_product)
+    scylla_product = os.environ.get('SCYLLA_PRODUCT', 'scylla')
     scylla_arch = os.environ.get('SCYLLA_ARCH', 'x86_64')
 
     packages = None
