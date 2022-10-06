@@ -191,6 +191,7 @@ def setup(version, verbose=True):
             else:
                 s3_url = get_relocatable_s3_url(branch, s3_version, RELOCATABLE_URLS_BASE)
 
+            scylla_package_path = f'{scylla_product}-package.tar.gz'
             scylla_arch_package_path = f'{scylla_product}-{scylla_arch}-package.tar.gz'
             scylla_noarch_package_path = f'{scylla_product}-package.tar.gz'
             scylla_java_reloc = f'{scylla_product}-tools-package.tar.gz'
@@ -198,7 +199,7 @@ def setup(version, verbose=True):
 
             aws_files = aws_bucket_ls(s3_url)
 
-            if scylla_arch_package_path not in aws_files:
+            if scylla_arch_package_path not in aws_files and scylla_package_path not in aws_files:
                 scylla_java_reloc = list(filter(re.compile(f'{scylla_product}-tools-[0-9].*.noarch.tar.gz').match, aws_files))[0]
                 scylla_jmx_reloc = list(filter(re.compile(f'{scylla_product}-jmx-[0-9].*.noarch.tar.gz').match, aws_files))[0]
                 scylla_arch_package_path = list(filter(re.compile(f'{scylla_product}-[0-9].*.{scylla_arch}.tar.gz').match, aws_files))[0]
@@ -207,6 +208,8 @@ def setup(version, verbose=True):
                 scylla_package_path = scylla_arch_package_path
             elif scylla_noarch_package_path in aws_files:
                 scylla_package_path = scylla_noarch_package_path
+            elif scylla_package_path in aws_files:
+                scylla_package_path = scylla_package_path
             else:
                 raise RuntimeError("Can't find %s or %s in the %s",
                                    scylla_arch_package_path, scylla_noarch_package_path, s3_url)
