@@ -1404,12 +1404,13 @@ class Node(object):
     def import_dse_config_files(self):
         raise common.ArgumentError('Cannot import DSE configuration files on a Cassandra node')
 
-    def copy_config_files(self):
+    def copy_config_files(self, clobber=False):
         conf_dir = os.path.join(self.get_install_dir(), 'conf')
         for name in os.listdir(conf_dir):
             filename = os.path.join(conf_dir, name)
-            if os.path.isfile(filename):
-                shutil.copy(filename, self.get_conf_dir())
+            if os.path.isfile(filename) and \
+                (clobber or not os.path.exists(os.path.join(self.get_conf_dir(), name))):
+                    shutil.copy(filename, self.get_conf_dir())
 
     def import_bin_files(self, exist_ok=False, replace=False):
         bin_dir = os.path.join(self.get_install_dir(), 'bin')
