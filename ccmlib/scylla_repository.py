@@ -423,7 +423,8 @@ def download_version(version, url=None, verbose=False, target_dir=None, unified=
         tar.close()
 
         # if relocatable package format >= 2, need to extract files under subdir
-        package_version_files = glob.glob("{}/**/.relocatable_package_version".format(Path(target_dir).parent))
+        package_version_files = glob.glob("{}/.relocatable_package_version".format(Path(target_dir))) + \
+                                glob.glob("{}/**/.relocatable_package_version".format(Path(target_dir)))
         if package_version_files and os.path.exists(package_version_files[0]):
             with open(package_version_files[0]) as f:
                 package_version = packaging.version.parse(f.read().strip())
@@ -505,9 +506,15 @@ def run_scylla_install_script(install_dir, target_dir, package_version):
 
 
 def run_scylla_unified_install_script(install_dir, target_dir, package_version):
-    install_opt = ''
+    # to skip systemd check at https://github.com/scylladb/scylladb/blob/master/unified/install.sh#L102
+    install_opt = ' --supervisor'
+
     if package_version >= packaging.version.parse('2.2'):
         install_opt = ' --without-systemd'
+    else:
+        # Patch the jmx install.sh to not use systemctl, in newer versions --without-systemd is covering it
+        run(r'''sed -i 's/systemctl --user.*/echo "commented out systemctl command"/' ./scylla-jmx/install.sh''',
+            cwd=install_dir)
 
     if package_version >= packaging.version.parse('3'):
         run('''cd scylla-*; mv * ../''', cwd=install_dir)
