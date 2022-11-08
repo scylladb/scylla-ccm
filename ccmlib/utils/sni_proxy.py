@@ -32,7 +32,7 @@ def file_or_memory(path=None, data=None):
         yield path
 
 
-def create_cloud_config(ssl_dir, port, username='cassandra', password='cassandra'):
+def create_cloud_config(ssl_dir, port, address, username='cassandra', password='cassandra'):
 
     def encode_base64(filename):
         return base64.b64encode(open(os.path.join(ssl_dir, filename), 'rb').read()).decode()
@@ -42,8 +42,8 @@ def create_cloud_config(ssl_dir, port, username='cassandra', password='cassandra
     key_data = encode_base64('ccm_node.key')
 
     config = dict(datacenters={'eu-west-1': dict(certificateAuthorityData=cadata,
-                                                 server=f'any.cluster-id.scylla.com:{port}',
-                                                 nodeDomain='cluster-id.scylla.com')},
+                                                 server=f'{address}:{port}',
+                                                 nodeDomain='cql.cluster-id.scylla.com')},
                   authInfos={'default': dict(clientCertificateData=certificate_data,
                                              clientKeyData=key_data,
                                              username=username,
@@ -56,8 +56,8 @@ def create_cloud_config(ssl_dir, port, username='cassandra', password='cassandra
         config_file.write(yaml.safe_dump(config, sort_keys=False))
 
     config = dict(datacenters={'eu-west-1': dict(certificateAuthorityPath=os.path.join(ssl_dir, 'ccm_node.cer'),
-                                                 server=f'any.cluster-id.scylla.com:{port}',
-                                                 nodeDomain='cluster-id.scylla.com')},
+                                                 server=f'{address}:{port}',
+                                                 nodeDomain='cql.cluster-id.scylla.com')},
                   authInfos={'default': dict(clientCertificatePath=os.path.join(ssl_dir, 'ccm_node.cer'),
                                              clientKeyPath=os.path.join(ssl_dir, 'ccm_node.key'),
                                              username=username,
@@ -96,12 +96,12 @@ def configure_sni_proxy(conf_dir, nodes_info, listen_port=443):
     tables = ""
     mapping = {}
     address, port, host_id = list(nodes_info)[0]
-    tables += f"  any.cluster-id.scylla.com {address}:{port}\n"
+    tables += f"  cql.cluster-id.scylla.com {address}:{port}\n"
     mapping['FIRST_ADDRESS'] = address
     mapping['listen_port'] = listen_port
 
     for address, port, host_id in nodes_info:
-        tables += f"  {host_id}.cluster-id.scylla.com {address}:{port}\n"
+        tables += f"  {host_id}.cql.cluster-id.scylla.com {address}:{port}\n"
 
     tmpl = string.Template(sniproxy_conf_tmpl)
     sniproxy_conf_path = os.path.join(conf_dir, 'sniproxy.conf')
@@ -153,8 +153,8 @@ def get_cluster_info(cluster, port=9142):
 
 def refresh_certs(cluster, nodes_info):
     with tempfile.TemporaryDirectory() as tmp_dir:
-        dns_names = ['any.cluster-id.scylla.com'] + \
-                    ['{}.cluster-id.scylla.com'.format(host_id) for _, _, host_id in nodes_info]
+        dns_names = ['cql.cluster-id.scylla.com'] + \
+                    ['{}.cql.cluster-id.scylla.com'.format(host_id) for _, _, host_id in nodes_info]
         generate_ssl_stores(tmp_dir, dns_names=dns_names)
         distutils.dir_util.copy_tree(tmp_dir, cluster.get_path())
 
