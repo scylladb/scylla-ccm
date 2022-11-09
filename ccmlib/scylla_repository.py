@@ -507,7 +507,7 @@ def run_scylla_install_script(install_dir, target_dir, package_version):
 
 def run_scylla_unified_install_script(install_dir, target_dir, package_version):
     # to skip systemd check at https://github.com/scylladb/scylladb/blob/master/unified/install.sh#L102
-    install_opt = ' --supervisor'
+    install_opt = ' --supervisor' if '--supervisor' in (Path(install_dir) / 'install.sh').read_text() else ' '
 
     if package_version >= packaging.version.parse('2.2'):
         install_opt = ' --without-systemd'
