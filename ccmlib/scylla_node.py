@@ -931,7 +931,7 @@ class ScyllaNode(Node):
                                    dst=os.path.join(self.get_bin_dir(), 'scylla'),
                                    extra_perms=stat.S_IEXEC,
                                    replace=replace)
-            os.environ['GNUTLS_SYSTEM_PRIORITY_FILE'] = os.path.join(self.node_install_dir, 'scylla-core-package/libreloc/gnutls.config')
+            os.environ['GNUTLS_SYSTEM_PRIORITY_FILE'] = self.gnutls_config_file
         else:
             self._relative_repos_root = '..'
             src = os.path.join(self.get_install_dir(), 'build', self.scylla_mode(), 'scylla')
@@ -1256,6 +1256,18 @@ class ScyllaNode(Node):
 
     def rollback(self, upgrade_to_version):
         self.upgrader.upgrade(upgrade_version=upgrade_to_version, recover_system_tables=True)
+
+    @property
+    def gnutls_config_file(self):
+        candidates = [
+            Path(self.node_install_dir) / 'scylla-core-package' / 'libreloc' / 'gnutls.config',
+            Path(self.node_install_dir) / 'libreloc' / 'gnutls.config',
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                return str(candidate)
+        raise ValueError(f"gnutls.config wasn't found in any path: {candidates}")
+
 
 class NodeUpgrader:
 
