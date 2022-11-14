@@ -29,7 +29,7 @@ from ccmlib.node import Node, NodeUpgradeError
 from ccmlib.node import Status
 from ccmlib.node import NodeError
 from ccmlib.node import TimeoutError
-from ccmlib.scylla_repository import setup, CORE_PACKAGE_DIR_NAME, SCYLLA_VERSION_FILE
+from ccmlib.scylla_repository import setup, get_scylla_version
 
 
 class ScyllaNode(Node):
@@ -412,15 +412,7 @@ class ScyllaNode(Node):
     def node_install_dir_version(self):
         if not self.node_install_dir:
             return None
-
-        scylla_version_file_path = os.path.join(self.node_install_dir, CORE_PACKAGE_DIR_NAME, SCYLLA_VERSION_FILE)
-        if not os.path.exists(scylla_version_file_path):
-            self.debug(f"'{scylla_version_file_path}' wasn't found")
-            return None
-
-        with open(scylla_version_file_path, 'r') as f:
-            version = f.readline()
-        return version.strip()
+        return get_scylla_version(self.node_install_dir)
 
     # Scylla Overload start
     def start(self, join_ring=True, no_wait=False, verbose=False,
