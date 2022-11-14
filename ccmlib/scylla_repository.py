@@ -229,6 +229,8 @@ def setup(version, verbose=True):
                 build_manifest = read_build_manifest(s3_url)
                 url = build_manifest.get(f'unified-pack-url-{scylla_arch}')
                 assert url
+                if not url.startswith('s3'):
+                    url = f's3.amazonaws.com/{url}'
                 url = f'http://{url}'
                 packages = RelocatablePackages(scylla_unified_package=url)
             except Exception as ex:
@@ -506,18 +508,18 @@ def run_scylla_install_script(install_dir, target_dir, package_version):
 
 
 def run_scylla_unified_install_script(install_dir, target_dir, package_version):
+    if package_version >= packaging.version.parse('3'):
+        run('''cd scylla-*; mv * ../''', cwd=install_dir)
+
     # to skip systemd check at https://github.com/scylladb/scylladb/blob/master/unified/install.sh#L102
     install_opt = ' --supervisor' if '--supervisor' in (Path(install_dir) / 'install.sh').read_text() else ' '
 
     if package_version >= packaging.version.parse('2.2'):
-        install_opt = ' --without-systemd'
+        install_opt += ' --without-systemd'
     else:
         # Patch the jmx install.sh to not use systemctl, in newer versions --without-systemd is covering it
         run(r'''sed -i 's/systemctl --user.*/echo "commented out systemctl command"/' ./scylla-jmx/install.sh''',
             cwd=install_dir)
-
-    if package_version >= packaging.version.parse('3'):
-        run('''cd scylla-*; mv * ../''', cwd=install_dir)
 
     run('''{0}/install.sh --prefix {1} --nonroot{2}'''.format(
         install_dir, target_dir, install_opt), cwd=install_dir)
