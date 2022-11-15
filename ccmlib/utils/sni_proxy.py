@@ -96,12 +96,12 @@ def configure_sni_proxy(conf_dir, nodes_info, listen_port=443):
     tables = ""
     mapping = {}
     address, port, host_id = list(nodes_info)[0]
-    tables += f"  cql.cluster-id.scylla.com {address}:{port}\n"
+    tables += f"  ^cql.cluster-id.scylla.com$ {address}:{port}\n"
     mapping['FIRST_ADDRESS'] = address
     mapping['listen_port'] = listen_port
 
     for address, port, host_id in nodes_info:
-        tables += f"  {host_id}.cql.cluster-id.scylla.com {address}:{port}\n"
+        tables += f"  ^{host_id}.cql.cluster-id.scylla.com$ {address}:{port}\n"
 
     tmpl = string.Template(sniproxy_conf_tmpl)
     sniproxy_conf_path = os.path.join(conf_dir, 'sniproxy.conf')
