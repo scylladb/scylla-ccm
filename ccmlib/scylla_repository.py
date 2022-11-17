@@ -69,22 +69,30 @@ def release_packages(s3_url, version, arch='x86_64', scylla_product='scylla'):
     :param version:
     :return:
     """
-    major_version = version if version.count('.') == 1 else '.'.join(n for n in version.split('.')[:2])
-    s3_url = s3_url.format(major_version)
 
+    major_version = extract_major_version(version)
+    s3_url = s3_url.format(major_version)
+    
     files_in_bucket = aws_bucket_ls(s3_url)
 
     if not files_in_bucket:
         raise RuntimeError(
             f"Failed to get release packages list for version {major_version}. URL: {s3_url}.")
-
-    all_unified_packages = [name for name in files_in_bucket if f'{scylla_product}-{arch}-unified-package' in name]
-    candidates = [package for package in all_unified_packages if ".rc" not in package and '.rc' not in version]
-
-    release_unified_packages = [package for package in candidates if version in package]
+    # examples of unified packages file names:
+    # 'scylla-x86_64-unified-package-5.1.2-0.20221225.4c0f7ea09893-5.1.2.0.20221225.4c0f7ea09893.tar.gz'
+    # 'scylla-x86_64-unified-package-5.1.3-0.20230112.addc4666d502-5.1.3.0.20230112.addc4666d502.tar.gz'
+    all_unified_packages = [name for name in files_in_bucket if f'{scylla_product}-{arch}-unified-package' in name or f'{scylla_product}-unified-package' in name]
+    release_unified_packages = [package for package in all_unified_packages if version in package]
 
     def extract_version(filename):
-        version_regex = re.compile(r'-(\d+!)?\d+([.-]\d+)?([.-]\d+)?([a-z]+\d*)?([.-](post|dev|rc)\d*)*')
+        """
+        extract the version out of a unified package filename
+        from 'scylla-x86_64-unified-package-5.1.0~rc0-0.20220810.86a6c1fb2b79-5.1.0-rc0.0.20220810.86a6c1fb2b79.tar.gz'
+        would extract '5.1.0~rc'
+        from 'scylla-x86_64-unified-package-5.1.3-0.20230112.addc4666d502-5.1.3.0.20230112.addc4666d502.tar.gz'
+        would extract '5.1.3'
+        """
+        version_regex = re.compile(r'-(\d+!)?\d+([.-]\d+)?([.-]\d+)?([a-z]+\d*)?([.~-](post|dev|rc)\d*)*')
         match = version_regex.search(filename)
         if match:
             return filename[match.span()[0]+1:match.span()[1]]
@@ -122,7 +130,7 @@ def release_packages(s3_url, version, arch='x86_64', scylla_product='scylla'):
             a = re.findall(f'-{version}\.(\d+)(?:-|\.)', ','.join(candidates))
             latest_candidate = f"{version}.{max(set(a))}" if a else ''
         elif version.count('.') == 2:
-             # Choose relocatable packages for supplied version
+            # Choose relocatable packages for supplied version
             latest_candidate = version
         else:
             raise ValueError(f"Not expected version number: {version}. S3_URL: {s3_url}")
@@ -138,10 +146,6 @@ def release_packages(s3_url, version, arch='x86_64', scylla_product='scylla'):
 
         release_packages = [package for package in all_packages if latest_candidate in package]
 
-    if not release_packages:
-        raise ValueError(
-            f"Release packages have not beed found.\nDebug info: all packages: {all_packages}; "
-            f"candidates packages: {candidates}; last version: {latest_candidate}")
 
     release_packages_dict = {}
     for package in release_packages:
@@ -153,6 +157,11 @@ def release_packages(s3_url, version, arch='x86_64', scylla_product='scylla'):
         for package_type in ['jmx', 'tools', scylla_package_mark]:
             if package_type in package:
                 release_packages_dict[package_type] = package
+
+    if not release_packages or ( set(['jmx', 'tools', scylla_package_mark]) != set(release_packages_dict.keys())):
+        raise ValueError(
+            f"Release packages have not been found.\nDebug info: all packages: {all_packages}; "
+            f"candidates packages: {candidates}; last version: {latest_candidate}")
 
     packages = RelocatablePackages(scylla_package=os.path.join(s3_url, release_packages_dict[scylla_package_mark]),
                                    scylla_jmx_package=os.path.join(s3_url, release_packages_dict['jmx']),
@@ -181,7 +190,32 @@ def read_build_manifest(url):
     return yaml.safe_load(res.content)
 
 
-def setup(version, verbose=True):
+def normalize_scylla_version(version):
+    """
+    take 2020.2.rc3 or 2020.2.0.rc4 or 2020.2.0~rc5
+    and normalize them in to a semver base version 2020.2.0~rc5
+    """
+
+    # since 5.0/2022.1 version change from x.x.rc1 to x.x.0~rc1 to be semver compliant
+    major = extract_major_version(version.split('/')[1])
+    if parse_version(major) <= parse_version('5.0') or \
+            parse_version('2018') < parse_version(major) <= parse_version('2022.1'):
+        version = version.replace('-rc', '.rc').replace('~rc', '.rc')
+        return version
+
+    version = version.replace('-', '~').replace('.rc', '~rc')
+    version = version if re.match(r'\d*.\d*.0~rc', version) else version.replace('~rc', '.0~rc')
+
+    return version
+
+
+def extract_major_version(version):
+    major_version = version if version.count('.') == 1 else '.'.join(n for n in version.split('.')[:2])
+    major_version = major_version.split('~')[0]
+    return major_version
+
+
+def setup(version, verbose=True, skip_downloads=False):
     """
     :param version:
             Supported version values (examples):
@@ -192,8 +226,11 @@ def setup(version, verbose=True):
             2. Official version (released):
               - release:4.3
               - release:4.2.1
-              - release:2020.1 (SCYLLA_PRODUCT='enterprise')
-              - release:2020.1.5 (SCYLLA_PRODUCT='enterprise')
+              - release:2020.1
+              - release:2020.1.5
+
+    :param verbose: if True, print progress during download
+    :param skip_downloads: if True, skips the actual download of files for testing purposes
 
     """
     s3_url = ''
@@ -205,13 +242,16 @@ def setup(version, verbose=True):
 
     # if version_dir exist skip downloading a version
     version = os.path.join(*type_n_version)
-    version_dir = version_directory(version)
+    if type_n_version[0] == 'release':
+        version = normalize_scylla_version(version)
+        type_n_version = version.split(os.path.sep, 1)
+    version_dir = version_directory(version) if not skip_downloads else None
 
     if len(type_n_version) == 2 and version_dir is None:
         s3_version = type_n_version[1]
 
         if type_n_version[0] == 'release':
-            scylla_product = 'scylla-enterprise' if parse_version(s3_version) > parse_version("2018.1") else 'scylla'
+            scylla_product = 'scylla-enterprise' if parse_version(extract_major_version(s3_version)) > parse_version("2018.1") else 'scylla'
             scylla_product = os.environ.get('SCYLLA_PRODUCT', scylla_product)
             if 'enterprise' in scylla_product:
                 s3_url = ENTERPRISE_RELEASE_RELOCATABLE_URLS_BASE
@@ -228,13 +268,13 @@ def setup(version, verbose=True):
             try:
                 build_manifest = read_build_manifest(s3_url)
                 url = build_manifest.get(f'unified-pack-url-{scylla_arch}')
-                assert url
+                assert url, "didn't found the url for unified package"
                 if not url.startswith('s3'):
                     url = f's3.amazonaws.com/{url}'
                 url = f'http://{url}'
                 packages = RelocatablePackages(scylla_unified_package=url)
             except Exception as ex:
-                logging.exception("could download relocatalble")
+                logging.exception("could download relocatable")
 
                 scylla_package_path = f'{scylla_product}-package.tar.gz'
                 scylla_arch_package_path = f'{scylla_product}-{scylla_arch}-package.tar.gz'
@@ -266,6 +306,9 @@ def setup(version, verbose=True):
                 )
 
         version = os.path.join(*type_n_version)
+
+    if skip_downloads:
+        return directory_name(version), packages
 
     if version_dir is None:
         # Create version folder and add placeholder file to prevent parallel downloading from another test.
