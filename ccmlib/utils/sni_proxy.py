@@ -43,12 +43,12 @@ def create_cloud_config(ssl_dir, port, address, username='cassandra', password='
 
     config = dict(datacenters={'eu-west-1': dict(certificateAuthorityData=cadata,
                                                  server=f'{address}:{port}',
-                                                 nodeDomain='cql.cluster-id.scylla.com')},
+                                                 nodeDomain='cql.cluster-id.scylla.com',
+                                                 insecureSkipTlsVerify=False)},
                   authInfos={'default': dict(clientCertificateData=certificate_data,
                                              clientKeyData=key_data,
                                              username=username,
-                                             password=password,
-                                             insecureSkipTlsVerify=False)},
+                                             password=password)},
                   contexts={'default': dict(datacenterName='eu-west-1', authInfoName='default')},
                   currentContext='default')
 
@@ -57,12 +57,12 @@ def create_cloud_config(ssl_dir, port, address, username='cassandra', password='
 
     config = dict(datacenters={'eu-west-1': dict(certificateAuthorityPath=os.path.join(ssl_dir, 'ccm_node.cer'),
                                                  server=f'{address}:{port}',
-                                                 nodeDomain='cql.cluster-id.scylla.com')},
+                                                 nodeDomain='cql.cluster-id.scylla.com',
+                                                 insecureSkipTlsVerify=False)},
                   authInfos={'default': dict(clientCertificatePath=os.path.join(ssl_dir, 'ccm_node.cer'),
                                              clientKeyPath=os.path.join(ssl_dir, 'ccm_node.key'),
                                              username=username,
-                                             password=password,
-                                             insecureSkipTlsVerify=False)},
+                                             password=password)},
                   contexts={'default': dict(datacenterName='eu-west-1', authInfoName='default')},
                   currentContext='default')
 
