@@ -817,3 +817,11 @@ def grouper(n, iterable, padvalue=None):
     idea from: https://stackoverflow.com/a/312644/459189
     """
     return zip_longest(*[iter(iterable)] * n, fillvalue=padvalue)
+
+
+def print_if_standalone(*args, debug_callback=None, **kwargs):
+    standalone = os.environ.get('SCYLLA_CCM_STANDALONE', None)
+    if standalone:
+        print_(*args, *kwargs, end='')
+    else:
+        debug_callback(*args, **kwargs)

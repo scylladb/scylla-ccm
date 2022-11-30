@@ -894,10 +894,11 @@ class Node(object):
             output = p.communicate()
 
             for err in output[1].split('\n'):
-                print_("(EE) ", err, end='')
+                if err.strip():
+                    common.print_if_standalone("(EE) %s" % err, debug_callback=self.debug)
 
             if show_output:
-                print_(output[0], end='')
+                common.print_if_standalone(output[0], debug_callback=self.debug)
 
             if return_output:
                 return output
