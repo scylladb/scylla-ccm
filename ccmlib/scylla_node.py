@@ -309,10 +309,10 @@ class ScyllaNode(Node):
         if wait_for_binary_proto:
             try:
                 t = timeout * 4 if timeout is not None else 420 if self.cluster.scylla_mode != 'debug' else 900
-                self.wait_for_binary_interface(from_mark=self.mark, process=self._process_scylla, timeout=t)
+                self.wait_for_binary_interface(from_mark=self.mark, process=self._process_scylla, timeout=60)
             except TimeoutError as e:
-                if not self.wait_for_starting(from_mark=self.mark):
-                    raise e
+                if not self.wait_for_starting(from_mark=self.mark, timeout=t):
+                    raise NodeError(f"{e}")
                 pass
 
         return self._process_scylla
@@ -438,7 +438,7 @@ class ScyllaNode(Node):
     # Scylla Overload start
     def start(self, join_ring=True, no_wait=False, verbose=False,
               update_pid=True, wait_other_notice=None, replace_token=None,
-              replace_address=None, jvm_args=None, wait_for_binary_proto=None,
+              replace_address=None, replace_node_host_id=None, jvm_args=None, wait_for_binary_proto=None,
               profile_options=None, use_jna=False, quiet_start=False):
         """
         Start the node. Options includes:
@@ -451,8 +451,11 @@ class ScyllaNode(Node):
             have marked this node UP.
           - replace_token: start the node with the -Dcassandra.replace_token
             option.
-          - replace_address: start the node with the
-            -Dcassandra.replace_address option.
+          - replace_node_host_id: start the node with the
+            --replace-node-first-boot option to replace a given node
+            identified by its host_id.
+          - replace_address: start the node with the deprecated
+            --replace-address option.
 
         Extra command line options may be passed using the
         SCYLLA_EXT_OPTS environment variable.
@@ -585,7 +588,10 @@ class ScyllaNode(Node):
             args += ['--overprovisioned']
         if '--prometheus-address' not in args:
             args += ['--prometheus-address', data['api_address']]
-        if replace_address:
+        if replace_node_host_id:
+            assert replace_address is None, "replace_node_host_id and replace_address cannot be specified together"
+            args += ['--replace-node-first-boot', replace_node_host_id]
+        elif replace_address:
             args += ['--replace-address', replace_address]
         args += ['--unsafe-bypass-fsync', '1']
 
