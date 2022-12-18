@@ -1213,11 +1213,11 @@ class ScyllaNode(Node):
     def _write_agent_log4j_properties(self, agent_dir):
         raise NotImplementedError('ScyllaNode._write_agent_log4j_properties')
 
-    def _wait_no_pending_flushes(self, wait_timeout=60):
+    def _wait_no_pending_flushes(self, wait_timeout=60, verbose=True):
         pending_flushes_re = re.compile(r"^\s*Pending flushes:\s*(?P<count>\d+)\s*$", flags=re.MULTILINE)
 
         def no_pending_flushes() -> bool:
-            stdout = self.nodetool('cfstats', timeout=wait_timeout)[0]
+            stdout = self.nodetool('cfstats', timeout=wait_timeout, verbose=verbose)[0]
             pending_flushes = False
             for match in pending_flushes_re.finditer(stdout):
                 if int(match.group("count")):
@@ -1231,7 +1231,7 @@ class ScyllaNode(Node):
 
     def flush(self, ks=None, table=None, **kwargs):
         super(ScyllaNode, self).flush(ks, table, **kwargs)
-        self._wait_no_pending_flushes()
+        self._wait_no_pending_flushes(verbose=kwargs.get('verbose', True))
 
     def _run_scylla_executable_with_option(self, option, scylla_exec_path=None):
         if not scylla_exec_path:

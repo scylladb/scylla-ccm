@@ -768,7 +768,7 @@ class Node(object):
             time.sleep(1)
         raise TimeoutError(f"Waiting for compactions timed out after {idle_timeout} seconds with {pending_tasks} pending tasks remaining.")
 
-    def nodetool(self, cmd, capture_output=True, wait=True, timeout=None):
+    def nodetool(self, cmd, capture_output=True, wait=True, timeout=None, verbose=True):
         """
         Setting wait=False makes it impossible to detect errors,
         if capture_output is also False. wait=False allows us to return
@@ -790,7 +790,8 @@ class Node(object):
         # see https://www.oracle.com/java/technologies/javase/8u331-relnotes.html#JDK-8278972
         nodetool.extend(['-h', host, '-p', str(self.jmx_port), '-Dcom.sun.jndi.rmiURLParsing=legacy'])
         nodetool.extend(cmd.split())
-        self.debug(f"nodetool cmd={cmd} wait={wait} timeout={timeout}")
+        if verbose:
+            self.debug(f"nodetool cmd={cmd} wait={wait} timeout={timeout}")
         if capture_output:
             p = subprocess.Popen(nodetool, universal_newlines=True, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             stdout, stderr = p.communicate(timeout=timeout)
