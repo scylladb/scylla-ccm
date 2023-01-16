@@ -246,8 +246,11 @@ class ScyllaNode(Node):
                     raise RuntimeError("The process is dead, returncode={}".format(process.returncode))
             pat = '|'.join([
                 r'repair - Repair \d+ out of \d+ ranges',
+                r'repair - .*: Started to repair',
                 r'range_streamer - Bootstrap .* streaming .* ranges',
                 r'(compaction|database) -.*Resharded',
+                r'compaction_manager - (Starting|Done with) off-strategy compaction',
+                r'compaction - .* Reshaped'
             ])
             if self.grep_log(pat, from_mark=prev_mark):
                 prev_mark = self.mark_log()
