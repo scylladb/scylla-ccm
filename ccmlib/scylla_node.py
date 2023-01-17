@@ -582,6 +582,12 @@ class ScyllaNode(Node):
         kernel_page_cache_supported |= current_node_is_enterprise and parse_version(current_node_version) >= parse_version('2022.1.dev')
         if kernel_page_cache_supported and '--kernel-page-cache' not in args:
             args += ['--kernel-page-cache', '1']
+        commitlog_o_dsync_supported = (
+            (not current_node_is_enterprise and parse_version(current_node_version) >= parse_version('3.2'))
+            or (current_node_is_enterprise and parse_version(current_node_version) >= parse_version('2020.1'))
+            )
+        if commitlog_o_dsync_supported:
+            args += ['--commitlog-use-o-dsync', '0']
 
         # The '--max-networking-io-control-blocks' was introduced by
         # https://github.com/scylladb/scylla/commit/2cfc517874e98c5780c1b1b4c38440a8123f86f6 from 4.6 version
