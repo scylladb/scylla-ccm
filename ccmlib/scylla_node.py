@@ -61,6 +61,7 @@ class ScyllaNode(Node):
         self._smp_set_during_test = False
         self._mem_mb_per_cpu = 512
         self._mem_set_during_test = False
+        self._memory = None
         self.__conf_updated = False
         self.scylla_manager = scylla_manager
         self.jmx_pid = None
@@ -167,6 +168,9 @@ class ScyllaNode(Node):
         for cpuid in xrange(start_id, start_id + count):
             cpuset.append(str(cpuid % allocated_cpus))
         return cpuset
+
+    def memory(self):
+        return self._memory
 
     def _wait_for_jmx(self):
         if self._process_jmx:
@@ -419,6 +423,18 @@ class ScyllaNode(Node):
             return None
         return get_scylla_version(self.node_install_dir)
 
+    @staticmethod
+    def parse_size(s):
+        iec_prefixes = {'k': 10,
+                        'K': 10,
+                        'M': 20,
+                        'G': 30,
+                        'T': 40}
+        for prefix, power in iec_prefixes.items():
+            if s.endswith(prefix):
+                return int(s[:-1]) * pow(2, power)
+        return int(s)
+
     # Scylla Overload start
     def start(self, join_ring=True, no_wait=False, verbose=False,
               update_pid=True, wait_other_notice=None, replace_token=None,
@@ -557,6 +573,7 @@ class ScyllaNode(Node):
             # If node.set_mem_mb_per_cpu() is called during the test, ignore the --memory
             # passed from the cmdline.
             args[args.index('--memory') + 1] = '{}M'.format(self._mem_mb_per_cpu * self._smp)
+        self._memory = self.parse_size(args[args.index('--memory') + 1])
         if '--default-log-level' not in args:
             args += ['--default-log-level', self.__global_log_level]
         if self.scylla_mode() == 'debug' and '--blocked-reactor-notify-ms' not in args:
