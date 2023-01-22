@@ -5,7 +5,6 @@ import random
 import shutil
 import threading
 import time
-from pkg_resources import parse_version
 from collections import OrderedDict, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
@@ -16,6 +15,7 @@ from six.moves import xrange
 from ccmlib import common, repository
 from ccmlib.node import Node, NodeError
 from ccmlib.common import logger
+from ccmlib.utils.version import parse_version
 
 
 class Cluster(object):
