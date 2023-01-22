@@ -15,7 +15,6 @@ import time
 import warnings
 from datetime import datetime
 import locale
-from pkg_resources import parse_version
 from collections import namedtuple
 
 import yaml
@@ -25,7 +24,7 @@ from six.moves import xrange
 from ccmlib import common
 from ccmlib.cli_session import CliSession
 from ccmlib.repository import setup
-
+from ccmlib.utils.version import parse_version
 
 class Status():
     UNINITIALIZED = "UNINITIALIZED"
