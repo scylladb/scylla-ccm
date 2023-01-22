@@ -13,8 +13,6 @@ import time
 import threading
 from pathlib import Path
 
-from pkg_resources import parse_version
-
 import psutil
 import yaml
 import glob
@@ -30,6 +28,7 @@ from ccmlib.node import Status
 from ccmlib.node import NodeError
 from ccmlib.node import TimeoutError
 from ccmlib.scylla_repository import setup, get_scylla_version
+from ccmlib.utils.version import parse_version
 
 
 class ScyllaNode(Node):
