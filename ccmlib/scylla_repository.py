@@ -26,6 +26,7 @@ from ccmlib.common import (
     ArgumentError, CCMError, get_default_path, rmdirs, validate_install_dir, get_scylla_version, aws_bucket_ls,
     DOWNLOAD_IN_PROGRESS_FILE, wait_for_parallel_download_finish)
 from ccmlib.utils.download import download_file, download_version_from_s3
+from ccmlib.utils.version import parse_version
 
 GIT_REPO = "http://github.com/scylladb/scylla.git"
 
