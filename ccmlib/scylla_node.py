@@ -230,9 +230,11 @@ class ScyllaNode(Node):
     # Possibly poll the log for long-running offline processes, like
     # bootstrap or resharding.
     # Return True iff detected bootstrap or resharding processes in the log
-    def wait_for_starting(self, from_mark=None, timeout=120):
+    def wait_for_starting(self, from_mark=None, timeout=None):
         if from_mark is None:
             from_mark = self.mark_log()
+        if timeout is None:
+            timeout = 120
         process=self._process_scylla
         starting_message = 'Starting listening for CQL clients'
         bootstrap_message = r'storage_service .* Starting to bootstrap'
