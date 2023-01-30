@@ -288,8 +288,8 @@ class ScyllaNode(Node):
                 node.watch_log_for_alive(self, from_mark=mark, timeout=t)
 
         if wait_for_binary_proto:
+            t = timeout * 4 if timeout is not None else 420 if self.cluster.scylla_mode != 'debug' else 900
             try:
-                t = timeout * 4 if timeout is not None else 420 if self.cluster.scylla_mode != 'debug' else 900
                 self.wait_for_binary_interface(from_mark=self.mark, process=self._process_scylla, timeout=60)
             except TimeoutError as e:
                 if not self.wait_for_starting(from_mark=self.mark, timeout=t):
