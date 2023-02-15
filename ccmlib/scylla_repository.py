@@ -82,10 +82,13 @@ def release_packages(s3_url, version, arch='x86_64', scylla_product='scylla'):
         raise RuntimeError(
             f"Failed to get release packages list for version {major_version}. URL: {s3_url}.")
 
-    all_unified_packages = [name for name in files_in_bucket if f'{scylla_product}-{arch}-unified-package' in name]
-    candidates = [package for package in all_unified_packages if ".rc" not in package and '.rc' not in version]
-
-    release_unified_packages = [package for package in candidates if version in package]
+    # examples of unified packages file names:
+    # 'scylla-x86_64-unified-package-5.1.2-0.20221225.4c0f7ea09893-5.1.2.0.20221225.4c0f7ea09893.tar.gz'
+    # 'scylla-x86_64-unified-package-5.1.3-0.20230112.addc4666d502-5.1.3.0.20230112.addc4666d502.tar.gz'
+    all_unified_packages = [name for name in files_in_bucket if f'{scylla_product}-{arch}-unified-package' in name or
+                            (f'{scylla_product}-unified' in name and arch in name) or
+                            f'{scylla_product}-unified' in name]
+    release_unified_packages = [package for package in all_unified_packages if version in package]
 
     def extract_version(filename):
         version_regex = re.compile(r'-(\d+!)?\d+([.-]\d+)?([.-]\d+)?([a-z]+\d*)?([.-](post|dev|rc)\d*)*')
@@ -185,7 +188,32 @@ def read_build_manifest(url):
     return yaml.safe_load(res.content)
 
 
-def setup(version, verbose=True):
+def normalize_scylla_version(version):
+    """
+    take 2020.2.rc3 or 2020.2.0.rc4 or 2020.2.0~rc5
+    and normalize them in to a semver base version 2020.2.0~rc5
+    """
+
+    # since 5.0/2022.1 version change from x.x.rc1 to x.x.0~rc1 to be semver compliant
+    major = extract_major_version(version.split('/')[1])
+    if parse_version(major) <= parse_version('5.0') or \
+            parse_version('2018') < parse_version(major) <= parse_version('2022.1'):
+        version = version.replace('-rc', '.rc').replace('~rc', '.rc')
+        return version
+
+    version = version.replace('-', '~').replace('.rc', '~rc')
+    version = version if re.match(r'.*\d*.\d*.0~rc', version) else version.replace('~rc', '.0~rc')
+
+    return version
+
+
+def extract_major_version(version):
+    major_version = version if version.count('.') == 1 else '.'.join(n for n in version.split('.')[:2])
+    major_version = major_version.split('~')[0]
+    return major_version
+
+
+def setup(version, verbose=True, skip_downloads=False):
     """
     :param version:
             Supported version values (examples):
