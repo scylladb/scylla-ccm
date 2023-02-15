@@ -60,6 +60,7 @@ class TestScyllaRepositoryRelease:
         assert packages.scylla_jmx_package
 
     @pytest.mark.parametrize(argnames=['version', 'expected_cdir'], argvalues=[
+        ("release:2023.1.0~rc0", '2023.1.0~rc0'),
         ("release:2022.2", '2022.2'),
         ("release:2022.2~rc1", '2022.2.0~rc1'),
         ("release:2022.2.rc1", '2022.2.0~rc1'),
