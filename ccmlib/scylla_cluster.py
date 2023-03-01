@@ -75,7 +75,7 @@ class ScyllaCluster(Cluster):
     # override get_node_jmx_port for scylla-jmx
     # scylla-jmx listens on the unique node address (127.0.<cluster.id><node.id>)
     # so there's no need to listen on a different port for every jmx instance
-    def get_node_jmx_port(self,nodeid):
+    def get_node_jmx_port(self, nodeid):
         return 7199
 
     def create_node(self, name, auto_bootstrap, thrift_interface,
@@ -106,10 +106,10 @@ class ScyllaCluster(Cluster):
 
         marks = []
         if wait_other_notice:
-            marks = [(node, node.mark_log()) for node in self.nodes.values() if node.is_running()]
+            marks = [(node, node.mark_log()) for node in list(self.nodes.values()) if node.is_running()]
 
         if nodes is None:
-            nodes = self.nodes.values()
+            nodes = list(self.nodes.values())
         elif isinstance(nodes, ScyllaNode):
             nodes = [nodes]
 
@@ -165,14 +165,14 @@ class ScyllaCluster(Cluster):
 
     def stop_nodes(self, nodes=None, wait=True, gently=True, wait_other_notice=False, other_nodes=None, wait_seconds=None):
         if nodes is None:
-            nodes = self.nodes.values()
+            nodes = list(self.nodes.values())
         elif isinstance(nodes, ScyllaNode):
             nodes = [nodes]
 
         marks = []
         if wait_other_notice:
             if not other_nodes:
-                other_nodes = [node for node in self.nodes.values() if not node in nodes]
+                other_nodes = [node for node in list(self.nodes.values()) if not node in nodes]
             marks = [(node, node.mark_log()) for node in other_nodes if node.is_live()]
 
         # stop all nodes in parallel
@@ -351,7 +351,7 @@ class ScyllaManager:
             src = os.path.join(install_dir, name)
             if not os.path.exists(src):
                 raise Exception("%s not found in scylla-manager install dir" % src)
-            shutil.copy(src,os.path.join(self._get_path(), 'bin', name))
+            shutil.copy(src, os.path.join(self._get_path(), 'bin', name))
 
     @property
     def is_agent_available(self):
@@ -399,7 +399,7 @@ class ScyllaManager:
             except OSError as err:
                 pass
 
-        log_file = os.path.join(self._get_path(),'scylla-manager.log')
+        log_file = os.path.join(self._get_path(), 'scylla-manager.log')
         scylla_log = open(log_file, 'a')
 
         if os.path.isfile(self._get_pid_file()):
@@ -415,7 +415,7 @@ class ScyllaManager:
             pid_file.write(str(self._process_scylla_manager.pid))
 
         api_interface = common.parse_interface(self._get_api_address(), 5080)
-        if not common.check_socket_listening(api_interface,timeout=180):
+        if not common.check_socket_listening(api_interface, timeout=180):
             raise Exception("scylla manager interface %s:%s is not listening after 180 seconds, scylla manager may have failed to start."
                           % (api_interface[0], api_interface[1]))
 

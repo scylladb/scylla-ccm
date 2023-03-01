@@ -1,5 +1,5 @@
 # ccm node
-from __future__ import with_statement
+
 
 from datetime import datetime
 import errno
@@ -167,7 +167,7 @@ class ScyllaNode(Node):
         allocated_cpus = psutil.cpu_count() - 1
         start_id = (id * count + cluster_id) % allocated_cpus
         cpuset = []
-        for cpuid in xrange(start_id, start_id + count):
+        for cpuid in range(start_id, start_id + count):
             cpuset.append(str(cpuid % allocated_cpus))
         return cpuset
 
@@ -434,7 +434,7 @@ class ScyllaNode(Node):
                         'M': 20,
                         'G': 30,
                         'T': 40}
-        for prefix, power in iec_prefixes.items():
+        for prefix, power in list(iec_prefixes.items()):
             if s.endswith(prefix):
                 return int(s[:-1]) * pow(2, power)
         return int(s)
@@ -510,10 +510,10 @@ class ScyllaNode(Node):
                     try:
                         common.check_socket_available(itf)
                     except Exception as msg:
-                        print("{}. Looking for offending processes...".format(msg))
+                        print(("{}. Looking for offending processes...".format(msg)))
                         for proc in psutil.process_iter():
                             if any(self.cluster.ipprefix in cmd for cmd in proc.cmdline()):
-                                print("name={} pid={} cmdline={}".format(proc.name(), proc.pid, proc.cmdline()))
+                                print(("name={} pid={} cmdline={}".format(proc.name(), proc.pid, proc.cmdline())))
                         raise msg
 
         marks = []
@@ -632,7 +632,7 @@ class ScyllaNode(Node):
                 try:
                     [k, v] = s.split('=', 1)
                 except ValueError as e:
-                    print("Bad SCYLLA_EXT_ENV variable: {}: {}", s, e)
+                    print(("Bad SCYLLA_EXT_ENV variable: {}: {}", s, e))
                 else:
                     ext_env[k] = v
 

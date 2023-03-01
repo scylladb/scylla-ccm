@@ -13,7 +13,7 @@ class global_injector:
         except KeyError:
             # Python 3
             self.__dict__['builtin'] = sys.modules['builtins'].__dict__
-    def __setattr__(self,name,value):
+    def __setattr__(self, name, value):
         self.builtin[name] = value
 
 Global = global_injector()

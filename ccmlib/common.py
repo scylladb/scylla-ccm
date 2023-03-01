@@ -188,7 +188,7 @@ def replaces_or_add_into_file_tail(file, replacement_list):
 def rmdirs(path):
     if is_win():
         # Handle Windows 255 char limit
-        shutil.rmtree(u"\\\\?\\" + path, ignore_errors=True)
+        shutil.rmtree("\\\\?\\" + path, ignore_errors=True)
     else:
         shutil.rmtree(path, ignore_errors=True)
 
@@ -204,7 +204,7 @@ def make_cassandra_env(install_dir, node_path, update_conf=True):
     if not update_conf and not os.path.exists(dst):
         time.sleep(1)
         if not os.path.exists(dst):
-            print("Warning: make_cassandra_env: install_dir={} node_path={} missing {}. Recreating...".format(install_dir, node_path, dst))
+            print(("Warning: make_cassandra_env: install_dir={} node_path={} missing {}. Recreating...".format(install_dir, node_path, dst)))
 
     if not os.path.exists(dst):
         replacements = ""

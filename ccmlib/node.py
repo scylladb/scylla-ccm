@@ -1,5 +1,5 @@
 # ccm node
-from __future__ import with_statement
+
 
 import errno
 import glob
@@ -293,7 +293,7 @@ class Node(object):
         Print infos on this node configuration.
         """
         self.__update_status()
-        indent = ''.join([" " for i in xrange(0, len(self.name) + 2)])
+        indent = ''.join([" " for i in range(0, len(self.name) + 2)])
         print_("%s: %s" % (self.name, self.__get_status_string()))
         if not only_status:
             if show_cluster:
@@ -729,7 +729,7 @@ class Node(object):
                 # is 2**7-1 (=127). So to sleep an arbitrary wait_seconds
                 # we need the first sleep to be wait_seconds/(2**7-1).
                 wait_time_sec = wait_seconds/(2**7-1.0)
-                for i in xrange(0, 7):
+                for i in range(0, 7):
                     # we'll double the wait time each try and cassandra should
                     # not take more than 1 minute to shutdown
                     time.sleep(wait_time_sec)
@@ -1484,7 +1484,7 @@ class Node(object):
         dir_name = self.get_path()
         if not os.path.exists(dir_name):
             os.mkdir(dir_name)
-            for _, dir in self._get_directories().items():
+            for _, dir in list(self._get_directories().items()):
                 if not os.path.exists(dir):
                     os.mkdir(dir)
 
