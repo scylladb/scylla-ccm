@@ -14,13 +14,12 @@ import subprocess
 import re
 import sys
 import glob
+import urllib
 
 import hashlib
 import requests
 import yaml
 
-from six import print_
-from six.moves import urllib
 
 import packaging.version
 
@@ -469,7 +468,7 @@ def download_version(version, url=None, verbose=False, target_dir=None, unified=
                 f"unsupported url or file doesn't exist\n\turl={url}")
 
         if verbose:
-            print_(f"Extracting {target} ({url}, {target_dir}) as version {version} ...")
+            print(f"Extracting {target} ({url}, {target_dir}) as version {version} ...")
         tar = tarfile.open(target)
         tar.extractall(path=target_dir)
         tar.close()

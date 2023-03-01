@@ -2,12 +2,12 @@ import sys
 sys.path = [".."] + sys.path
 
 import decimal
+from io import StringIO
 
 from . import TEST_DIR
 from . import ccmtest
 from ccmlib.cluster import Cluster
 import ccmlib
-from six import StringIO
 
 CLUSTER_PATH = TEST_DIR
 

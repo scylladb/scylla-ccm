@@ -1,7 +1,6 @@
 import sys
 from optparse import BadOptionError, Option, OptionParser, IndentedHelpFormatter
 
-from six import print_
 
 from ccmlib import common
 from ccmlib.cluster_factory import ClusterFactory
@@ -61,13 +60,13 @@ class Cmd(object):
 
         if cluster_name:
             if len(args) == 0:
-                print_('Missing cluster name', file=sys.stderr)
+                print('Missing cluster name', file=sys.stderr)
                 parser.print_help()
                 exit(1)
             self.name = args[0]
         if node_name:
             if len(args) == 0:
-                print_('Missing node name', file=sys.stderr)
+                print('Missing node name', file=sys.stderr)
                 parser.print_help()
                 exit(1)
             self.name = args[0]
@@ -80,7 +79,7 @@ class Cmd(object):
                 try:
                     self.node = self.cluster.nodes[self.name]
                 except KeyError:
-                    print_(f'Unknown node {self.name} in cluster {self.cluster.name}', file=sys.stderr)
+                    print(f'Unknown node {self.name} in cluster {self.cluster.name}', file=sys.stderr)
                     exit(1)
 
     def run(self):
@@ -101,10 +100,10 @@ class Cmd(object):
     def _load_current_cluster(self):
         name = common.current_cluster_name(self.path)
         if name is None:
-            print_('No currently active cluster (use ccm cluster switch)')
+            print('No currently active cluster (use ccm cluster switch)')
             exit(1)
         try:
             return ClusterFactory.load(self.path, name)
         except common.LoadError as e:
-            print_(str(e))
+            print(str(e))
             exit(1)

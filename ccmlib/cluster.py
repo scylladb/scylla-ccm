@@ -9,8 +9,6 @@ from collections import OrderedDict, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
 import yaml
-from six import iteritems, print_
-from six.moves import xrange
 
 from ccmlib import common, repository
 from ccmlib.node import Node, NodeError
@@ -409,15 +407,15 @@ class Cluster(object):
 
     def show(self, verbose):
         msg = f"Cluster: '{self.name}'"
-        print_(msg)
-        print_('-' * len(msg))
+        print(msg)
+        print('-' * len(msg))
         if len(list(self.nodes.values())) == 0:
-            print_("No node in this cluster yet")
+            print("No node in this cluster yet")
             return
         for node in list(self.nodes.values()):
             if (verbose):
                 node.show(show_cluster=False)
-                print_("")
+                print("")
             else:
                 node.show(only_status=True)
 
@@ -525,7 +523,7 @@ class Cluster(object):
     def stress(self, stress_options):
         livenodes = [node.network_interfaces['storage'][0] for node in list(self.nodes.values()) if node.is_live()]
         if len(livenodes) == 0:
-            print_("No live node")
+            print("No live node")
             return
         self.nodelist()[0].stress(stress_options=stress_options + ['-node', ','.join(livenodes)] )
         return self
@@ -539,7 +537,7 @@ class Cluster(object):
 
     def set_configuration_options(self, values=None, batch_commitlog=None):
         if values is not None:
-            for k, v in iteritems(values):
+            for k, v in values.items():
                 self._config_options[k] = v
         if batch_commitlog is not None:
             if batch_commitlog:

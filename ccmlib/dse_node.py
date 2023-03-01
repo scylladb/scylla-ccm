@@ -10,7 +10,6 @@ import subprocess
 import time
 
 import yaml
-from six import print_
 
 from ccmlib import common
 from ccmlib.node import Node, NodeError
@@ -111,7 +110,7 @@ class DseNode(Node):
             cmd = f"-agentpath:{config['yourkit_agent']}"
             if 'options' in profile_options:
                 cmd = cmd + '=' + profile_options['options']
-            print_(cmd)
+            print(cmd)
             # Yes, it's fragile as shit
             pattern = r'cassandra_parms="-Dlog4j.configuration=log4j-server.properties -Dlog4j.defaultInitOverride=true'
             common.replace_in_file(launch_bin, pattern, '    ' + pattern + ' ' + cmd + '"')
@@ -164,7 +163,7 @@ class DseNode(Node):
             else:
                 for line in process.stdout:
                     if verbose:
-                        print_(line.rstrip('\n'))
+                        print(line.rstrip('\n'))
 
             self._update_pid(process)
 
