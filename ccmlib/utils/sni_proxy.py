@@ -155,7 +155,7 @@ def get_cluster_info(cluster, port=9142):
 def refresh_certs(cluster, nodes_info):
     with tempfile.TemporaryDirectory() as tmp_dir:
         dns_names = ['cql.cluster-id.scylla.com'] + \
-                    ['{}.cql.cluster-id.scylla.com'.format(host_id) for _, _, host_id, _ in nodes_info]
+                    [f'{host_id}.cql.cluster-id.scylla.com' for _, _, host_id, _ in nodes_info]
         generate_ssl_stores(tmp_dir, dns_names=dns_names)
         distutils.dir_util.copy_tree(tmp_dir, cluster.get_path())
 

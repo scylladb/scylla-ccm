@@ -371,7 +371,7 @@ def setup(version, verbose=True, skip_downloads=False):
     scylla_manager_package = os.environ.get('SCYLLA_MANAGER_PACKAGE')
     if scylla_manager_package:
         manager_install_dir = setup_scylla_manager(scylla_manager_package)
-        scylla_ext_opts += ' --scylla-manager={}'.format(manager_install_dir)
+        scylla_ext_opts += f' --scylla-manager={manager_install_dir}'
         os.environ['SCYLLA_EXT_OPTS'] = scylla_ext_opts
 
     return version_dir, get_scylla_version(version_dir)
@@ -466,7 +466,7 @@ def download_version(version, url=None, verbose=False, target_dir=None, unified=
                 download_file(url=url, target_path=target, verbose=verbose)
         else:
             raise ArgumentError(
-                "unsupported url or file doesn't exist\n\turl={}".format(url))
+                f"unsupported url or file doesn't exist\n\turl={url}")
 
         if verbose:
             print_(f"Extracting {target} ({url}, {target_dir}) as version {version} ...")
@@ -475,8 +475,8 @@ def download_version(version, url=None, verbose=False, target_dir=None, unified=
         tar.close()
 
         # if relocatable package format >= 2, need to extract files under subdir
-        package_version_files = glob.glob("{}/.relocatable_package_version".format(Path(target_dir))) + \
-                                glob.glob("{}/**/.relocatable_package_version".format(Path(target_dir)))
+        package_version_files = glob.glob(f"{Path(target_dir)}/.relocatable_package_version") + \
+                                glob.glob(f"{Path(target_dir)}/**/.relocatable_package_version")
         if package_version_files and os.path.exists(package_version_files[0]):
             with open(package_version_files[0]) as f:
                 package_version = packaging.version.parse(f.read().strip())
@@ -485,7 +485,7 @@ def download_version(version, url=None, verbose=False, target_dir=None, unified=
                 sys.exit(1)
             print(f'Relocatable package format version {package_version} detected.')
             if not unified:
-                pkg_dir = glob.glob('{}/*/'.format(target_dir))[0]
+                pkg_dir = glob.glob(f'{target_dir}/*/')[0]
                 shutil.move(str(pkg_dir), target_dir + '.new')
                 shutil.rmtree(target_dir)
                 shutil.move(target_dir + '.new', target_dir)
@@ -498,17 +498,17 @@ def download_version(version, url=None, verbose=False, target_dir=None, unified=
         # find  ~/.ccm/scylla-repository/*/ -iname source.txt | xargs cat
         source_breadcrumb_file = os.path.join(target_dir, 'source.txt')
         with open(source_breadcrumb_file, 'w') as f:
-            f.write("version=%s\n" % version)
-            f.write("url=%s\n" % url)
+            f.write(f"version={version}\n")
+            f.write(f"url={url}\n")
 
         return package_version
     except urllib.error.URLError as e:
-        msg = "Invalid version %s" % version if url is None else "Invalid url %s" % url
-        msg = msg + " (underlying error is: %s)" % str(e)
+        msg = f"Invalid version {version}" if url is None else f"Invalid url {url}"
+        msg = msg + f" (underlying error is: {str(e)})"
         raise ArgumentError(msg)
     except tarfile.ReadError as e:
         raise ArgumentError(
-            "Unable to uncompress downloaded file: %s" % str(e))
+            f"Unable to uncompress downloaded file: {str(e)}")
 
 
 def directory_name(version):
@@ -553,8 +553,8 @@ def run_scylla_install_script(install_dir, target_dir, package_version):
         install_dir, scylla_target_dir, install_opt), cwd=install_dir)
     run('''mkdir -p {0}/conf; cp ./conf/scylla.yaml {0}/conf'''.format(
         scylla_target_dir), cwd=install_dir)
-    run('''ln -s {}/bin .'''.format(scylla_target_dir), cwd=target_dir)
-    run('''ln -s {}/conf .'''.format(scylla_target_dir), cwd=target_dir)
+    run(f'''ln -s {scylla_target_dir}/bin .''', cwd=target_dir)
+    run(f'''ln -s {scylla_target_dir}/conf .''', cwd=target_dir)
 
 
 def run_scylla_unified_install_script(install_dir, target_dir, package_version):
@@ -574,4 +574,4 @@ def run_scylla_unified_install_script(install_dir, target_dir, package_version):
 
     run('''{0}/install.sh --prefix {1} --nonroot{2}'''.format(
         install_dir, target_dir, install_opt), cwd=install_dir)
-    run('''ln -s {}/scylla/conf conf'''.format(install_dir), cwd=target_dir)
+    run(f'''ln -s {install_dir}/scylla/conf conf''', cwd=target_dir)

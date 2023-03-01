@@ -171,7 +171,7 @@ class ClusterCreateCmd(Cmd):
         Cmd.validate(self, parser, options, args, cluster_name=True)
         if options.ipprefix and options.ipformat:
             parser.print_help()
-            parser.error("%s and %s may not be used together" % (parser.get_option('-i'), parser.get_option('-I')))
+            parser.error(f"{parser.get_option('-i')} and {parser.get_option('-I')} may not be used together")
         self.nodes = parse_populate_count(options.nodes)
         if self.options.vnodes and self.nodes is None:
             print_("Can't set --vnodes if not populating cluster in this command.")
@@ -189,7 +189,7 @@ class ClusterCreateCmd(Cmd):
                 common.validate_install_dir(options.install_dir)
             except ArgumentError:
                 parser.print_help()
-                parser.error("%s is not a valid cassandra directory. You must define a cassandra dir or version." % options.install_dir)
+                parser.error(f"{options.install_dir} is not a valid cassandra directory. You must define a cassandra dir or version.")
 
             common.assert_jdk_valid_for_cassandra_version(common.get_version_from_build(options.install_dir))
         if common.is_win() and os.path.exists(r'c:\windows\system32\java.exe'):
@@ -228,7 +228,7 @@ class ClusterCreateCmd(Cmd):
                 cluster = Cluster(self.path, self.name, install_dir=self.options.install_dir, version=self.options.version, verbose=True)
         except OSError as e:
             import traceback
-            print_('Cannot create cluster: %s\n%s' % (str(e), traceback.format_exc()), file=sys.stderr)
+            print_(f'Cannot create cluster: {str(e)}\n{traceback.format_exc()}', file=sys.stderr)
             sys.exit(1)
 
         if self.options.partitioner:
@@ -252,7 +252,7 @@ class ClusterCreateCmd(Cmd):
 
         if not self.options.no_switch:
             common.switch_cluster(self.path, self.name)
-            print_('Current cluster is now: %s' % self.name)
+            print_(f'Current cluster is now: {self.name}')
 
         if not (self.options.ipprefix or self.options.ipformat):
             self.options.ipformat = '127.0.0.%d'
@@ -280,7 +280,7 @@ class ClusterCreateCmd(Cmd):
                         details = ""
                         if not self.options.debug_log:
                             details = " (you can use --debug-log for more information)"
-                        print_("Error starting nodes, see above for details%s" % details, file=sys.stderr)
+                        print_(f"Error starting nodes, see above for details{details}", file=sys.stderr)
             except common.ArgumentError as e:
                 print_(str(e), file=sys.stderr)
                 sys.exit(1)
@@ -405,7 +405,7 @@ class ClusterPopulateCmd(Cmd):
         Cmd.validate(self, parser, options, args, load_cluster=True)
         if options.ipprefix and options.ipformat:
             parser.print_help()
-            parser.error("%s and %s may not be used together" % (parser.get_option('-i'), parser.get_option('-I')))
+            parser.error(f"{parser.get_option('-i')} and {parser.get_option('-I')} may not be used together")
 
         self.nodes = parse_populate_count(options.nodes)
         if self.nodes is None:
@@ -447,7 +447,7 @@ class ClusterListCmd(Cmd):
 
         for dir in os.listdir(self.path):
             if os.path.exists(os.path.join(self.path, dir, 'cluster.conf')):
-                print_(" %s%s" % ('*' if current == dir else ' ', dir))
+                print_(f" {'*' if current == dir else ' '}{dir}")
 
 
 class ClusterSwitchCmd(Cmd):
@@ -462,7 +462,7 @@ class ClusterSwitchCmd(Cmd):
     def validate(self, parser, options, args):
         Cmd.validate(self, parser, options, args, cluster_name=True)
         if not os.path.exists(os.path.join(self.path, self.name, 'cluster.conf')):
-            print_("%s does not appear to be a valid cluster (use ccm list to view valid clusters)" % self.name, file=sys.stderr)
+            print_(f"{self.name} does not appear to be a valid cluster (use ccm list to view valid clusters)", file=sys.stderr)
             sys.exit(1)
 
     def run(self):
@@ -588,7 +588,7 @@ class ClusterSetdirCmd(Cmd):
             if self.options.node:
                 target = self.cluster.nodes.get(self.options.node)
                 if not target:
-                    print_("Node not found: %s" % self.options.node)
+                    print_(f"Node not found: {self.options.node}")
                     return
             target.set_install_dir(install_dir=self.options.install_dir, version=self.options.version, verbose=True)
         except common.ArgumentError as e:
@@ -694,7 +694,7 @@ class ClusterStartCmd(Cmd):
                 details = ""
                 if not self.options.verbose:
                     details = " (you can use --verbose for more information)"
-                print_("Error starting nodes, see above for details%s" % details, file=sys.stderr)
+                print_(f"Error starting nodes, see above for details{details}", file=sys.stderr)
                 sys.exit(1)
             if self.options.sni_proxy:
                 nodes_info = get_cluster_info(self.cluster, port=ssl_port)
@@ -711,7 +711,7 @@ class ClusterStartCmd(Cmd):
                         start_sni_proxy(self.cluster.get_path(), nodes_info=nodes_info, listen_port=self.options.sni_port)
                     create_cloud_config(self.cluster.get_path(), port=listen_port, address=listen_address, nodes_info=nodes_info)
 
-                    print(('sni_proxy listening on: {}:{}'.format(listen_address, listen_port)))
+                    print(f'sni_proxy listening on: {listen_address}:{listen_port}')
                     self.cluster.sni_proxy_docker_id = docker_id
                     self.cluster.sni_proxy_listen_port = listen_port
                     self.cluster._update_config()
@@ -1094,7 +1094,7 @@ class ClusterJconsoleCmd(Cmd):
         Cmd.validate(self, parser, options, args, load_cluster=True)
 
     def run(self):
-        cmds = ["jconsole"] + ["localhost:%s" % node.jmx_port for node in list(self.cluster.nodes.values())]
+        cmds = ["jconsole"] + [f"localhost:{node.jmx_port}" for node in list(self.cluster.nodes.values())]
         try:
             subprocess.call(cmds, stderr=sys.stderr)
         except OSError:

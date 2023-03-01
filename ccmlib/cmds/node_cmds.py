@@ -241,7 +241,7 @@ class NodeStopCmd(Cmd):
     def run(self):
         try:
             if not self.node.stop(not self.options.no_wait, gently=self.options.gently):
-                print_("%s is not running" % self.name, file=sys.stderr)
+                print_(f"{self.name} is not running", file=sys.stderr)
                 exit(1)
         except NodeError as e:
             print_(str(e), file=sys.stderr)
@@ -899,7 +899,7 @@ class NodeJconsoleCmd(Cmd):
         Cmd.validate(self, parser, options, args, node_name=True, load_cluster=True)
 
     def run(self):
-        cmds = ["jconsole", "localhost:%s" % self.node.jmx_port]
+        cmds = ["jconsole", f"localhost:{self.node.jmx_port}"]
         try:
             subprocess.call(cmds)
         except OSError:

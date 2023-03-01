@@ -204,20 +204,20 @@ def make_cassandra_env(install_dir, node_path, update_conf=True):
     if not update_conf and not os.path.exists(dst):
         time.sleep(1)
         if not os.path.exists(dst):
-            print(("Warning: make_cassandra_env: install_dir={} node_path={} missing {}. Recreating...".format(install_dir, node_path, dst)))
+            print(f"Warning: make_cassandra_env: install_dir={install_dir} node_path={node_path} missing {dst}. Recreating...")
 
     if not os.path.exists(dst):
         replacements = ""
         if is_win() and get_version_from_build(node_path=node_path) >= '2.1':
             replacements = [
-                ('env:CASSANDRA_HOME =', '        $env:CASSANDRA_HOME="%s"' % install_dir),
+                ('env:CASSANDRA_HOME =', f'        $env:CASSANDRA_HOME="{install_dir}"'),
                 ('env:CASSANDRA_CONF =', '    $env:CCM_DIR="' + node_path + '\\conf"\n    $env:CASSANDRA_CONF="$env:CCM_DIR"'),
                 ('cp = ".*?env:CASSANDRA_HOME.conf', '    $cp = """$env:CASSANDRA_CONF"""')
             ]
         else:
             replacements = [
-                ('CASSANDRA_HOME=', '\tCASSANDRA_HOME=%s' % install_dir),
-                ('CASSANDRA_CONF=', '\tCASSANDRA_CONF=%s' % os.path.join(node_path, 'conf'))
+                ('CASSANDRA_HOME=', f'\tCASSANDRA_HOME={install_dir}'),
+                ('CASSANDRA_CONF=', f"\tCASSANDRA_CONF={os.path.join(node_path, 'conf')}")
             ]
         (fd, tmp) = tempfile.mkstemp(dir=node_path)
         replaces_in_files(orig, tmp, replacements)
@@ -401,7 +401,7 @@ def get_stress_bin(install_dir):
             else:
                 os.chmod(stress, os.stat(stress).st_mode | stat.S_IXUSR)
         except:
-            raise Exception("stress binary is not executable: %s" % (stress,))
+            raise Exception(f"stress binary is not executable: {stress}")
 
     return stress
 
@@ -413,7 +413,7 @@ def isDse(install_dir):
     bin_dir = os.path.join(install_dir, BIN_DIR)
 
     if not os.path.exists(bin_dir):
-        raise ArgumentError('Installation directory does not contain a bin directory: %s' % install_dir)
+        raise ArgumentError(f'Installation directory does not contain a bin directory: {install_dir}')
 
     dse_script = os.path.join(bin_dir, 'dse')
     return os.path.exists(dse_script)
@@ -514,7 +514,7 @@ def wait_for(func: Callable, timeout: int, first: float = 0.0, step: float = 1.0
 
     while time.time() < end_time:
         if text:
-            print_("%s (%f secs)" % (text, (time.time() - start_time)))
+            print_(f"{text} ({time.time() - start_time:f} secs)")
         if func():
             return True
         time.sleep(step)
@@ -538,7 +538,7 @@ def validate_install_dir(install_dir):
     # Windows requires absolute pathing on installation dir - abort if specified cygwin style
     if is_win():
         if ':' not in install_dir:
-            raise ArgumentError('%s does not appear to be a cassandra or dse installation directory.  Please use absolute pathing (e.g. C:/cassandra.' % install_dir)
+            raise ArgumentError(f'{install_dir} does not appear to be a cassandra or dse installation directory.  Please use absolute pathing (e.g. C:/cassandra.')
 
     bin_dir = os.path.join(install_dir, BIN_DIR)
     if isScylla(install_dir):
@@ -558,7 +558,7 @@ def validate_install_dir(install_dir):
     elif not isOpscenter(install_dir):
         cnd = cnd and os.path.exists(os.path.join(conf_dir, CASSANDRA_CONF))
     if not cnd:
-        raise ArgumentError('%s does not appear to be a cassandra or dse installation directory' % install_dir)
+        raise ArgumentError(f'{install_dir} does not appear to be a cassandra or dse installation directory')
 
 
 def check_socket_available(itf):
@@ -576,7 +576,7 @@ def check_socket_available(itf):
     except socket.error as msg:
         s.close()
         addr, port = itf
-        raise UnavailableSocketError("Inet address %s:%s is not available: %s" % (addr, port, msg))
+        raise UnavailableSocketError(f"Inet address {addr}:{port} is not available: {msg}")
 
 
 def check_socket_listening(itf, timeout=60):
@@ -789,7 +789,7 @@ def get_jdk_version():
 
 def assert_jdk_valid_for_cassandra_version(cassandra_version):
     if cassandra_version >= '3.0' and get_jdk_version() < '1.8':
-        print_('ERROR: Cassandra 3.0+ requires Java >= 1.8, found Java {}'.format(get_jdk_version()))
+        print_(f'ERROR: Cassandra 3.0+ requires Java >= 1.8, found Java {get_jdk_version()}')
         exit(1)
 
 

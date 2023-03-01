@@ -149,7 +149,7 @@ class ScyllaNode(Node):
     def set_log_level(self, new_level, class_name=None):
         known_level = {'TRACE' : 'trace', 'DEBUG' : 'debug', 'INFO' : 'info', 'WARN' : 'warn', 'ERROR' : 'error', 'OFF' : 'info'}
         if not new_level in known_level:
-            raise common.ArgumentError("Unknown log level %s (use one of %s)" % (new_level, " ".join(known_level)))
+            raise common.ArgumentError(f"Unknown log level {new_level} (use one of {' '.join(known_level)})")
 
         new_log_level = known_level[new_level]
         # TODO class_name can be validated against help-loggers
@@ -191,13 +191,13 @@ class ScyllaNode(Node):
         jmx_java_bin = os.path.join(jmx_jar_dir, 'symlinks', 'scylla-jmx')
         jmx_jar = os.path.join(jmx_jar_dir, 'scylla-jmx-1.0.jar')
         args = [jmx_java_bin,
-                '-Dapiaddress=%s' % data['listen_address'],
+                f"-Dapiaddress={data['listen_address']}",
                 '-Djavax.management.builder.initial=com.scylladb.jmx.utils.APIBuilder',
-                '-Djava.rmi.server.hostname=%s' % data['listen_address'],
+                f"-Djava.rmi.server.hostname={data['listen_address']}",
                 '-Dcom.sun.management.jmxremote',
-                '-Dcom.sun.management.jmxremote.host=%s' % data['listen_address'],
-                '-Dcom.sun.management.jmxremote.port=%s' % self.jmx_port,
-                '-Dcom.sun.management.jmxremote.rmi.port=%s' % self.jmx_port,
+                f"-Dcom.sun.management.jmxremote.host={data['listen_address']}",
+                f'-Dcom.sun.management.jmxremote.port={self.jmx_port}',
+                f'-Dcom.sun.management.jmxremote.rmi.port={self.jmx_port}',
                 '-Dcom.sun.management.jmxremote.local.only=false',
                 '-Xmx256m',
                 '-XX:+UseSerialGC',
@@ -241,7 +241,7 @@ class ScyllaNode(Node):
         starting_message = 'Starting listening for CQL clients'
         bootstrap_message = r'storage_service .* Starting to bootstrap'
         resharding_message = r'(compaction|database) -.*Resharding'
-        if not self.watch_log_for("{}|{}|{}".format(starting_message, bootstrap_message, resharding_message), from_mark=from_mark, timeout=timeout, process=process):
+        if not self.watch_log_for(f"{starting_message}|{bootstrap_message}|{resharding_message}", from_mark=from_mark, timeout=timeout, process=process):
             return False
         prev_mark = from_mark
         prev_mark_time = time.time()
@@ -251,7 +251,7 @@ class ScyllaNode(Node):
             if process.returncode is not None:
                 self.print_process_output(self.name, process, verbose=True)
                 if process.returncode != 0:
-                    raise RuntimeError("The process is dead, returncode={}".format(process.returncode))
+                    raise RuntimeError(f"The process is dead, returncode={process.returncode}")
             pat = '|'.join([
                 r'repair - Repair \d+ out of \d+ ranges',
                 r'repair - .*: Started to repair',
@@ -264,9 +264,9 @@ class ScyllaNode(Node):
                 prev_mark = self.mark_log()
                 prev_mark_time = time.time()
             elif time.time() - prev_mark_time >= timeout:
-                raise TimeoutError("{}: Timed out waiting for '{}'".format(self.name, starting_message))
+                raise TimeoutError(f"{self.name}: Timed out waiting for '{starting_message}'")
             time.sleep(sleep_time)
-        return bool(self.grep_log("{}|{}".format(bootstrap_message, resharding_message), from_mark=from_mark))
+        return bool(self.grep_log(f"{bootstrap_message}|{resharding_message}", from_mark=from_mark))
 
     def _start_scylla(self, args, marks, update_pid, wait_other_notice,
                       wait_for_binary_proto, ext_env, timeout=None):
@@ -302,7 +302,7 @@ class ScyllaNode(Node):
         if update_pid:
             self._update_pid(self._process_scylla)
             if not self.is_running():
-                raise NodeError("Error starting node %s" % self.name,
+                raise NodeError(f"Error starting node {self.name}",
                                 self._process_scylla)
 
         if wait_other_notice:
@@ -327,15 +327,15 @@ class ScyllaNode(Node):
 
         data = dict()
 
-        data['https'] = "{}:10001".format(self.address())
+        data['https'] = f"{self.address()}:10001"
         data['auth_token'] = self.scylla_manager.auth_token
         data['tls_cert_file'] = os.path.join(ssl_dir, 'scylla-manager-agent.crt')
         data['tls_key_file'] = os.path.join(ssl_dir, 'scylla-manager-agent.key')
         data['logger'] = dict(level='debug')
-        data['debug'] = "{}:56112".format(self.address())
-        data['scylla'] = {'api_address': "{}".format(self.address()),
+        data['debug'] = f"{self.address()}:56112"
+        data['scylla'] = {'api_address': f"{self.address()}",
                           'api_port': 10000}
-        data['prometheus'] = "{}:56090".format(self.address())
+        data['prometheus'] = f"{self.address()}:56090"
         data['s3'] = {"endpoint": os.getenv("AWS_S3_ENDPOINT"), "provider": "Minio"}
 
         with open(conf_file, 'w') as f:
@@ -502,7 +502,7 @@ class ScyllaNode(Node):
         jvm_args = new_jvm_args
 
         if self.is_running():
-            raise NodeError("%s is already running" % self.name)
+            raise NodeError(f"{self.name} is already running")
 
         if not self.is_docker():
             for itf in list(self.network_interfaces.values()):
@@ -510,10 +510,10 @@ class ScyllaNode(Node):
                     try:
                         common.check_socket_available(itf)
                     except Exception as msg:
-                        print(("{}. Looking for offending processes...".format(msg)))
+                        print(f"{msg}. Looking for offending processes...")
                         for proc in psutil.process_iter():
                             if any(self.cluster.ipprefix in cmd for cmd in proc.cmdline()):
-                                print(("name={} pid={} cmdline={}".format(proc.name(), proc.pid, proc.cmdline())))
+                                print(f"name={proc.name()} pid={proc.pid} cmdline={proc.cmdline()}")
                         raise msg
 
         marks = []
@@ -534,7 +534,7 @@ class ScyllaNode(Node):
             data = yaml.safe_load(f)
         jvm_args = jvm_args + ['--api-address', data['api_address']]
         jvm_args = jvm_args + ['--collectd-hostname',
-                               '%s.%s' % (socket.gethostname(), self.name)]
+                               f'{socket.gethostname()}.{self.name}']
 
         # Let's add jvm_args and the translated args
 
@@ -575,11 +575,11 @@ class ScyllaNode(Node):
             self._smp = int(args[args.index('--smp') + 1])
         if '--memory' not in args:
             # If --memory is not passed from cmdline, use default (512M per cpu)
-            args += ['--memory', '{}M'.format(self._mem_mb_per_cpu * self._smp)]
+            args += ['--memory', f'{self._mem_mb_per_cpu * self._smp}M']
         elif self._mem_set_during_test:
             # If node.set_mem_mb_per_cpu() is called during the test, ignore the --memory
             # passed from the cmdline.
-            args[args.index('--memory') + 1] = '{}M'.format(self._mem_mb_per_cpu * self._smp)
+            args[args.index('--memory') + 1] = f'{self._mem_mb_per_cpu * self._smp}M'
         self._memory = self.parse_size(args[args.index('--memory') + 1])
         if '--default-log-level' not in args:
             args += ['--default-log-level', self.__global_log_level]
@@ -636,7 +636,7 @@ class ScyllaNode(Node):
                 else:
                     ext_env[k] = v
 
-        message = "Starting scylla: args={} wait_other_notice={} wait_for_binary_proto={}".format(args, wait_other_notice, wait_for_binary_proto)
+        message = f"Starting scylla: args={args} wait_other_notice={wait_other_notice} wait_for_binary_proto={wait_for_binary_proto}"
         self.debug(message)
 
         scylla_process = self._start_scylla(args, marks, update_pid,
@@ -837,7 +837,7 @@ class ScyllaNode(Node):
                 pass
 
         if self.is_running():
-            raise NodeError("Problem stopping node %s" % self.name)
+            raise NodeError(f"Problem stopping node {self.name}")
 
         for node, mark in marks:
             if node != self:
@@ -931,7 +931,7 @@ class ScyllaNode(Node):
             if oserror.errno == errno.EXDEV or oserror.errno == errno.EMLINK:
                 do_copy(src, dst, extra_perms)
             else:
-                raise RuntimeError("Unable to create hard link from %s to %s: %s" % (src, dst, oserror))
+                raise RuntimeError(f"Unable to create hard link from {src} to {dst}: {oserror}")
 
     def _copy_binaries(self, files, src_path, dest_path, exist_ok=False, replace=False, extra_perms=0):
         os.makedirs(dest_path, exist_ok=exist_ok)
@@ -983,9 +983,9 @@ class ScyllaNode(Node):
                 search_pattern = os.path.join(dbuild_so_dir, 'ld-linux-x86-64.so.*')
                 res = glob.glob(search_pattern)
                 if not res:
-                    raise RuntimeError('{} not found'.format(search_pattern))
+                    raise RuntimeError(f'{search_pattern} not found')
                 if len(res) > 1:
-                    raise RuntimeError('{}: found too make matches: {}'.format(search_pattern, res))
+                    raise RuntimeError(f'{search_pattern}: found too make matches: {res}')
                 loader = res[0]
 
                 self._launch_env = dict(os.environ)
@@ -1006,7 +1006,7 @@ class ScyllaNode(Node):
                         subprocess.check_call(cmd)
                         (returncode, stdout, stderr) = run_patchelf(patchelf_cmd)
                 if returncode != 0:
-                    raise RuntimeError('{} exited with status {}.\nstdout:{}\nstderr:\n{}'.format(patchelf_cmd, returncode, stdout, stderr))
+                    raise RuntimeError(f'{patchelf_cmd} exited with status {returncode}.\nstdout:{stdout}\nstderr:\n{stderr}')
 
         if 'scylla-repository' in self.node_install_dir:
             self.hard_link_or_copy(os.path.join(self.get_jmx_dir(), 'scylla-jmx-1.0.jar'),
@@ -1341,7 +1341,7 @@ class NodeUpgrader:
         try:
             cdir, _ = setup(self.scylla_version_for_upgrade)
         except Exception as exc:
-            raise NodeUpgradeError("Failed to setup relocatable packages. %s" % exc)
+            raise NodeUpgradeError(f"Failed to setup relocatable packages. {exc}")
         return cdir
 
     def _import_executables(self, install_dir):
@@ -1350,7 +1350,7 @@ class NodeUpgrader:
             self.node.import_bin_files(exist_ok=True, replace=True)
         except Exception as exc:
             self.node.node_install_dir = self.orig_install_dir
-            raise NodeUpgradeError("Failed to import executables files. %s" % exc)
+            raise NodeUpgradeError(f"Failed to import executables files. {exc}")
 
     def _recover_system_tables(self):
         """
@@ -1412,7 +1412,7 @@ class NodeUpgrader:
 
         self.node.stop(wait_other_notice=True)
         if self.node.status != Status.DOWN:
-            raise NodeUpgradeError("Node %s failed to stop before upgrade" % self.node.name)
+            raise NodeUpgradeError(f"Node {self.node.name} failed to stop before upgrade")
 
         self._import_executables(cdir)
         self.node.clean_runtime_file()
@@ -1423,11 +1423,11 @@ class NodeUpgrader:
         try:
             self.node.start(wait_other_notice=True, wait_for_binary_proto=True)
         except Exception as exc:
-            raise NodeUpgradeError("Node %s failed to start after upgrade. Error: %s" % (self.node.name, exc))
+            raise NodeUpgradeError(f"Node {self.node.name} failed to start after upgrade. Error: {exc}")
 
         if self.node.status != Status.UP:
             self.node.node_install_dir = self.orig_install_dir
-            raise NodeUpgradeError("Node %s failed to start after upgrade" % self.node.name)
+            raise NodeUpgradeError(f"Node {self.node.name} failed to start after upgrade")
 
         self.install_dir_for_upgrade = cdir
         self.node.node_scylla_version = self.install_dir_for_upgrade

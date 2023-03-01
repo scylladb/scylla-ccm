@@ -25,7 +25,7 @@ def results_dir():
 @pytest.fixture(scope="session")
 def test_id():
     ccm_test_id = TEST_ID or datetime.now().strftime("%Y%m%d-%H%M%S")
-    LOGGER.info("Using test id: '{}'".format(ccm_test_id))
+    LOGGER.info(f"Using test id: '{ccm_test_id}'")
     return ccm_test_id
 
 
@@ -34,15 +34,15 @@ def test_dir(test_id, results_dir):
     max_test_dirs, dir_count = 100, 1
     test_dir = results_dir / Path("ccm-" + test_id)
     while test_dir.exists() and dir_count <= max_test_dirs:
-        test_dir = results_dir / Path("ccm-{}-{}".format(test_id, dir_count))
+        test_dir = results_dir / Path(f"ccm-{test_id}-{dir_count}")
         dir_count += 1
 
     if dir_count >= max_test_dirs:
-        LOGGER.critical("Number of test directories is '{}'. Max allowed: '{}'".format(dir_count, max_test_dirs))
+        LOGGER.critical(f"Number of test directories is '{dir_count}'. Max allowed: '{max_test_dirs}'")
         assert dir_count >= max_test_dirs
     test_dir = os.getcwd() / test_dir
     test_dir.mkdir()
-    LOGGER.info("Test directory '{}' created.".format(test_dir))
+    LOGGER.info(f"Test directory '{test_dir}' created.")
     return test_dir
 
 

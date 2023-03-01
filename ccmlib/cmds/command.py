@@ -80,7 +80,7 @@ class Cmd(object):
                 try:
                     self.node = self.cluster.nodes[self.name]
                 except KeyError:
-                    print_('Unknown node %s in cluster %s' % (self.name, self.cluster.name), file=sys.stderr)
+                    print_(f'Unknown node {self.name} in cluster {self.cluster.name}', file=sys.stderr)
                     exit(1)
 
     def run(self):
@@ -92,7 +92,7 @@ class Cmd(object):
         else:
             parser = OptionParser(usage=usage, description=description, formatter=formatter)
         parser.add_option('--config-dir', type="string", dest="config_dir",
-                          help="Directory for the cluster files [default to {0}]".format(common.get_default_path_display_name()))
+                          help=f"Directory for the cluster files [default to {common.get_default_path_display_name()}]")
         return parser
 
     def description(self):
