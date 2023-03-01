@@ -2,7 +2,6 @@ import os
 import subprocess
 
 import yaml
-from six import print_
 
 from ccmlib import common
 from . import TEST_DIR
@@ -36,10 +35,10 @@ class TestCCMCreate(TestCCMCmd):
     def validate_output(self, process):
         stdout, stderr = process.communicate()
         try:
-            print_(f"[OUT] {stdout}")
+            print(f"[OUT] {stdout}")
             self.assertEqual(len(stderr), 0)
         except AssertionError:
-            print_(f"[ERROR] {stderr.strip()}")
+            print(f"[ERROR] {stderr.strip()}")
             raise
 
     def cluster_create_version_test(self):
@@ -83,7 +82,7 @@ class TestCCMCreate(TestCCMCmd):
         p = self.create_cmd(args)
         stdout, stderr = p.communicate()
 
-        print_(f"[OUT] {stdout}")
+        print(f"[OUT] {stdout}")
         self.assertGreater(len(stdout), 18000)
         self.assertEqual(len(stderr), 0)
 

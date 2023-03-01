@@ -14,14 +14,13 @@ import sys
 import time
 import tempfile
 import logging
+from itertools import zip_longest
 from typing import Callable
 
 import yaml
 from boto3.session import Session
 from botocore import UNSIGNED
 from botocore.client import Config
-from six import print_
-from six.moves import zip_longest
 
 BIN_DIR = "bin"
 CASSANDRA_CONF_DIR = "conf"
@@ -291,7 +290,7 @@ def is_ps_unrestricted():
             p = subprocess.Popen(['powershell', 'Get-ExecutionPolicy'], stdout=subprocess.PIPE)
         # pylint: disable=E0602
         except WindowsError:
-            print_("ERROR: Could not find powershell. Is it in your path?")
+            print("ERROR: Could not find powershell. Is it in your path?")
         if "Unrestricted" in p.communicate()[0]:
             return True
         else:
@@ -514,7 +513,7 @@ def wait_for(func: Callable, timeout: int, first: float = 0.0, step: float = 1.0
 
     while time.time() < end_time:
         if text:
-            print_(f"{text} ({time.time() - start_time:f} secs)")
+            print(f"{text} ({time.time() - start_time:f} secs)")
         if func():
             return True
         time.sleep(step)
@@ -655,7 +654,7 @@ def copy_file(src_file, dst_file):
     try:
         shutil.copy2(src_file, dst_file)
     except (IOError, shutil.Error) as e:
-        print_(str(e), file=sys.stderr)
+        print(str(e), file=sys.stderr)
         exit(1)
 
 
@@ -789,7 +788,7 @@ def get_jdk_version():
 
 def assert_jdk_valid_for_cassandra_version(cassandra_version):
     if cassandra_version >= '3.0' and get_jdk_version() < '1.8':
-        print_(f'ERROR: Cassandra 3.0+ requires Java >= 1.8, found Java {get_jdk_version()}')
+        print(f'ERROR: Cassandra 3.0+ requires Java >= 1.8, found Java {get_jdk_version()}')
         exit(1)
 
 
@@ -822,6 +821,6 @@ def grouper(n, iterable, padvalue=None):
 def print_if_standalone(*args, debug_callback=None, end='\n', **kwargs):
     standalone = os.environ.get('SCYLLA_CCM_STANDALONE', None)
     if standalone:
-        print_(*args, *kwargs, end=end)
+        print(*args, *kwargs, end=end)
     else:
         debug_callback(*args, **kwargs)

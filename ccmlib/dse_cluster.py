@@ -4,7 +4,6 @@ import shutil
 import signal
 import subprocess
 
-from six import iteritems
 
 from ccmlib import common, repository
 from ccmlib.cluster import Cluster
@@ -49,7 +48,7 @@ class DseCluster(Cluster):
 
     def set_dse_configuration_options(self, values=None):
         if values is not None:
-            for k, v in iteritems(values):
+            for k, v in values.items():
                 self._dse_config_options[k] = v
         self._update_config()
         for node in list(self.nodes.values()):

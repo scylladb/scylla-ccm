@@ -19,8 +19,6 @@ import glob
 import re
 
 from ccmlib.common import CASSANDRA_SH, BIN_DIR, wait_for, copy_directory
-from six import print_
-from six.moves import xrange
 
 from ccmlib import common
 from ccmlib.node import Node, NodeUpgradeError
@@ -694,7 +692,7 @@ class ScyllaNode(Node):
             elapsed = time.time() - start
             if elapsed > 30.0 or not wait:
                 if wait:
-                    print_("Timed out waiting for pidfile {} to be filled (after {} seconds): File {} size={}".format(
+                    print("Timed out waiting for pidfile {} to be filled (after {} seconds): File {} size={}".format(
                             pidfile,
                             elapsed,
                             'exists' if os.path.isfile(pidfile) else 'does not exist' if not os.path.exists(pidfile) else 'is not a file',
@@ -735,7 +733,7 @@ class ScyllaNode(Node):
         start = time.time()
         while not (os.path.isfile(pidfile) and os.stat(pidfile).st_size > 0):
             if time.time() - start > 30.0:
-                print_("Timed out waiting for pidfile {} to be filled (current time is %s): File {} size={}".format(
+                print("Timed out waiting for pidfile {} to be filled (current time is %s): File {} size={}".format(
                         pidfile,
                         datetime.now(),
                         'exists' if os.path.isfile(pidfile) else 'does not exist' if not os.path.exists(pidfile) else 'is not a file',

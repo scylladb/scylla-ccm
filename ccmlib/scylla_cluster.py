@@ -8,7 +8,6 @@ import yaml
 import uuid
 import datetime
 
-from six import print_
 from distutils.version import LooseVersion
 
 from ccmlib import common
@@ -371,7 +370,7 @@ class ScyllaManager:
         pidfile = self._get_pid_file()
         while not (os.path.isfile(pidfile) and os.stat(pidfile).st_size > 0):
             if time.time() - start > 30.0:
-                print_("Timed out waiting for pidfile {} to be filled (current time is %s): File {} size={}".format(
+                print("Timed out waiting for pidfile {} to be filled (current time is %s): File {} size={}".format(
                         pidfile,
                         datetime.now(),
                         'exists' if os.path.isfile(pidfile) else 'does not exist' if not os.path.exists(pidfile) else 'is not a file',

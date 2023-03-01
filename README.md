@@ -41,7 +41,6 @@ Requirements
 
 - A working python installation (tested to work with python 3.11).
 - pyYAML (http://pyyaml.org/ -- `sudo easy_install pyYaml`)
-- six (https://pypi.python.org/pypi/six -- `sudo easy_install six`)
 - ant (http://ant.apache.org/, on Mac OS X, `brew install ant`)
 - psutil (https://pypi.python.org/pypi/psutil)
 - Java (which version depends on the version of Cassandra you plan to use. If

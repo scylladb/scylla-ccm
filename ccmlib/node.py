@@ -18,8 +18,6 @@ import locale
 from collections import namedtuple
 
 import yaml
-from six import iteritems, print_, string_types
-from six.moves import xrange
 
 from ccmlib import common
 from ccmlib.cli_session import CliSession
@@ -271,7 +269,7 @@ class Node(object):
         commitlog (since it requires setting 2 options and unsetting one).
         """
         if values is not None:
-            for k, v in iteritems(values):
+            for k, v in values.items():
                 self.__config_options[k] = v
         if batch_commitlog is not None:
             if batch_commitlog:
@@ -294,20 +292,20 @@ class Node(object):
         """
         self.__update_status()
         indent = ''.join([" " for i in range(0, len(self.name) + 2)])
-        print_(f"{self.name}: {self.__get_status_string()}")
+        print(f"{self.name}: {self.__get_status_string()}")
         if not only_status:
             if show_cluster:
-                print_(f"{indent}{'cluster'}={self.cluster.name}")
-            print_(f"{indent}{'auto_bootstrap'}={self.auto_bootstrap}")
-            print_(f"{indent}{'thrift'}={self.network_interfaces['thrift']}")
+                print(f"{indent}{'cluster'}={self.cluster.name}")
+            print(f"{indent}{'auto_bootstrap'}={self.auto_bootstrap}")
+            print(f"{indent}{'thrift'}={self.network_interfaces['thrift']}")
             if self.network_interfaces['binary'] is not None:
-                print_(f"{indent}{'binary'}={self.network_interfaces['binary']}")
-            print_(f"{indent}{'storage'}={self.network_interfaces['storage']}")
-            print_(f"{indent}{'jmx_port'}={self.jmx_port}")
-            print_(f"{indent}{'remote_debug_port'}={self.remote_debug_port}")
-            print_(f"{indent}{'initial_token'}={self.initial_token}")
+                print(f"{indent}{'binary'}={self.network_interfaces['binary']}")
+            print(f"{indent}{'storage'}={self.network_interfaces['storage']}")
+            print(f"{indent}{'jmx_port'}={self.jmx_port}")
+            print(f"{indent}{'remote_debug_port'}={self.remote_debug_port}")
+            print(f"{indent}{'initial_token'}={self.initial_token}")
             if self.pid:
-                print_(f"{indent}{'pid'}={self.pid}")
+                print(f"{indent}{'pid'}={self.pid}")
 
     def is_running(self):
         """
@@ -425,7 +423,7 @@ class Node(object):
         if stderr is None:
             stderr = ''
         if len(stderr) > 1:
-            print_(f"[{name} ERROR] {stderr.strip()}")
+            print(f"[{name} ERROR] {stderr.strip()}")
 
     # This will return when exprs are found or it timeouts
     def watch_log_for(self, exprs, from_mark=None, timeout=600, process=None, verbose=False, filename='system.log'):
@@ -436,7 +434,7 @@ class Node(object):
         a list of pair (line matched, match object) is returned.
         """
         elapsed = 0
-        tofind = [exprs] if isinstance(exprs, string_types) else exprs
+        tofind = [exprs] if isinstance(exprs, str) else exprs
         tofind = [re.compile(e) for e in tofind]
         matchings = []
         reads = ""
@@ -482,7 +480,7 @@ class Node(object):
                             tofind.remove(e)
 
                             if len(tofind) == 0:
-                                return matchings[0] if isinstance(exprs, string_types) else matchings
+                                return matchings[0] if isinstance(exprs, str) else matchings
                             break
                 else:
                     # yep, it's ugly
@@ -573,7 +571,7 @@ class Node(object):
             raise NodeError("PS Execution Policy must be unrestricted when running C* 2.1+")
 
         if not common.is_win() and quiet_start:
-            print_("WARN: Tried to set Windows quiet start behavior, but we're not running on Windows.")
+            print("WARN: Tried to set Windows quiet start behavior, but we're not running on Windows.")
 
         if self.is_running():
             raise NodeError(f"{self.name} is already running")
@@ -604,7 +602,7 @@ class Node(object):
             cmd = f"-agentpath:{config['yourkit_agent']}"
             if 'options' in profile_options:
                 cmd = cmd + '=' + profile_options['options']
-            print_(cmd)
+            print(cmd)
             # Yes, it's fragile as shit
             pattern = r'cassandra_parms="-Dlog4j.configuration=log4j-server.properties -Dlog4j.defaultInitOverride=true'
             common.replace_in_file(launch_bin, pattern, '    ' + pattern + ' ' + cmd + '"')
@@ -650,13 +648,13 @@ class Node(object):
 
         if verbose:
             stdout, stderr = process.communicate()
-            print_(stdout)
-            print_(stderr)
+            print(stdout)
+            print(stderr)
 
         if common.is_win():
             self.__clean_win_pid()
             self._update_pid(process)
-            print_(f"Started: {self.name} with pid: {self.pid}", file=sys.stderr, flush=True)
+            print(f"Started: {self.name} with pid: {self.pid}", file=sys.stderr, flush=True)
         elif update_pid:
             self._update_pid(process)
 
@@ -705,12 +703,12 @@ class Node(object):
                     try:
                         self.flush()
                     except:
-                        print_(f"WARN: Failed to flush node: {self.name} on shutdown.")
+                        print(f"WARN: Failed to flush node: {self.name} on shutdown.")
                         pass
 
                 os.system("taskkill /F /PID " + str(self.pid))
                 if self._find_pid_on_windows():
-                    print_(f"WARN: Failed to terminate node: {self.name} with pid: {self.pid}")
+                    print(f"WARN: Failed to terminate node: {self.name} with pid: {self.pid}")
             else:
                 if gently:
                     os.kill(self.pid, signal.SIGTERM)
@@ -856,13 +854,13 @@ class Node(object):
             p.stdin.write("quit;\n")
             p.wait()
             for err in p.stderr.readlines():
-                print_("(EE) ", err, end='')
+                print("(EE) ", err, end='')
             if show_output:
                 i = 0
                 for log in p.stdout.readlines():
                     # first four lines are not interesting
                     if i >= 4:
-                        print_(log, end='')
+                        print(log, end='')
                     i = i + 1
 
     def run_cqlsh(self, cmds=None, show_output=False, cqlsh_options=None, return_output=False):
@@ -976,20 +974,20 @@ class Node(object):
         self._create_directory()
 
     def run_sstable2json(self, out_file=None, keyspace=None, datafiles=None, column_families=None, enumerate_keys=False):
-        print_("running")
+        print("running")
         if out_file is None:
             out_file = sys.stdout
         sstable2json = self._find_cmd('sstabledump')
         env = self.get_env()
         sstablefiles = self.__gather_sstables(datafiles, keyspace, column_families)
-        print_(sstablefiles)
+        print(sstablefiles)
         for sstablefile in sstablefiles:
-            print_(f"-- {os.path.basename(sstablefile)} -----")
+            print(f"-- {os.path.basename(sstablefile)} -----")
             args = sstable2json + [sstablefile]
             if enumerate_keys:
                 args = args + ["-e"]
             subprocess.call(args, env=env, stdout=out_file)
-            print_("")
+            print("")
 
     def run_json2sstable(self, in_file, ks, cf, keyspace=None, datafiles=None, column_families=None, enumerate_keys=False):
         json2sstable = self._find_cmd('json2sstable')
@@ -1010,7 +1008,7 @@ class Node(object):
         results = []
 
         def do_split(f):
-            print_(f"-- {os.path.basename(f)}-----")
+            print(f"-- {os.path.basename(f)}-----")
             cmd = sstablesplit
             if size is not None:
                 cmd += ['-s', str(size)]
@@ -1147,8 +1145,8 @@ class Node(object):
         try:
             os.chmod(fcmd, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
         except:
-            print_(f"WARN: Couldn't change permissions to use {cmd}.")
-            print_("WARN: If it didn't work, you will have to do so manually.")
+            print(f"WARN: Couldn't change permissions to use {cmd}.")
+            print("WARN: If it didn't work, you will have to do so manually.")
         return [fcmd]
 
     def list_keyspaces(self):
@@ -1198,11 +1196,11 @@ class Node(object):
                 files.remove(f)
             if (ignore_unsealed or cleanup_unsealed) and os.path.exists(f.replace('Data.db', 'TOC.txt.tmp')):
                 if cleanup_unsealed:
-                    print_(f"get_sstables: Cleaning up unsealed SSTable: {f}")
+                    print(f"get_sstables: Cleaning up unsealed SSTable: {f}")
                     for i in glob.glob(f.replace('Data.db', '*')):
                         os.remove(i)
                 else:
-                    print_(f"get_sstables: Ignoring unsealed SSTable: {f}")
+                    print(f"get_sstables: Ignoring unsealed SSTable: {f}")
                 files.remove(f)
         return files
 
@@ -1720,7 +1718,7 @@ class Node(object):
             import psutil
             found = psutil.pid_exists(self.pid)
         except ImportError:
-            print_("WARN: psutil not installed. Pid tracking functionality will suffer. See README for details.")
+            print("WARN: psutil not installed. Pid tracking functionality will suffer. See README for details.")
             cmd = 'tasklist /fi "PID eq ' + str(self.pid) + '"'
             proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, universal_newlines=True)
 
@@ -1796,7 +1794,7 @@ class Node(object):
                                         self.get_path() +
                                         '/dirty_pid.tmp. Manually kill it and check logs - ccm will be out of sync.')
             except Exception as e:
-                print_("ERROR: Problem starting " + self.name + " (" + str(e) + ")")
+                print("ERROR: Problem starting " + self.name + " (" + str(e) + ")")
                 raise Exception('Error while parsing <node>/dirty_pid.tmp in path: ' + self.get_path())
 
     def _delete_old_pid(self):
@@ -1810,7 +1808,7 @@ class Node(object):
         start = time.time()
         while not (os.path.isfile(pidfile) and os.stat(pidfile).st_size > 0):
             if (time.time() - start > 30.0):
-                print_("Timed out waiting for pidfile {} to be filled (current time is %s): File {} size={}".format(
+                print("Timed out waiting for pidfile {} to be filled (current time is %s): File {} size={}".format(
                         pidfile,
                         datetime.now(),
                         'exists' if os.path.isfile(pidfile) else 'does not exist' if not os.path.exists(pidfile) else 'is not a file',
@@ -1906,7 +1904,7 @@ class Node(object):
             p.suspend()
         except ImportError:
             if common.is_win():
-                print_("WARN: psutil not installed. Pause functionality will not work properly on Windows.")
+                print("WARN: psutil not installed. Pause functionality will not work properly on Windows.")
             else:
                 os.kill(self.pid, signal.SIGSTOP)
 
@@ -1917,7 +1915,7 @@ class Node(object):
             p.resume()
         except ImportError:
             if common.is_win():
-                print_("WARN: psutil not installed. Resume functionality will not work properly on Windows.")
+                print("WARN: psutil not installed. Resume functionality will not work properly on Windows.")
             else:
                 os.kill(self.pid, signal.SIGCONT)
 
