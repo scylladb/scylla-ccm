@@ -26,7 +26,7 @@ import packaging.version
 
 from ccmlib.common import (
     ArgumentError, CCMError, get_default_path, rmdirs, validate_install_dir, get_scylla_version, aws_bucket_ls,
-    DOWNLOAD_IN_PROGRESS_FILE, wait_for_parallel_download_finish)
+    DOWNLOAD_IN_PROGRESS_FILE, wait_for_parallel_download_finish, print_if_standalone)
 from ccmlib.utils.download import download_file, download_version_from_s3
 from ccmlib.utils.version import parse_version
 
@@ -44,8 +44,12 @@ ENTERPRISE_RELOCATABLE_URLS_BASE = ['https://s3.amazonaws.com/downloads.scylladb
 
 
 def run(cmd, cwd=None):
-    subprocess.check_call(['bash', '-c', cmd], cwd=cwd,
-                          stderr=None, stdout=None)
+    try:
+        subprocess.run(['bash', '-c', cmd], cwd=cwd, check=True)
+    except subprocess.CalledProcessError as exp:
+        print_if_standalone(str(exp), debug_callback=logging.error)
+        print_if_standalone("stdout:\n%s" % exp.stdout, debug_callback=logging.error)
+        print_if_standalone("stderr:\n%s" % exp.stderr, debug_callback=logging.error)
 
 
 class RelocatablePackages(NamedTuple):
