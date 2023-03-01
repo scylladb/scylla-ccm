@@ -104,6 +104,9 @@ class ScyllaNode(Node):
         self._smp =  smp
         self._smp_set_during_test = True
 
+    def smp(self):
+        return self._smp
+
     def set_mem_mb_per_cpu(self, mem):
         self._mem_mb_per_cpu = mem
         self._mem_set_during_test = True
