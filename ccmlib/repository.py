@@ -64,8 +64,8 @@ def setup(version, verbose=False):
             # We don't do this if binary: or source: were
             # explicitly specified.
             if fallback:
-                print_("WARN:Downloading {} failed, due to {}. Trying to build from git instead.".format(version, e))
-                version = 'git:cassandra-{}'.format(version)
+                print_(f"WARN:Downloading {version} failed, due to {e}. Trying to build from git instead.")
+                version = f'git:cassandra-{version}'
                 clone_development(GIT_REPO, version, verbose=verbose)
                 return (version_directory(version), None)
             else:
@@ -146,18 +146,18 @@ def clone_development(git_repo, version, verbose=False):
                     branches = [b.strip() for b in branch_listing.replace('remotes/origin/', '').split()]
                     is_branch = git_branch in branches
                 except subprocess.CalledProcessError as cpe:
-                    print_("Error Running Branch Filter: {}\nAssumming request is not for a branch".format(cpe.output))
+                    print_(f"Error Running Branch Filter: {cpe.output}\nAssumming request is not for a branch")
 
                 # now check out the right version
                 if verbose:
                     branch_or_sha_tag = 'branch' if is_branch else 'SHA/tag'
-                    print_("Checking out requested {} ({})".format(branch_or_sha_tag, git_branch))
+                    print_(f"Checking out requested {branch_or_sha_tag} ({git_branch})")
                 if is_branch:
                     # we use checkout -B with --track so we can specify that we want to track a specific branch
                     # otherwise, you get errors on branch names that are also valid SHAs or SHA shortcuts, like 10360
                     # we use -B instead of -b so we reset branches that already exist and create a new one otherwise
                     out = subprocess.call(['git', 'checkout', '-B', git_branch,
-                                           '--track', 'origin/{git_branch}'.format(git_branch=git_branch)],
+                                           '--track', f'origin/{git_branch}'],
                                           cwd=target_dir, stdout=lf, stderr=lf)
                 else:
                     out = subprocess.call(['git', 'checkout', git_branch], cwd=target_dir, stdout=lf, stderr=lf)
@@ -187,9 +187,9 @@ def clone_development(git_repo, version, verbose=False):
             # wipe out the directory if anything goes wrong. Otherwise we will assume it has been compiled the next time it runs.
             try:
                 rmdirs(target_dir)
-                print_("Deleted %s due to error" % target_dir)
+                print_(f"Deleted {target_dir} due to error")
             except:
-                raise CCMError("Building C* version %s failed. Attempted to delete %s but failed. This will need to be manually deleted" % (version, target_dir))
+                raise CCMError(f"Building C* version {version} failed. Attempted to delete {target_dir} but failed. This will need to be manually deleted")
             raise
 
 
@@ -199,7 +199,7 @@ def download_dse_version(version, username, password, verbose=False):
     try:
         __download(url, target, username=username, password=password, show_progress=verbose)
         if verbose:
-            print_("Extracting %s as version %s ..." % (target, version))
+            print_(f"Extracting {target} as version {version} ...")
         tar = tarfile.open(target)
         dir = tar.next().name.split("/")[0]
         tar.extractall(path=__get_dir())
@@ -209,11 +209,11 @@ def download_dse_version(version, username, password, verbose=False):
             rmdirs(target_dir)
         shutil.move(os.path.join(__get_dir(), dir), target_dir)
     except urllib.error.URLError as e:
-        msg = "Invalid version %s" % version if url is None else "Invalid url %s" % url
-        msg = msg + " (underlying error is: %s)" % str(e)
+        msg = f"Invalid version {version}" if url is None else f"Invalid url {url}"
+        msg = msg + f" (underlying error is: {str(e)})"
         raise ArgumentError(msg)
     except tarfile.ReadError as e:
-        raise ArgumentError("Unable to uncompress downloaded file: %s" % str(e))
+        raise ArgumentError(f"Unable to uncompress downloaded file: {str(e)}")
 
 
 def download_opscenter_version(version, target_version, verbose=False):
@@ -222,7 +222,7 @@ def download_opscenter_version(version, target_version, verbose=False):
     try:
         __download(url, target, show_progress=verbose)
         if verbose:
-            print_("Extracting %s as version %s ..." % (target, target_version))
+            print_(f"Extracting {target} as version {target_version} ...")
         tar = tarfile.open(target)
         dir = tar.next().name.split("/")[0]
         tar.extractall(path=__get_dir())
@@ -232,11 +232,11 @@ def download_opscenter_version(version, target_version, verbose=False):
             rmdirs(target_dir)
         shutil.move(os.path.join(__get_dir(), dir), target_dir)
     except urllib.error.URLError as e:
-        msg = "Invalid version %s" % version if url is None else "Invalid url %s" % url
-        msg = msg + " (underlying error is: %s)" % str(e)
+        msg = f"Invalid version {version}" if url is None else f"Invalid url {url}"
+        msg = msg + f" (underlying error is: {str(e)})"
         raise ArgumentError(msg)
     except tarfile.ReadError as e:
-        raise ArgumentError("Unable to uncompress downloaded file: %s" % str(e))
+        raise ArgumentError(f"Unable to uncompress downloaded file: {str(e)}")
 
 
 def download_version(version, url=None, verbose=False, binary=False):
@@ -247,14 +247,14 @@ def download_version(version, url=None, verbose=False, binary=False):
     assert_jdk_valid_for_cassandra_version(version)
 
     if binary:
-        u = "%s/%s/apache-cassandra-%s-bin.tar.gz" % (ARCHIVE, version.split('-')[0], version) if url is None else url
+        u = f"{ARCHIVE}/{version.split('-')[0]}/apache-cassandra-{version}-bin.tar.gz" if url is None else url
     else:
-        u = "%s/%s/apache-cassandra-%s-src.tar.gz" % (ARCHIVE, version.split('-')[0], version) if url is None else url
+        u = f"{ARCHIVE}/{version.split('-')[0]}/apache-cassandra-{version}-src.tar.gz" if url is None else url
     _, target = tempfile.mkstemp(suffix=".tar.gz", prefix="ccm-")
     try:
         __download(u, target, show_progress=verbose)
         if verbose:
-            print_("Extracting %s as version %s ..." % (target, version))
+            print_(f"Extracting {target} as version {version} ...")
         tar = tarfile.open(target)
         dir = tar.next().name.split("/")[0]
         tar.extractall(path=__get_dir())
@@ -274,18 +274,18 @@ def download_version(version, url=None, verbose=False, binary=False):
             compile_version(version, target_dir, verbose=verbose)
 
     except urllib.error.URLError as e:
-        msg = "Invalid version %s" % version if url is None else "Invalid url %s" % url
-        msg = msg + " (underlying error is: %s)" % str(e)
+        msg = f"Invalid version {version}" if url is None else f"Invalid url {url}"
+        msg = msg + f" (underlying error is: {str(e)})"
         raise ArgumentError(msg)
     except tarfile.ReadError as e:
-        raise ArgumentError("Unable to uncompress downloaded file: %s" % str(e))
+        raise ArgumentError(f"Unable to uncompress downloaded file: {str(e)}")
     except CCMError as e:
         # wipe out the directory if anything goes wrong. Otherwise we will assume it has been compiled the next time it runs.
         try:
             rmdirs(target_dir)
-            print_("Deleted %s due to error" % target_dir)
+            print_(f"Deleted {target_dir} due to error")
         except:
-            raise CCMError("Building C* version %s failed. Attempted to delete %s but failed. This will need to be manually deleted" % (version, target_dir))
+            raise CCMError(f"Building C* version {version} failed. Attempted to delete {target_dir} but failed. This will need to be manually deleted")
         raise e
 
 
@@ -295,7 +295,7 @@ def compile_version(version, target_dir, verbose=False):
     # compiling cassandra and the stress tool
     logfile = lastlogfilename()
     if verbose:
-        print_("Compiling Cassandra %s ..." % version)
+        print_(f"Compiling Cassandra {version} ...")
     with open(logfile, 'w') as lf:
         lf.write("--- Cassandra Build -------------------\n")
         try:
@@ -305,14 +305,14 @@ def compile_version(version, target_dir, verbose=False):
             ret_val = 1
             while attempt < 3 and ret_val != 0:
                 if attempt > 0:
-                    lf.write("\n\n`ant jar` failed. Retry #%s...\n\n" % attempt)
+                    lf.write(f"\n\n`ant jar` failed. Retry #{attempt}...\n\n")
                 ret_val = subprocess.call([platform_binary('ant'), 'jar'], cwd=target_dir, stdout=lf, stderr=lf)
                 attempt += 1
             if ret_val != 0:
                 raise CCMError('Error compiling Cassandra. See {logfile} or run '
                                '"ccm showlastlog" for details'.format(logfile=logfile))
         except OSError as e:
-            raise CCMError("Error compiling Cassandra. Is ant installed? See %s for details" % logfile)
+            raise CCMError(f"Error compiling Cassandra. Is ant installed? See {logfile} for details")
 
         lf.write("\n\n--- cassandra/stress build ------------\n")
         stress_dir = os.path.join(target_dir, "tools", "stress") if (
@@ -350,7 +350,7 @@ def github_username_and_branch_name(version):
 
 
 def github_repo_for_user(username):
-    return 'git@github.com:{username}/cassandra.git'.format(username=username)
+    return f'git@github.com:{username}/cassandra.git'
 
 
 def version_directory(version):
@@ -404,7 +404,7 @@ def get_tagged_version_numbers(series='stable'):
     elif series == 'oldstable':
         return [r.vstring for r in oldstable_releases]
     else:
-        raise AssertionError("unknown release series: {series}".format(series=series))
+        raise AssertionError(f"unknown release series: {series}")
 
 
 def __download(url, target, username=None, password=None, show_progress=False):
@@ -420,7 +420,7 @@ def __download(url, target, username=None, password=None, show_progress=False):
     meta = u.info()
     file_size = int(meta.get("Content-Length"))
     if show_progress:
-        print_("Downloading %s to %s (%.3fMB)" % (url, target, float(file_size) / (1024 * 1024)))
+        print_(f"Downloading {url} to {target} ({float(file_size) / (1024 * 1024):.3f}MB)")
 
     file_size_dl = 0
     block_sz = 8192

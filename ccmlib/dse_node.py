@@ -85,7 +85,7 @@ class DseNode(Node):
             jvm_args = []
 
         if self.is_running():
-            raise NodeError("%s is already running" % self.name)
+            raise NodeError(f"{self.name} is already running")
 
         for itf in list(self.network_interfaces.values()):
             if itf is not None and replace_address is None:
@@ -107,8 +107,8 @@ class DseNode(Node):
         if profile_options is not None:
             config = common.get_config()
             if 'yourkit_agent' not in config:
-                raise NodeError("Cannot enable profile. You need to set 'yourkit_agent' to the path of your agent in a {0}/config".format(common.get_default_path_display_name()))
-            cmd = '-agentpath:%s' % config['yourkit_agent']
+                raise NodeError(f"Cannot enable profile. You need to set 'yourkit_agent' to the path of your agent in a {common.get_default_path_display_name()}/config")
+            cmd = f"-agentpath:{config['yourkit_agent']}"
             if 'options' in profile_options:
                 cmd = cmd + '=' + profile_options['options']
             print_(cmd)
@@ -135,11 +135,11 @@ class DseNode(Node):
                 args.append('-k')
             if 'cfs' in self.workload:
                 args.append('-c')
-        args += ['-p', pidfile, '-Dcassandra.join_ring=%s' % str(join_ring)]
+        args += ['-p', pidfile, f'-Dcassandra.join_ring={str(join_ring)}']
         if replace_token is not None:
-            args.append('-Dcassandra.replace_token=%s' % str(replace_token))
+            args.append(f'-Dcassandra.replace_token={str(replace_token)}')
         if replace_address is not None:
-            args.append('-Dcassandra.replace_address=%s' % str(replace_address))
+            args.append(f'-Dcassandra.replace_address={str(replace_address)}')
         if use_jna is False:
             args.append('-Dcassandra.boot_without_jna=true')
         args = args + jvm_args
@@ -169,7 +169,7 @@ class DseNode(Node):
             self._update_pid(process)
 
             if not self.is_running():
-                raise NodeError("Error starting node %s" % self.name, process)
+                raise NodeError(f"Error starting node {self.name}", process)
 
         if wait_other_notice:
             for node, mark in marks:
@@ -342,7 +342,7 @@ class DseNode(Node):
         with open(server_xml, 'w+') as f:
             f.write('<Server port="8005" shutdown="SHUTDOWN">\n')
             f.write('  <Service name="Solr">\n')
-            f.write('    <Connector port="8983" address="%s" protocol="HTTP/1.1" connectionTimeout="20000" maxThreads = "200" URIEncoding="UTF-8"/>\n' % self.network_interfaces['thrift'][0])
+            f.write(f"    <Connector port=\"8983\" address=\"{self.network_interfaces['thrift'][0]}\" protocol=\"HTTP/1.1\" connectionTimeout=\"20000\" maxThreads = \"200\" URIEncoding=\"UTF-8\"/>\n")
             f.write('    <Engine name="Solr" defaultHost="localhost">\n')
             f.write('      <Host name="localhost"  appBase="../solr/web"\n')
             f.write('            unpackWARs="true" autoDeploy="true"\n')
@@ -395,14 +395,14 @@ class DseNode(Node):
                 (ip, port) = self.network_interfaces['thrift']
                 jmx = self.jmx_port
                 f.write('stomp_interface: 127.0.0.1\n')
-                f.write('local_interface: %s\n' % ip)
-                f.write('agent_rpc_interface: %s\n' % ip)
-                f.write('agent_rpc_broadcast_address: %s\n' % ip)
-                f.write('cassandra_conf: %s\n' % os.path.join(self.get_path(), 'resources', 'cassandra', 'conf', 'cassandra.yaml'))
-                f.write('cassandra_install: %s\n' % self.get_path())
-                f.write('cassandra_logs: %s\n' % os.path.join(self.get_path(), 'logs'))
-                f.write('thrift_port: %s\n' % port)
-                f.write('jmx_port: %s\n' % jmx)
+                f.write(f'local_interface: {ip}\n')
+                f.write(f'agent_rpc_interface: {ip}\n')
+                f.write(f'agent_rpc_broadcast_address: {ip}\n')
+                f.write(f"cassandra_conf: {os.path.join(self.get_path(), 'resources', 'cassandra', 'conf', 'cassandra.yaml')}\n")
+                f.write(f'cassandra_install: {self.get_path()}\n')
+                f.write(f"cassandra_logs: {os.path.join(self.get_path(), 'logs')}\n")
+                f.write(f'thrift_port: {port}\n')
+                f.write(f'jmx_port: {jmx}\n')
                 f.close()
 
     def _write_agent_log4j_properties(self, agent_dir):

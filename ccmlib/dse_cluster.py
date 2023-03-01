@@ -85,8 +85,8 @@ class DseCluster(Cluster):
                 seed_jmx = seed.jmx_port
                 with open(os.path.join(cluster_conf, self.name + '.conf'), 'w+') as f:
                     f.write('[jmx]\n')
-                    f.write('port = %s\n' % seed_jmx)
+                    f.write(f'port = {seed_jmx}\n')
                     f.write('[cassandra]\n')
-                    f.write('seed_hosts = %s\n' % seed_ip)
-                    f.write('api_port = %s\n' % seed_port)
+                    f.write(f'seed_hosts = {seed_ip}\n')
+                    f.write(f'api_port = {seed_port}\n')
                     f.close()

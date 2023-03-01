@@ -59,7 +59,7 @@ class ToolError(Exception):
         self.stdout = stdout
         self.stderr = stderr
 
-        message = "Subprocess {} exited with non-zero status; exit status: {}".format(command, exit_status)
+        message = f"Subprocess {command} exited with non-zero status; exit status: {exit_status}"
         if stdout:
             message += "; \nstdout: "
             message += self.__decode(stdout)
@@ -294,20 +294,20 @@ class Node(object):
         """
         self.__update_status()
         indent = ''.join([" " for i in range(0, len(self.name) + 2)])
-        print_("%s: %s" % (self.name, self.__get_status_string()))
+        print_(f"{self.name}: {self.__get_status_string()}")
         if not only_status:
             if show_cluster:
-                print_("%s%s=%s" % (indent, 'cluster', self.cluster.name))
-            print_("%s%s=%s" % (indent, 'auto_bootstrap', self.auto_bootstrap))
-            print_("%s%s=%s" % (indent, 'thrift', self.network_interfaces['thrift']))
+                print_(f"{indent}{'cluster'}={self.cluster.name}")
+            print_(f"{indent}{'auto_bootstrap'}={self.auto_bootstrap}")
+            print_(f"{indent}{'thrift'}={self.network_interfaces['thrift']}")
             if self.network_interfaces['binary'] is not None:
-                print_("%s%s=%s" % (indent, 'binary', self.network_interfaces['binary']))
-            print_("%s%s=%s" % (indent, 'storage', self.network_interfaces['storage']))
-            print_("%s%s=%s" % (indent, 'jmx_port', self.jmx_port))
-            print_("%s%s=%s" % (indent, 'remote_debug_port', self.remote_debug_port))
-            print_("%s%s=%s" % (indent, 'initial_token', self.initial_token))
+                print_(f"{indent}{'binary'}={self.network_interfaces['binary']}")
+            print_(f"{indent}{'storage'}={self.network_interfaces['storage']}")
+            print_(f"{indent}{'jmx_port'}={self.jmx_port}")
+            print_(f"{indent}{'remote_debug_port'}={self.remote_debug_port}")
+            print_(f"{indent}{'initial_token'}={self.initial_token}")
             if self.pid:
-                print_("%s%s=%s" % (indent, 'pid', self.pid))
+                print_(f"{indent}{'pid'}={self.pid}")
 
     def is_running(self):
         """
@@ -346,7 +346,7 @@ class Node(object):
         try:
             result = subprocess.run(find_cmd, capture_output=True, timeout=timeout, text=True)
             assert not result.stderr, result.stderr
-            assert result.stdout, "Empty command '\"%s\" output" % find_cmd
+            assert result.stdout, f"Empty command '\"{find_cmd}\" output"
             all_sstable_files = result.stdout.splitlines()
 
             sstable_version_regex = re.compile(r'(\w+)-\d+-(.+)\.(db|txt|sha1|crc32)')
@@ -425,7 +425,7 @@ class Node(object):
         if stderr is None:
             stderr = ''
         if len(stderr) > 1:
-            print_("[%s ERROR] %s" % (name, stderr.strip()))
+            print_(f"[{name} ERROR] {stderr.strip()}")
 
     # This will return when exprs are found or it timeouts
     def watch_log_for(self, exprs, from_mark=None, timeout=600, process=None, verbose=False, filename='system.log'):
@@ -490,7 +490,7 @@ class Node(object):
                     elapsed = elapsed + 1
                     if elapsed > 100 * timeout:
                         raise TimeoutError(time.strftime("%d %b %Y %H:%M:%S", time.gmtime()) + " [" + self.name + "] Missing: " + str(
-                            [e.pattern for e in tofind]) + ":\n" + reads[:50] + ".....\nSee {} for remainder".format(filename))
+                            [e.pattern for e in tofind]) + ":\n" + reads[:50] + f".....\nSee {filename} for remainder")
 
                 if process:
                     if common.is_win():
@@ -502,7 +502,7 @@ class Node(object):
                             if process.returncode == 0:
                                 return None
                             else:
-                                raise RuntimeError("The process is dead, returncode={}".format(process.returncode))
+                                raise RuntimeError(f"The process is dead, returncode={process.returncode}")
 
     def watch_log_for_death(self, nodes, from_mark=None, timeout=600, filename='system.log'):
         """
@@ -515,7 +515,7 @@ class Node(object):
         the log is watched from the beginning.
         """
         tofind = nodes if isinstance(nodes, list) else [nodes]
-        tofind = ["%s is now (dead|DOWN)" % node.address() for node in tofind]
+        tofind = [f"{node.address()} is now (dead|DOWN)" for node in tofind]
         self.watch_log_for(tofind, from_mark=from_mark, timeout=timeout, filename=filename)
 
     def watch_log_for_alive(self, nodes, from_mark=None, timeout=120, filename='system.log'):
@@ -524,7 +524,7 @@ class Node(object):
         nodes are marked UP. This method works similarly to watch_log_for_death.
         """
         tofind = nodes if isinstance(nodes, list) else [nodes]
-        tofind = ["%s.* now UP" % node.address() for node in tofind]
+        tofind = [f"{node.address()}.* now UP" for node in tofind]
         self.watch_log_for(tofind, from_mark=from_mark, timeout=timeout, filename=filename)
 
     def wait_for_binary_interface(self, **kwargs):
@@ -576,7 +576,7 @@ class Node(object):
             print_("WARN: Tried to set Windows quiet start behavior, but we're not running on Windows.")
 
         if self.is_running():
-            raise NodeError("%s is already running" % self.name)
+            raise NodeError(f"{self.name} is already running")
 
         for itf in list(self.network_interfaces.values()):
             if itf is not None and replace_address is None:
@@ -601,7 +601,7 @@ class Node(object):
             config = common.get_config()
             if 'yourkit_agent' not in config:
                 raise NodeError("Cannot enable profile. You need to set 'yourkit_agent' to the path of your agent in a ~/.ccm/config")
-            cmd = '-agentpath:%s' % config['yourkit_agent']
+            cmd = f"-agentpath:{config['yourkit_agent']}"
             if 'options' in profile_options:
                 cmd = cmd + '=' + profile_options['options']
             print_(cmd)
@@ -617,12 +617,12 @@ class Node(object):
             self._clean_win_jmx()
 
         pidfile = os.path.join(self.get_path(), 'cassandra.pid')
-        args = [launch_bin, '-p', pidfile, '-Dcassandra.join_ring=%s' % str(join_ring)]
-        args.append('-Dcassandra.logdir=%s' % os.path.join(self.get_path(), 'logs'))
+        args = [launch_bin, '-p', pidfile, f'-Dcassandra.join_ring={str(join_ring)}']
+        args.append(f"-Dcassandra.logdir={os.path.join(self.get_path(), 'logs')}")
         if replace_token is not None:
-            args.append('-Dcassandra.replace_token=%s' % str(replace_token))
+            args.append(f'-Dcassandra.replace_token={str(replace_token)}')
         if replace_address is not None:
-            args.append('-Dcassandra.replace_address=%s' % str(replace_address))
+            args.append(f'-Dcassandra.replace_address={str(replace_address)}')
         if use_jna is False:
             args.append('-Dcassandra.boot_without_jna=true')
         env['JVM_EXTRA_OPTS'] = env.get('JVM_EXTRA_OPTS', "") + " " + " ".join(jvm_args)
@@ -656,12 +656,12 @@ class Node(object):
         if common.is_win():
             self.__clean_win_pid()
             self._update_pid(process)
-            print_("Started: {0} with pid: {1}".format(self.name, self.pid), file=sys.stderr, flush=True)
+            print_(f"Started: {self.name} with pid: {self.pid}", file=sys.stderr, flush=True)
         elif update_pid:
             self._update_pid(process)
 
             if not self.is_running():
-                raise NodeError("Error starting node %s" % self.name, process)
+                raise NodeError(f"Error starting node {self.name}", process)
 
         if wait_other_notice:
             for node, mark in marks:
@@ -705,12 +705,12 @@ class Node(object):
                     try:
                         self.flush()
                     except:
-                        print_("WARN: Failed to flush node: {0} on shutdown.".format(self.name))
+                        print_(f"WARN: Failed to flush node: {self.name} on shutdown.")
                         pass
 
                 os.system("taskkill /F /PID " + str(self.pid))
                 if self._find_pid_on_windows():
-                    print_("WARN: Failed to terminate node: {0} with pid: {1}".format(self.name, self.pid))
+                    print_(f"WARN: Failed to terminate node: {self.name} with pid: {self.pid}")
             else:
                 if gently:
                     os.kill(self.pid, signal.SIGTERM)
@@ -736,7 +736,7 @@ class Node(object):
                     if not self.is_running():
                         return True
                     wait_time_sec = wait_time_sec * 2
-                raise NodeError("Problem stopping node %s" % self.name)
+                raise NodeError(f"Problem stopping node {self.name}")
             else:
                 return True
         else:
@@ -895,7 +895,7 @@ class Node(object):
 
             for err in output[1].split('\n'):
                 if err.strip():
-                    common.print_if_standalone("(EE) %s" % err, debug_callback=self.debug, end='')
+                    common.print_if_standalone(f"(EE) {err}", debug_callback=self.debug, end='')
 
             if show_output:
                 common.print_if_standalone(output[0], debug_callback=self.debug, end='')
@@ -915,7 +915,7 @@ class Node(object):
     def set_log_level(self, new_level, class_name=None):
         known_level = ['TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'OFF']
         if new_level not in known_level:
-            raise common.ArgumentError("Unknown log level %s (use one of %s)" % (new_level, " ".join(known_level)))
+            raise common.ArgumentError(f"Unknown log level {new_level} (use one of {' '.join(known_level)})")
 
         if class_name:
             self.__classes_log_level[class_name] = new_level
@@ -984,7 +984,7 @@ class Node(object):
         sstablefiles = self.__gather_sstables(datafiles, keyspace, column_families)
         print_(sstablefiles)
         for sstablefile in sstablefiles:
-            print_("-- {0} -----".format(os.path.basename(sstablefile)))
+            print_(f"-- {os.path.basename(sstablefile)} -----")
             args = sstable2json + [sstablefile]
             if enumerate_keys:
                 args = args + ["-e"]
@@ -1010,7 +1010,7 @@ class Node(object):
         results = []
 
         def do_split(f):
-            print_("-- {0}-----".format(os.path.basename(f)))
+            print_(f"-- {os.path.basename(f)}-----")
             cmd = sstablesplit
             if size is not None:
                 cmd += ['-s', str(size)]
@@ -1147,7 +1147,7 @@ class Node(object):
         try:
             os.chmod(fcmd, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
         except:
-            print_("WARN: Couldn't change permissions to use {0}.".format(cmd))
+            print_(f"WARN: Couldn't change permissions to use {cmd}.")
             print_("WARN: If it didn't work, you will have to do so manually.")
         return [fcmd]
 
@@ -1184,13 +1184,13 @@ class Node(object):
             else:
                 cf_glob = column_family + '-*'
         if not os.path.exists(keyspace_dir):
-            raise common.ArgumentError("Unknown keyspace {0}".format(keyspace))
+            raise common.ArgumentError(f"Unknown keyspace {keyspace}")
 
         # data directory layout is changed from 1.1
         if self.get_base_cassandra_version() < 1.1:
-            files = glob.glob(os.path.join(keyspace_dir, "{0}*-Data.db".format(column_family)))
+            files = glob.glob(os.path.join(keyspace_dir, f"{column_family}*-Data.db"))
         elif self.get_base_cassandra_version() < 2.2:
-            files = glob.glob(os.path.join(keyspace_dir, cf_glob, "%s-%s*-Data.db" % (keyspace, column_family)))
+            files = glob.glob(os.path.join(keyspace_dir, cf_glob, f"{keyspace}-{column_family}*-Data.db"))
         else:
             files = glob.glob(os.path.join(keyspace_dir, cf_glob, "*big-Data.db"))
         for f in files:
@@ -1198,11 +1198,11 @@ class Node(object):
                 files.remove(f)
             if (ignore_unsealed or cleanup_unsealed) and os.path.exists(f.replace('Data.db', 'TOC.txt.tmp')):
                 if cleanup_unsealed:
-                    print_("get_sstables: Cleaning up unsealed SSTable: {}".format(f))
+                    print_(f"get_sstables: Cleaning up unsealed SSTable: {f}")
                     for i in glob.glob(f.replace('Data.db', '*')):
                         os.remove(i)
                 else:
-                    print_("get_sstables: Ignoring unsealed SSTable: {}".format(f))
+                    print_(f"get_sstables: Ignoring unsealed SSTable: {f}")
                 files.remove(f)
         return files
 
@@ -1737,7 +1737,7 @@ class Node(object):
 
     def __get_status_string(self):
         if self.status == Status.UNINITIALIZED:
-            return "%s (%s)" % (Status.DOWN, "Not initialized")
+            return f"{Status.DOWN} ({'Not initialized'})"
         else:
             return self.status
 
@@ -1827,7 +1827,7 @@ class Node(object):
                     self.pid = int(f.readline().strip())
                 self.all_pids.append(self.pid)
         except IOError as e:
-            raise NodeError('Problem starting node %s due to %s' % (self.name, e), process)
+            raise NodeError(f'Problem starting node {self.name} due to {e}', process)
         self.__update_status()
 
     def __gather_sstables(self, datafiles=None, keyspace=None, columnfamilies=None):
@@ -1944,7 +1944,7 @@ class Node(object):
         return subprocess.Popen(jstack_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
 
     def _log_message(self, message):
-        return "{}: {}".format(self.name, message)
+        return f"{self.name}: {message}"
 
     def debug(self, message):
         self.cluster.debug(self._log_message(message))

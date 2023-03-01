@@ -136,7 +136,7 @@ class ScyllaCluster(Cluster):
 
         for node, p, _ in started:
             if not node.is_running():
-                raise NodeError("Error starting {0}.".format(node.name), p)
+                raise NodeError(f"Error starting {node.name}.", p)
 
         if wait_for_binary_proto:
             for node, _, mark in started:
@@ -291,7 +291,7 @@ class ScyllaManager:
         self._update_config(install_dir)
 
     def _get_api_address(self):
-        return "%s:5080" % self.scylla_cluster.get_node_ip(1)
+        return f"{self.scylla_cluster.get_node_ip(1)}:5080"
 
     def _update_config(self, install_dir=None):
         conf_file = os.path.join(self._get_path(), common.SCYLLAMANAGER_CONF)
@@ -318,10 +318,10 @@ class ScyllaManager:
             data['repair'] = {}
         if self.version < LooseVersion("2.2"):
             data['repair']['segments_per_repair'] = 16
-        data['prometheus'] = "{}:56091".format(self.scylla_cluster.get_node_ip(1))
+        data['prometheus'] = f"{self.scylla_cluster.get_node_ip(1)}:56091"
         # Changing port to 56091 since the manager and the first node share the same ip and 56090 is already in use
         # by the first node's manager agent
-        data["debug"] = "{}:5611".format(self.scylla_cluster.get_node_ip(1))
+        data["debug"] = f"{self.scylla_cluster.get_node_ip(1)}:5611"
         # Since both the manager server and the first node use the same address, the manager can't use port
         # 56112, as node 1's agent already seized it
         if 'ssh' in data:
@@ -338,7 +338,7 @@ class ScyllaManager:
     def _copy_config_files(self, install_dir):
         conf_dir = os.path.join(install_dir, 'etc')
         if not os.path.exists(conf_dir):
-            raise Exception("%s is not a valid scylla-manager install dir" % install_dir)
+            raise Exception(f"{install_dir} is not a valid scylla-manager install dir")
         for name in os.listdir(conf_dir):
             filename = os.path.join(conf_dir, name)
             if os.path.isfile(filename):
@@ -350,7 +350,7 @@ class ScyllaManager:
         for name in files:
             src = os.path.join(install_dir, name)
             if not os.path.exists(src):
-                raise Exception("%s not found in scylla-manager install dir" % src)
+                raise Exception(f"{src} not found in scylla-manager install dir")
             shutil.copy(src, os.path.join(self._get_path(), 'bin', name))
 
     @property
@@ -384,8 +384,7 @@ class ScyllaManager:
             with open(self._get_pid_file(), 'r') as f:
                 self._pid = int(f.readline().strip())
         except IOError as e:
-            raise NodeError('Problem starting scylla-manager due to %s' %
-                            (e))
+            raise NodeError(f'Problem starting scylla-manager due to {e}')
 
     def start(self):
         # some configurations are set post initialisation (cluster id) so
@@ -443,7 +442,7 @@ class ScyllaManager:
 
     def sctool(self, cmd, ignore_exit_status=False):
         sctool = os.path.join(self._get_path(), 'bin', 'sctool')
-        args = [sctool, '--api-url', "http://%s/api/v1" % self._get_api_address()]
+        args = [sctool, '--api-url', f"http://{self._get_api_address()}/api/v1"]
         args += cmd
         p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         stdout, stderr = p.communicate()

@@ -86,12 +86,12 @@ class CCMCluster:
             stdout = stdout.strip()
             stderr = stderr.strip()
 
-            LOGGER.debug("[stdout] %s" % stdout)
-            LOGGER.debug("[stderr] %s" % stderr)
+            LOGGER.debug(f"[stdout] {stdout}")
+            LOGGER.debug(f"[stderr] {stderr}")
             assert status_code == expected_status_code
             return stdout, stderr
         except AssertionError:
-            LOGGER.error("[ERROR] %s" % stderr.strip())
+            LOGGER.error(f"[ERROR] {stderr.strip()}")
             raise
 
     def parse_cluster_status(self, stdout):

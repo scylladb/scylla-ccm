@@ -79,7 +79,7 @@ class Cluster(object):
             if create_directory:
                 common.rmdirs(self.get_path())
             raise
-        self.debug("Started cluster '{}' version {} installed in {}".format(self.name, self.__version, self.__install_dir))
+        self.debug(f"Started cluster '{self.name}' version {self.__version} installed in {self.__install_dir}")
 
     def load_from_repository(self, version, verbose):
         return repository.setup(version, verbose)
@@ -226,7 +226,7 @@ class Cluster(object):
 
     def add(self, node, is_seed, data_center=None):
         if node.name in self.nodes:
-            raise common.ArgumentError('Cannot create existing node %s' % node.name)
+            raise common.ArgumentError(f'Cannot create existing node {node.name}')
         self.nodes[node.name] = node
         if is_seed:
             self.seeds.append(node)
@@ -267,11 +267,11 @@ class Cluster(object):
                     dcs.append('dc%d' % i)
 
         if node_count < 1:
-            raise common.ArgumentError('invalid node count %s' % nodes)
+            raise common.ArgumentError(f'invalid node count {nodes}')
 
         for i in range(1, node_count + 1):
-            if 'node%s' % i in list(self.nodes.values()):
-                raise common.ArgumentError('Cannot create existing node node%s' % i)
+            if f'node{i}' in list(self.nodes.values()):
+                raise common.ArgumentError(f'Cannot create existing node node{i}')
 
         if tokens is None and not use_vnodes:
             if dcs is None or len(dcs) <= 1:
@@ -293,7 +293,7 @@ class Cluster(object):
         binary = None
         if parse_version(self.version()) >= parse_version('1.2'):
             binary = self.get_binary_interface(i)
-        node = self.create_node(name='node{}'.format(i),
+        node = self.create_node(name=f'node{i}',
                                 auto_bootstrap=auto_bootstrap,
                                 thrift_interface=self.get_thrift_interface(i),
                                 storage_interface=self.get_storage_interface(i),
@@ -312,7 +312,7 @@ class Cluster(object):
         return self.ipprefix if self.ipprefix is not None else '127.0.0.'
 
     def get_ipformat(self):
-        return self.ipformat if self.ipformat is not None else '{}%d'.format(self.get_ipprefix())
+        return self.ipformat if self.ipformat is not None else f'{self.get_ipprefix()}%d'
 
     def get_node_ip(self, nodeid):
         return self.get_ipformat() % nodeid
@@ -408,7 +408,7 @@ class Cluster(object):
         return [s.network_interfaces['storage'][0] for s in self.seeds[:seed_index + 1]]
 
     def show(self, verbose):
-        msg = "Cluster: '%s'" % self.name
+        msg = f"Cluster: '{self.name}'"
         print_(msg)
         print_('-' * len(msg))
         if len(list(self.nodes.values())) == 0:
@@ -454,7 +454,7 @@ class Cluster(object):
 
         for node, p, _ in started:
             if not node.is_running():
-                raise NodeError("Error starting {0}.".format(node.name), p)
+                raise NodeError(f"Error starting {node.name}.", p)
 
         if not no_wait and parse_version(self.version()) >= parse_version("0.8"):
             # 0.7 gossip messages seems less predictible that from 0.8 onwards and
@@ -487,17 +487,17 @@ class Cluster(object):
         class_names = class_names or []
         known_level = ['TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'OFF']
         if new_level not in known_level:
-            raise common.ArgumentError("Unknown log level %s (use one of %s)" % (new_level, " ".join(known_level)))
+            raise common.ArgumentError(f"Unknown log level {new_level} (use one of {' '.join(known_level)})")
 
         if class_names:
             for class_name in class_names:
                 if new_level == 'DEBUG':
                     if class_name in self._trace:
-                        raise common.ArgumentError("Class %s already in TRACE" % (class_name))
+                        raise common.ArgumentError(f"Class {class_name} already in TRACE")
                     self._debug.append(class_name)
                 if new_level == 'TRACE':
                     if class_name in self._debug:
-                        raise common.ArgumentError("Class %s already in DEBUG" % (class_name))
+                        raise common.ArgumentError(f"Class {class_name} already in DEBUG")
                     self._trace.append(class_name)
         else:
             self.__log_level = new_level
@@ -655,7 +655,7 @@ class Cluster(object):
 
         content = ""
         for k, v in dcs:
-            content = "%s%s=%s:r1\n" % (content, k, v)
+            content = f"{content}{k}={v}:r1\n"
 
         for node in self.nodelist():
             topology_file = os.path.join(node.get_conf_dir(), 'cassandra-topology.properties')
@@ -669,7 +669,7 @@ class Cluster(object):
                 dc = node.data_center
             rackdc_file = os.path.join(node.get_conf_dir(), 'cassandra-rackdc.properties')
             with open(rackdc_file, 'w') as f:
-                f.write("dc=%s\n" % dc)
+                f.write(f"dc={dc}\n")
                 f.write("rack=RAC1\n")
 
     def enable_ssl(self, ssl_path, require_client_auth):
