@@ -101,7 +101,7 @@ class ScyllaNode(Node):
         return self.cluster.is_scylla_reloc()
 
     def set_smp(self, smp):
-        self._smp =  smp
+        self._smp = smp
         self._smp_set_during_test = True
 
     def smp(self):
