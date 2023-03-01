@@ -895,10 +895,10 @@ class Node(object):
 
             for err in output[1].split('\n'):
                 if err.strip():
-                    common.print_if_standalone("(EE) %s" % err, debug_callback=self.debug)
+                    common.print_if_standalone("(EE) %s" % err, debug_callback=self.debug, end='')
 
             if show_output:
-                common.print_if_standalone(output[0], debug_callback=self.debug)
+                common.print_if_standalone(output[0], debug_callback=self.debug, end='')
 
             if return_output:
                 return output
