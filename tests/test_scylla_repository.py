@@ -8,9 +8,20 @@ from ccmlib.scylla_repository import setup as scylla_setup
 @pytest.mark.repo_tests
 @pytest.mark.skip("slow integration test")
 class TestScyllaRepository:
-    def test_setup_release_oss(self):
-        cdir, version = scylla_setup(version="release:4.2.1", verbose=True)
-        assert version == '4.2.1'
+    @pytest.mark.parametrize(argnames=['version', 'expected_version_string'], argvalues=[
+        ("release:5.1", '5.1'),
+        ("release:5.0", '5.0'),
+        ("release:4.6", '4.6'),
+        ("release:4.5", '4.5'),
+        ("release:4.4", '4.4'),
+        ("release:4.3", '4.3'),
+        ("release:4.2", '4.2'),
+        ("release:4.1", '4.1'),
+        ("release:4.0", '4.0'),
+    ])
+    def test_setup_release_oss(self, version, expected_version_string):
+        cdir, version = scylla_setup(version=version, verbose=True)
+        assert expected_version_string in version
 
     @patch.dict('os.environ', {'SCYLLA_PRODUCT': 'scylla-enterprise'})
     def test_setup_release_enterprise(self):
