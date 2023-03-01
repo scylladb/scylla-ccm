@@ -1,10 +1,6 @@
 import sys
+from queue import Queue, Empty
 from threading import Thread
-
-try:
-    from queue import Queue, Empty
-except ImportError:
-    from queue import Queue, Empty  # python 3.x
 
 ON_POSIX = 'posix' in sys.builtin_module_names
 
