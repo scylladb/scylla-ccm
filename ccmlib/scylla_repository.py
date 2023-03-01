@@ -1,4 +1,4 @@
-from __future__ import with_statement
+
 
 import logging
 import random
@@ -165,7 +165,7 @@ def release_packages(s3_url, version, arch='x86_64', scylla_product='scylla'):
             if package_type in package:
                 release_packages_dict[package_type] = package
 
-    if not release_packages or ( set(['jmx', 'tools', scylla_package_mark]) != set(release_packages_dict.keys())):
+    if not release_packages or ( {'jmx', 'tools', scylla_package_mark} != set(release_packages_dict.keys())):
         raise ValueError(
             f"Release packages have not been found.\nDebug info: all packages: {all_packages}; "
             f"candidates packages: {candidates}; last version: {latest_candidate}")
@@ -461,9 +461,9 @@ def download_version(version, url=None, verbose=False, target_dir=None, unified=
             target = url
         elif is_valid(url):
             _, target = tempfile.mkstemp(suffix=".tar.gz", prefix="ccm-")
-            res = download_version_from_s3(url=url, target_path=target,verbose=verbose)
+            res = download_version_from_s3(url=url, target_path=target, verbose=verbose)
             if not res:
-                download_file(url=url, target_path=target,verbose=verbose)
+                download_file(url=url, target_path=target, verbose=verbose)
         else:
             raise ArgumentError(
                 "unsupported url or file doesn't exist\n\turl={}".format(url))

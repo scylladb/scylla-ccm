@@ -118,7 +118,7 @@ class Cluster(object):
             node.import_config_files()
 
         # if any nodes have a data center, let's update the topology
-        if any([node.data_center for node in self.nodes.values()]):
+        if any([node.data_center for node in list(self.nodes.values())]):
             self.__update_topology_files()
 
         return self
@@ -216,7 +216,7 @@ class Cluster(object):
         return False
 
     def nodelist(self):
-        return [self.nodes[name] for name in self.nodes.keys()]
+        return [self.nodes[name] for name in list(self.nodes.keys())]
 
     def version(self):
         return self.__version
@@ -263,13 +263,13 @@ class Cluster(object):
             for c in nodes:
                 i = i + 1
                 node_count = node_count + c
-                for x in xrange(0, c):
+                for x in range(0, c):
                     dcs.append('dc%d' % i)
 
         if node_count < 1:
             raise common.ArgumentError('invalid node count %s' % nodes)
 
-        for i in xrange(1, node_count + 1):
+        for i in range(1, node_count + 1):
             if 'node%s' % i in list(self.nodes.values()):
                 raise common.ArgumentError('Cannot create existing node node%s' % i)
 
@@ -279,7 +279,7 @@ class Cluster(object):
             else:
                 tokens = self.balanced_tokens_across_dcs(dcs)
 
-        for i in xrange(1, node_count + 1):
+        for i in range(1, node_count + 1):
             tk = None
             if tokens is not None and i - 1 < len(tokens):
                 tk = tokens[i - 1]
@@ -314,7 +314,7 @@ class Cluster(object):
     def get_ipformat(self):
         return self.ipformat if self.ipformat is not None else '{}%d'.format(self.get_ipprefix())
 
-    def get_node_ip(self,nodeid):
+    def get_node_ip(self, nodeid):
         return self.get_ipformat() % nodeid
 
     def get_binary_interface(self, nodeid):
@@ -326,7 +326,7 @@ class Cluster(object):
     def get_storage_interface(self, nodeid):
         return (self.get_node_ip(nodeid), 7000)
 
-    def get_node_jmx_port(self,nodeid):
+    def get_node_jmx_port(self, nodeid):
         return 7000 + nodeid * 100 + self.id;
 
     def get_debug_port(self, nodeid):
@@ -334,7 +334,7 @@ class Cluster(object):
 
     def balanced_tokens(self, node_count):
         if parse_version(self.version()) >= parse_version('1.2') and not self.partitioner:
-            ptokens = [(i * (2 ** 64 // node_count)) for i in xrange(0, node_count)]
+            ptokens = [(i * (2 ** 64 // node_count)) for i in range(0, node_count)]
             return [int(t - 2 ** 63) for t in ptokens]
         return [int(i * (2 ** 127 // node_count)) for i in range(0, node_count)]
 
@@ -585,7 +585,7 @@ class Cluster(object):
         self.nodetool("removeToken " + str(token))
 
     def bulkload(self, options):
-        livenodes = [node for node in self.nodes.values() if node.is_live()]
+        livenodes = [node for node in list(self.nodes.values()) if node.is_live()]
         if not livenodes:
             raise common.ArgumentError("No live node")
         random.choice(livenodes).bulkload(options)

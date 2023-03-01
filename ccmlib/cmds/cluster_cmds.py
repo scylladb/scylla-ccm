@@ -17,7 +17,7 @@ from ccmlib.scylla_node import ScyllaNode
 from ccmlib.dse_node import DseNode
 from ccmlib.node import Node, NodeError
 from ccmlib.utils.ssl_utils import generate_ssl_stores
-from ccmlib.utils.sni_proxy import get_cluster_info, start_sni_proxy, configure_sni_proxy, reload_sni_proxy,refresh_certs, create_cloud_config
+from ccmlib.utils.sni_proxy import get_cluster_info, start_sni_proxy, configure_sni_proxy, reload_sni_proxy, refresh_certs, create_cloud_config
 
 os.environ['SCYLLA_CCM_STANDALONE'] = '1'
 
@@ -711,7 +711,7 @@ class ClusterStartCmd(Cmd):
                         start_sni_proxy(self.cluster.get_path(), nodes_info=nodes_info, listen_port=self.options.sni_port)
                     create_cloud_config(self.cluster.get_path(), port=listen_port, address=listen_address, nodes_info=nodes_info)
 
-                    print('sni_proxy listening on: {}:{}'.format(listen_address, listen_port))
+                    print(('sni_proxy listening on: {}:{}'.format(listen_address, listen_port)))
                     self.cluster.sni_proxy_docker_id = docker_id
                     self.cluster.sni_proxy_listen_port = listen_port
                     self.cluster._update_config()
@@ -1094,7 +1094,7 @@ class ClusterJconsoleCmd(Cmd):
         Cmd.validate(self, parser, options, args, load_cluster=True)
 
     def run(self):
-        cmds = ["jconsole"] + ["localhost:%s" % node.jmx_port for node in self.cluster.nodes.values()]
+        cmds = ["jconsole"] + ["localhost:%s" % node.jmx_port for node in list(self.cluster.nodes.values())]
         try:
             subprocess.call(cmds, stderr=sys.stderr)
         except OSError:
@@ -1111,7 +1111,7 @@ class ClusterSctoolCmd(Cmd):
 
     def get_parser(self):
         usage = "usage: ccm sctool [options]"
-        parser = self._get_default_parser(usage, self.description(),ignore_unknown_options=True)
+        parser = self._get_default_parser(usage, self.description(), ignore_unknown_options=True)
         return parser
 
     def validate(self, parser, options, args):
