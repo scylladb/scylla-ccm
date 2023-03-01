@@ -39,7 +39,7 @@ $ ccm start
 Requirements
 ------------
 
-- A working python installation (tested to work with python 2.7).
+- A working python installation (tested to work with python 3.11).
 - pyYAML (http://pyyaml.org/ -- `sudo easy_install pyYaml`)
 - six (https://pypi.python.org/pypi/six -- `sudo easy_install six`)
 - ant (http://ant.apache.org/, on Mac OS X, `brew install ant`)
