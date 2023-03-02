@@ -521,9 +521,10 @@ def run_scylla_unified_install_script(install_dir, target_dir, package_version):
     if package_version >= packaging.version.parse('2.2'):
         install_opt += ' --without-systemd'
     else:
-        # Patch the jmx install.sh to not use systemctl, in newer versions --without-systemd is covering it
-        run(r'''sed -i 's/systemctl --user.*/echo "commented out systemctl command"/' ./scylla-jmx/install.sh''',
+        # Patch the install.sh to not use systemctl, in newer versions --without-systemd is covering it
+        run(r'''sed -i 's/systemctl --user.*/echo "commented out systemctl command"/' ./install.sh ./**/install.sh''',
             cwd=install_dir)
+        run(r'''sed -i 's|/run/systemd/system|/run|' ./install.sh ./**/install.sh''',  cwd=install_dir)
 
     run('''{0}/install.sh --prefix {1} --nonroot{2}'''.format(
         install_dir, target_dir, install_opt), cwd=install_dir)
