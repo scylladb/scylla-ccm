@@ -13,6 +13,29 @@ Pointer to the Scylla CCM instructions (should really be merged here)
 https://github.com/scylladb/scylla/wiki/Using-CCM
 
 
+Scylla usage examples:
+---------------------------------------------------------------------
+### To create a 3-node Scylla cluster do:
+```bash
+$ ccm create my_cluster --scylla --vnodes -n 3 -v release:2022.2
+$ ccm start
+# Now wait...
+$ ccm status
+Cluster: 'my_cluster'
+-----------------
+node1: UP
+node2: UP
+node3: UP
+```
+The nodes will be available at 127.0.0.1, 127.0.0.2 and 127.0.0.3.
+
+### To create a multi-datacenter cluster that has 3 nodes in dc1, 4 nodes in dc2 and 5 nodes in dc3 do:
+```bash
+$ ccm create my_multi_dc_cluster --scylla --vnodes -n 3:4:5 -v release:2022.2
+$ ccm start
+# Wait a lot...
+```
+
 Requirements
 ------------
 
