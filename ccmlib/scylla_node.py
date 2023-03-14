@@ -12,6 +12,7 @@ import subprocess
 import time
 import threading
 from pathlib import Path
+from collections import OrderedDict
 
 import psutil
 import yaml
@@ -59,7 +60,7 @@ class ScyllaNode(Node):
         self._smp = 2
         self._smp_set_during_test = False
         self._mem_mb_per_cpu = 512
-        self._mem_set_during_test = False
+        self._mem_mb_set_during_test = False
         self._memory = None
         self.__conf_updated = False
         self.scylla_manager = scylla_manager
@@ -108,7 +109,7 @@ class ScyllaNode(Node):
 
     def set_mem_mb_per_cpu(self, mem):
         self._mem_mb_per_cpu = mem
-        self._mem_set_during_test = True
+        self._mem_mb_set_during_test = True
 
     def get_install_cassandra_root(self):
         return self.get_tools_java_dir()
@@ -536,51 +537,77 @@ class ScyllaNode(Node):
         jvm_args = jvm_args + ['--collectd-hostname',
                                '%s.%s' % (socket.gethostname(), self.name)]
 
-        # Let's add jvm_args and the translated args
+        args = [launch_bin, '--options-file', options_file, '--log-to-stdout', '1']
 
-        args = [launch_bin, '--options-file', options_file, '--log-to-stdout', '1'] + jvm_args + translated_args
+        MB = 1024 * 1024
 
-        # Lets search for default overrides in SCYLLA_EXT_OPTS
-        scylla_ext_opts = os.getenv('SCYLLA_EXT_OPTS', "").split()
-        opts_i = 0
-        orig_args = list(args)
-        while opts_i < len(scylla_ext_opts):
-            if scylla_ext_opts[opts_i].startswith("--scylla-manager="):
-               opts_i += 1
-            elif scylla_ext_opts[opts_i].startswith('-'):
-                o = scylla_ext_opts[opts_i]
+        def process_opts(opts):
+            ext_args = OrderedDict()
+            opts_i = 0
+            while opts_i < len(opts):
+                # the command line options show up either like "--foo value-of-foo"
+                # or as a single option like --yes-i-insist
+                assert opts[opts_i].startswith('-')
+                if opts[opts_i].startswith("--scylla-manager="):
+                    opts_i += 1
+                    continue
+                o = opts[opts_i]
                 opts_i += 1
                 if '=' in o:
                     opt = o.replace('=', ' ', 1).split()
+                    key = opt[0]
+                    val = opt[1]
                 else:
-                    opt = [ o ]
-                    while opts_i < len(scylla_ext_opts) and not scylla_ext_opts[opts_i].startswith('-'):
-                        opt.append(scylla_ext_opts[opts_i])
+                    key = o
+                    vals = []
+                    while opts_i < len(opts) and not opts[opts_i].startswith('-'):
+                        vals.append(opts[opts_i])
                         opts_i += 1
-                if opt[0] not in orig_args:
-                    args.extend(opt)
+                    val = ' '.join(vals)
+                if key not in ext_args:
+                    ext_args[key] = val
+            return ext_args
+
+        # Lets search for default overrides in SCYLLA_EXT_OPTS
+        env_args = process_opts(os.getenv('SCYLLA_EXT_OPTS', "").split())
+
+        # precalculate self._mem_mb_per_cpu if --memory is given in SCYLLA_EXT_OPTS
+        # and it wasn't set explicitly by the test
+        if not self._mem_mb_set_during_test and '--memory' in env_args:
+            memory = self.parse_size(env_args['--memory'])
+            smp = int(env_args['--smp']) if '--smp' in env_args else self._smp
+            self._mem_mb_per_cpu = int((memory / smp) // MB)
+
+        cmd_args = process_opts(jvm_args)
+
+        # use '--memory' in jmv_args if mem_mb_per_cpu was not set by the test
+        if not self._mem_mb_set_during_test and '--memory' in cmd_args:
+            self._memory = self.parse_size(cmd_args['--memory'])
+
+        ext_args = env_args
+        ext_args.update(cmd_args)
+        for k, v in ext_args.items():
+            if k == '--smp':
+                # get smp from args if not set by the test
+                if not self._smp_set_during_test:
+                    self._smp = int(v)
+            elif k != '--memory':
+                args.append(k)
+                args.append(v)
+
+        args.extend(translated_args)
+
+        # calculate memory from smp * mem_mb_per_cpu
+        # if not given in jvm_args
+        if not self._memory:
+            self._memory = int(self._smp * self._mem_mb_per_cpu * MB)
+
+        assert '--smp' not in args and '--memory' not in args, args
+        args += ['--smp', str(self._smp)]
+        args += ['--memory', f"{int(self._memory // MB)}M"]
 
         if '--developer-mode' not in args:
             args += ['--developer-mode', 'true']
-        if '--smp' not in args:
-            # If --smp is not passed from cmdline, use default (--smp 1)
-            args += ['--smp', str(self._smp)]
-        elif self._smp_set_during_test:
-            # If node.set_smp() is called during the test, ignore the --smp
-            # passed from the cmdline.
-            args[args.index('--smp') + 1] = str(self._smp)
-        else:
-            # Update self._smp based on command line parameter.
-            # It may be used below, along with self._mem_mb_per_cpu, for calculating --memory
-            self._smp = int(args[args.index('--smp') + 1])
-        if '--memory' not in args:
-            # If --memory is not passed from cmdline, use default (512M per cpu)
-            args += ['--memory', '{}M'.format(self._mem_mb_per_cpu * self._smp)]
-        elif self._mem_set_during_test:
-            # If node.set_mem_mb_per_cpu() is called during the test, ignore the --memory
-            # passed from the cmdline.
-            args[args.index('--memory') + 1] = '{}M'.format(self._mem_mb_per_cpu * self._smp)
-        self._memory = self.parse_size(args[args.index('--memory') + 1])
         if '--default-log-level' not in args:
             args += ['--default-log-level', self.__global_log_level]
         if self.scylla_mode() == 'debug' and '--blocked-reactor-notify-ms' not in args:
