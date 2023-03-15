@@ -548,9 +548,6 @@ class ScyllaNode(Node):
                 # the command line options show up either like "--foo value-of-foo"
                 # or as a single option like --yes-i-insist
                 assert opts[opts_i].startswith('-')
-                if opts[opts_i].startswith("--scylla-manager="):
-                    opts_i += 1
-                    continue
                 o = opts[opts_i]
                 opts_i += 1
                 if '=' in o:
@@ -564,7 +561,7 @@ class ScyllaNode(Node):
                         vals.append(opts[opts_i])
                         opts_i += 1
                     val = ' '.join(vals)
-                if key not in ext_args:
+                if key not in ext_args and not key.startswith("--scylla-manager"):
                     ext_args[key] = val
             return ext_args
 
