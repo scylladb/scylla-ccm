@@ -56,7 +56,7 @@ class ScyllaNode(Node):
         self._process_scylla_waiter = None
         self._process_agent = None
         self._process_agent_waiter = None
-        self._smp = 1
+        self._smp = 2
         self._smp_set_during_test = False
         self._mem_mb_per_cpu = 512
         self._mem_set_during_test = False
