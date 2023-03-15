@@ -45,11 +45,12 @@ ENTERPRISE_RELOCATABLE_URLS_BASE = ['https://s3.amazonaws.com/downloads.scylladb
 
 def run(cmd, cwd=None):
     try:
-        subprocess.run(['bash', '-c', cmd], cwd=cwd, check=True)
+        subprocess.run(['bash', '-c', cmd], cwd=cwd, check=True, capture_output=True)
     except subprocess.CalledProcessError as exp:
         print_if_standalone(str(exp), debug_callback=logging.error)
         print_if_standalone("stdout:\n%s" % exp.stdout, debug_callback=logging.error)
         print_if_standalone("stderr:\n%s" % exp.stderr, debug_callback=logging.error)
+        raise
 
 
 class RelocatablePackages(NamedTuple):
