@@ -32,7 +32,7 @@ def file_or_memory(path=None, data=None):
         yield path
 
 
-def create_cloud_config(ssl_dir, port, address, username='cassandra', password='cassandra'):
+def create_cloud_config(ssl_dir, port, address, nodes_info, username='cassandra', password='cassandra'):
 
     def encode_base64(filename):
         return base64.b64encode(open(os.path.join(ssl_dir, filename), 'rb').read()).decode()
@@ -40,8 +40,9 @@ def create_cloud_config(ssl_dir, port, address, username='cassandra', password='
     cadata = encode_base64('ccm_node.cer')
     certificate_data = encode_base64('ccm_node.cer')
     key_data = encode_base64('ccm_node.key')
+    _, _, _, data_center = list(nodes_info)[0]  # TODO: Add ability to create cloud config for multi-DC setup
 
-    config = dict(datacenters={'eu-west-1': dict(certificateAuthorityData=cadata,
+    config = dict(datacenters={data_center: dict(certificateAuthorityData=cadata,
                                                  server=f'{address}:{port}',
                                                  nodeDomain='cql.cluster-id.scylla.com',
                                                  insecureSkipTlsVerify=False)},
@@ -49,13 +50,13 @@ def create_cloud_config(ssl_dir, port, address, username='cassandra', password='
                                              clientKeyData=key_data,
                                              username=username,
                                              password=password)},
-                  contexts={'default': dict(datacenterName='eu-west-1', authInfoName='default')},
+                  contexts={'default': dict(datacenterName=data_center, authInfoName='default')},
                   currentContext='default')
 
     with open(os.path.join(ssl_dir, 'config_data.yaml'), 'w') as config_file:
         config_file.write(yaml.safe_dump(config, sort_keys=False))
 
-    config = dict(datacenters={'eu-west-1': dict(certificateAuthorityPath=os.path.join(ssl_dir, 'ccm_node.cer'),
+    config = dict(datacenters={data_center: dict(certificateAuthorityPath=os.path.join(ssl_dir, 'ccm_node.cer'),
                                                  server=f'{address}:{port}',
                                                  nodeDomain='cql.cluster-id.scylla.com',
                                                  insecureSkipTlsVerify=False)},
@@ -63,7 +64,7 @@ def create_cloud_config(ssl_dir, port, address, username='cassandra', password='
                                              clientKeyPath=os.path.join(ssl_dir, 'ccm_node.key'),
                                              username=username,
                                              password=password)},
-                  contexts={'default': dict(datacenterName='eu-west-1', authInfoName='default')},
+                  contexts={'default': dict(datacenterName=data_center, authInfoName='default')},
                   currentContext='default')
 
     with open(os.path.join(ssl_dir, 'config_path.yaml'), 'w') as config_file:
@@ -95,12 +96,12 @@ def configure_sni_proxy(conf_dir, nodes_info, listen_port=443):
         """)
     tables = ""
     mapping = {}
-    address, port, host_id = list(nodes_info)[0]
+    address, port, host_id, _ = list(nodes_info)[0]
     tables += f"  ^cql.cluster-id.scylla.com$ {address}:{port}\n"
     mapping['FIRST_ADDRESS'] = address
     mapping['listen_port'] = listen_port
 
-    for address, port, host_id in nodes_info:
+    for address, port, host_id, _ in nodes_info:
         tables += f"  ^{host_id}.cql.cluster-id.scylla.com$ {address}:{port}\n"
 
     tmpl = string.Template(sniproxy_conf_tmpl)
@@ -113,7 +114,7 @@ def configure_sni_proxy(conf_dir, nodes_info, listen_port=443):
 
 
 def start_sni_proxy(conf_dir, nodes_info, listen_port=443):
-    address, _, _ = list(nodes_info)[0]
+    address, _, _, _ = list(nodes_info)[0]
     sniproxy_conf_path = configure_sni_proxy(conf_dir, nodes_info, listen_port=listen_port)
     sniproxy_dockerfile = os.path.join(os.path.dirname(__file__), '..', 'resources', 'docker', 'sniproxy')
     subprocess.check_output(['/bin/bash', '-c', f'docker build {sniproxy_dockerfile} -t sniproxy'], universal_newlines=True)
@@ -125,7 +126,7 @@ def start_sni_proxy(conf_dir, nodes_info, listen_port=443):
 def get_cluster_info(cluster, port=9142):
 
     node1 = cluster.nodelist()[0]
-    stdout, stderr = node1.run_cqlsh(cmds='select JSON host_id,broadcast_address from system.local ;',
+    stdout, stderr = node1.run_cqlsh(cmds='select JSON host_id,broadcast_address,data_center from system.local ;',
                                      return_output=True, show_output=True)
 
     nodes_info = []
@@ -135,9 +136,9 @@ def get_cluster_info(cluster, port=9142):
         except json.decoder.JSONDecodeError:
             continue
         if 'broadcast_address' in host and 'host_id' in host:
-            nodes_info.append((host['broadcast_address'], port, host['host_id']))
+            nodes_info.append((host['broadcast_address'], port, host['host_id'], host['data_center']))
 
-    stdout, stderr = node1.run_cqlsh(cmds='select JSON peer,host_id from system.peers ;',
+    stdout, stderr = node1.run_cqlsh(cmds='select JSON peer,host_id,data_center from system.peers ;',
                                      return_output=True, show_output=True)
 
     for line in stdout.splitlines():
@@ -146,7 +147,7 @@ def get_cluster_info(cluster, port=9142):
         except json.decoder.JSONDecodeError:
             continue
         if 'peer' in host and 'host_id' in host:
-            nodes_info.append((host['peer'], port, host['host_id']))
+            nodes_info.append((host['peer'], port, host['host_id'], host['data_center']))
 
     return nodes_info
 
@@ -154,7 +155,7 @@ def get_cluster_info(cluster, port=9142):
 def refresh_certs(cluster, nodes_info):
     with tempfile.TemporaryDirectory() as tmp_dir:
         dns_names = ['cql.cluster-id.scylla.com'] + \
-                    ['{}.cql.cluster-id.scylla.com'.format(host_id) for _, _, host_id in nodes_info]
+                    ['{}.cql.cluster-id.scylla.com'.format(host_id) for _, _, host_id, _ in nodes_info]
         generate_ssl_stores(tmp_dir, dns_names=dns_names)
         distutils.dir_util.copy_tree(tmp_dir, cluster.get_path())
 
@@ -169,5 +170,5 @@ if __name__ == "__main__":
     nodes_info = get_cluster_info(a.cluster)
     conf_dir = a.cluster.get_path()
     docker_id, host, port = start_sni_proxy(conf_dir=conf_dir, nodes_info=nodes_info)
-    print(create_cloud_config(conf_dir, host, port))
+    print(create_cloud_config(conf_dir, host, port, nodes_info))
     stop_sni_proxy(docker_id)
