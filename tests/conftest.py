@@ -113,6 +113,12 @@ def ccm_cassandra_cluster():
 
 
 @pytest.fixture(scope="session")
+def ccm_reloc_latest_cluster():
+    cluster = CCMCluster(test_id="reloc_master", relocatable_version="unstable/master:latest")
+    return cluster
+
+
+@pytest.fixture(scope="session")
 def cluster_under_test(request):
     cluster = request.getfixturevalue(request.param)
     return cluster
