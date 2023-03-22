@@ -700,18 +700,18 @@ class ClusterStartCmd(Cmd):
                 if getattr(self.cluster, 'sni_generate_ssl_automatic', False):
                     refresh_certs(self.cluster, nodes_info)
 
-                sni_proxy_docker_id = getattr(self.cluster, 'sni_proxy_docker_id', None)
-                if sni_proxy_docker_id:
+                sni_proxy_docker_ids = getattr(self.cluster, 'sni_proxy_docker_ids', None)
+                if sni_proxy_docker_ids:
                     listen_port = getattr(self.cluster, 'sni_proxy_listen_port', None)
                     configure_sni_proxy(self.cluster.get_path(), nodes_info, listen_port=listen_port)
-                    reload_sni_proxy(self.cluster.sni_proxy_docker_id)
+                    reload_sni_proxy(self.cluster.sni_proxy_docker_ids[0])
                 else:
                     docker_id, listen_address, listen_port = \
                         start_sni_proxy(self.cluster.get_path(), nodes_info=nodes_info, listen_port=self.options.sni_port)
                     create_cloud_config(self.cluster.get_path(), port=listen_port, address=listen_address, nodes_info=nodes_info)
 
                     print(f'sni_proxy listening on: {listen_address}:{listen_port}')
-                    self.cluster.sni_proxy_docker_id = docker_id
+                    self.cluster.sni_proxy_docker_ids = [docker_id]
                     self.cluster.sni_proxy_listen_port = listen_port
                     self.cluster._update_config()
 

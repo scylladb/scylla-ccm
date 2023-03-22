@@ -191,7 +191,7 @@ class NodeStartCmd(Cmd):
 
     def run(self):
         try:
-            if getattr(self.cluster, 'sni_proxy_docker_id', None):
+            if getattr(self.cluster, 'sni_proxy_docker_ids', None):
                 self.options.wait_for_binary_proto = True
             self.node.start(not self.options.no_join_ring,
                             no_wait=self.options.no_wait,
@@ -202,13 +202,13 @@ class NodeStartCmd(Cmd):
                             jvm_args=self.options.jvm_args,
                             quiet_start=self.options.quiet_start)
 
-            if getattr(self.cluster, 'sni_proxy_docker_id', None):
+            if getattr(self.cluster, 'sni_proxy_docker_ids', None):
                 nodes_info = get_cluster_info(self.cluster, port=9142)
                 if getattr(self.cluster, 'sni_generate_ssl_automatic', False):
                     refresh_certs(self.cluster, nodes_info)
                 listen_port = getattr(self.cluster, 'sni_proxy_listen_port', None)
                 configure_sni_proxy(self.cluster.get_path(), nodes_info, listen_port=listen_port)
-                reload_sni_proxy(self.cluster.sni_proxy_docker_id)
+                reload_sni_proxy(self.cluster.sni_proxy_docker_ids[0])
 
         except NodeError as e:
             print(str(e), file=sys.stderr)

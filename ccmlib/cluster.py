@@ -627,8 +627,8 @@ class Cluster(object):
                 'id': self.id,
                 'ipprefix': self.ipprefix
             }
-        if getattr(self, 'sni_proxy_docker_id', None):
-            cluster_config['sni_proxy_docker_id'] = self.sni_proxy_docker_id
+        if getattr(self, 'sni_proxy_docker_ids', None):
+            cluster_config['sni_proxy_docker_ids'] = self.sni_proxy_docker_ids
         if getattr(self, 'sni_proxy_listen_port', None):
             cluster_config['sni_proxy_listen_port'] = self.sni_proxy_listen_port
 
