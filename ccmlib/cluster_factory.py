@@ -48,8 +48,8 @@ class ClusterFactory():
                 cluster.__log_level = data['log_level']
             if 'use_vnodes' in data:
                 cluster.use_vnodes = data['use_vnodes']
-            if 'sni_proxy_docker_id' in data and data['sni_proxy_docker_id']:
-                cluster.sni_proxy_docker_id = data['sni_proxy_docker_id']
+            if 'sni_proxy_docker_ids' in data and data['sni_proxy_docker_ids']:
+                cluster.sni_proxy_docker_ids = data['sni_proxy_docker_ids']
             if 'sni_proxy_listen_port' in data and data['sni_proxy_listen_port']:
                 cluster.sni_proxy_listen_port = data['sni_proxy_listen_port']
             if 'sni_generate_ssl_automatic' in data and data['sni_generate_ssl_automatic']:

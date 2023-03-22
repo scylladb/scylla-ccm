@@ -186,14 +186,16 @@ class ScyllaCluster(Cluster):
         return [node for node in nodes if not node.is_running()]
 
     def stop(self, wait=True, gently=True, wait_other_notice=False, other_nodes=None, wait_seconds=None):
-        if getattr(self, 'sni_proxy_docker_id', None):
-            stop_sni_proxy(self.sni_proxy_docker_id)
-            self.sni_proxy_docker_id = None
+        if getattr(self, 'sni_proxy_docker_ids', None):
+            for sni_proxy_docker_id in self.sni_proxy_docker_ids:
+                stop_sni_proxy(sni_proxy_docker_id)
+            self.sni_proxy_docker_ids = []
 
         if self._scylla_manager and not self.skip_manager_server:
             self._scylla_manager.stop(gently)
         kwargs = dict(**locals())
         del kwargs['self']
+        del kwargs['sni_proxy_docker_id']
         return self.stop_nodes(**kwargs)
 
     def get_scylla_mode(self):
