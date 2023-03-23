@@ -700,18 +700,35 @@ class ClusterStartCmd(Cmd):
                 if getattr(self.cluster, 'sni_generate_ssl_automatic', False):
                     refresh_certs(self.cluster, nodes_info)
 
-                sni_proxy_docker_ids = getattr(self.cluster, 'sni_proxy_docker_ids', None)
-                if sni_proxy_docker_ids:
-                    listen_port = getattr(self.cluster, 'sni_proxy_listen_port', None)
-                    configure_sni_proxy(self.cluster.get_path(), nodes_info, listen_port=listen_port)
-                    reload_sni_proxy(self.cluster.sni_proxy_docker_ids[0])
-                else:
-                    docker_id, listen_address, listen_port = \
-                        start_sni_proxy(self.cluster.get_path(), nodes_info=nodes_info, listen_port=self.options.sni_port)
-                    create_cloud_config(self.cluster.get_path(), port=listen_port, address=listen_address, nodes_info=nodes_info)
+                nodes_info_per_dc_map = {}
+                for address, port, host_id, data_center in nodes_info:
+                    nodes_info_per_dc_map.setdefault(data_center, []).append((address, port, host_id, data_center))
 
-                    print(f'sni_proxy listening on: {listen_address}:{listen_port}')
-                    self.cluster.sni_proxy_docker_ids = [docker_id]
+                listen_port = getattr(self.cluster, 'sni_proxy_listen_port', None)
+                if getattr(self.cluster, 'sni_proxy_docker_ids', None):
+                    sni_proxy_docker_ids = self.cluster.sni_proxy_docker_ids
+                    for _, nodes_info_per_dc in nodes_info_per_dc_map.items():
+                        configure_sni_proxy(self.cluster.get_path(), nodes_info_per_dc, listen_port=listen_port)
+
+                    for i in sni_proxy_docker_ids:
+                        reload_sni_proxy(self.cluster.sni_proxy_docker_ids[i])
+                else:
+                    sni_proxy_configs = []
+                    for _, nodes_info_per_dc in nodes_info_per_dc_map.items():
+                        docker_id, listen_address, listen_port = \
+                            start_sni_proxy(self.cluster.get_path(), nodes_info=nodes_info_per_dc, listen_port=self.options.sni_port)
+                        sni_proxy_configs.append((docker_id, listen_address, listen_port))
+
+                    _, _, _, default_dc = list(nodes_info)[0]  # TODO: make default datacenter configurable
+                    default_dc_nodes_info = nodes_info_per_dc_map.get(default_dc)
+                    default_dc_node_address = default_dc_nodes_info[0][0]
+                    default_dc_node_port = default_dc_nodes_info[0][1]
+                    create_cloud_config(self.cluster.get_path(), port=default_dc_node_port, address=default_dc_node_address, nodes_info=nodes_info)
+
+                    for sni_proxy_config in sni_proxy_configs:
+                        print(f'sni_proxy listening on: {sni_proxy_config[1]}:{sni_proxy_config[2]}')
+
+                    self.cluster.sni_proxy_docker_ids = [sni_proxy_config[0] for sni_proxy_config in sni_proxy_configs]
                     self.cluster.sni_proxy_listen_port = listen_port
                     self.cluster._update_config()
 
