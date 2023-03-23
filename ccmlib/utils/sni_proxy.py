@@ -33,38 +33,46 @@ def file_or_memory(path=None, data=None):
 
 
 def create_cloud_config(ssl_dir, port, address, nodes_info, username='cassandra', password='cassandra'):
-
     def encode_base64(filename):
         return base64.b64encode(open(os.path.join(ssl_dir, filename), 'rb').read()).decode()
 
     cadata = encode_base64('ccm_node.cer')
     certificate_data = encode_base64('ccm_node.cer')
     key_data = encode_base64('ccm_node.key')
-    _, _, _, data_center = list(nodes_info)[0]  # TODO: Add ability to create cloud config for multi-DC setup
+    _, _, _, default_dc = list(nodes_info)[0]  # TODO: make default datacenter configurable
+    datacenters = {}
 
-    config = dict(datacenters={data_center: dict(certificateAuthorityData=cadata,
-                                                 server=f'{address}:{port}',
-                                                 nodeDomain='cql.cluster-id.scylla.com',
-                                                 insecureSkipTlsVerify=False)},
+    for node_address, node_port, _, node_data_center in nodes_info:
+        datacenters[node_data_center] = dict(certificateAuthorityData=cadata,
+                                             server=f'{node_address}:{node_port}',
+                                             nodeDomain='cql.cluster-id.scylla.com',
+                                             insecureSkipTlsVerify=False)
+
+    config = dict(datacenters=datacenters,
                   authInfos={'default': dict(clientCertificateData=certificate_data,
                                              clientKeyData=key_data,
                                              username=username,
                                              password=password)},
-                  contexts={'default': dict(datacenterName=data_center, authInfoName='default')},
+                  contexts={'default': dict(datacenterName=default_dc, authInfoName='default')},
                   currentContext='default')
 
     with open(os.path.join(ssl_dir, 'config_data.yaml'), 'w') as config_file:
         config_file.write(yaml.safe_dump(config, sort_keys=False))
 
-    config = dict(datacenters={data_center: dict(certificateAuthorityPath=os.path.join(ssl_dir, 'ccm_node.cer'),
-                                                 server=f'{address}:{port}',
-                                                 nodeDomain='cql.cluster-id.scylla.com',
-                                                 insecureSkipTlsVerify=False)},
+    datacenters = {}
+
+    for node_address, node_port, _, node_data_center in nodes_info:
+        datacenters[node_data_center] = dict(certificateAuthorityPath=os.path.join(ssl_dir, 'ccm_node.cer'),
+                                             server=f'{node_address}:{node_port}',
+                                             nodeDomain='cql.cluster-id.scylla.com',
+                                             insecureSkipTlsVerify=False)
+
+    config = dict(datacenters=datacenters,
                   authInfos={'default': dict(clientCertificatePath=os.path.join(ssl_dir, 'ccm_node.cer'),
                                              clientKeyPath=os.path.join(ssl_dir, 'ccm_node.key'),
                                              username=username,
                                              password=password)},
-                  contexts={'default': dict(datacenterName=data_center, authInfoName='default')},
+                  contexts={'default': dict(datacenterName=default_dc, authInfoName='default')},
                   currentContext='default')
 
     with open(os.path.join(ssl_dir, 'config_path.yaml'), 'w') as config_file:
