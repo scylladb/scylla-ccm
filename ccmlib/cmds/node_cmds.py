@@ -203,12 +203,21 @@ class NodeStartCmd(Cmd):
                             quiet_start=self.options.quiet_start)
 
             if getattr(self.cluster, 'sni_proxy_docker_ids', None):
+                sni_proxy_docker_ids = self.cluster.sni_proxy_docker_ids
                 nodes_info = get_cluster_info(self.cluster, port=9142)
                 if getattr(self.cluster, 'sni_generate_ssl_automatic', False):
                     refresh_certs(self.cluster, nodes_info)
                 listen_port = getattr(self.cluster, 'sni_proxy_listen_port', None)
-                configure_sni_proxy(self.cluster.get_path(), nodes_info, listen_port=listen_port)
-                reload_sni_proxy(self.cluster.sni_proxy_docker_ids[0])
+
+                nodes_info_per_dc_map = {}
+                for address, port, host_id, data_center in nodes_info:
+                    nodes_info_per_dc_map.setdefault(data_center, []).append((address, port, host_id, data_center))
+
+                for _, nodes_info_per_dc in nodes_info_per_dc_map.items():
+                    configure_sni_proxy(self.cluster.get_path(), nodes_info_per_dc, listen_port=listen_port)
+
+                for i in sni_proxy_docker_ids:
+                    reload_sni_proxy(self.cluster.sni_proxy_docker_ids[i])
 
         except NodeError as e:
             print(str(e), file=sys.stderr)

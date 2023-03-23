@@ -96,7 +96,7 @@ def configure_sni_proxy(conf_dir, nodes_info, listen_port=443):
         """)
     tables = ""
     mapping = {}
-    address, port, host_id, _ = list(nodes_info)[0]
+    address, port, host_id, data_center = list(nodes_info)[0]
     tables += f"  ^cql.cluster-id.scylla.com$ {address}:{port}\n"
     mapping['FIRST_ADDRESS'] = address
     mapping['listen_port'] = listen_port
@@ -105,7 +105,13 @@ def configure_sni_proxy(conf_dir, nodes_info, listen_port=443):
         tables += f"  ^{host_id}.cql.cluster-id.scylla.com$ {address}:{port}\n"
 
     tmpl = string.Template(sniproxy_conf_tmpl)
-    sniproxy_conf_path = os.path.join(conf_dir, 'sniproxy.conf')
+
+    sni_proxy_path = conf_dir + '/sni_proxy'
+    if not os.path.exists(sni_proxy_path):
+        os.mkdir(sni_proxy_path)
+
+    sni_proxy_for_dc_filename = data_center + '_' + 'sniproxy.conf'
+    sniproxy_conf_path = os.path.join(sni_proxy_path, sni_proxy_for_dc_filename)
 
     with open(sniproxy_conf_path, 'w') as fp:
         fp.write(tmpl.substitute(TABLES=tables, **mapping))
@@ -169,6 +175,21 @@ if __name__ == "__main__":
     a.cluster = a._load_current_cluster()
     nodes_info = get_cluster_info(a.cluster)
     conf_dir = a.cluster.get_path()
-    docker_id, host, port = start_sni_proxy(conf_dir=conf_dir, nodes_info=nodes_info)
-    print(create_cloud_config(conf_dir, host, port, nodes_info))
-    stop_sni_proxy(docker_id)
+
+    nodes_info_per_dc_map = {}
+    for address, port, host_id, data_center in nodes_info:
+        nodes_info_per_dc_map.get(data_center, []).append((address, port, host_id, data_center))
+
+    _, _, _, default_dc = list(nodes_info)[0]  # TODO: make default datacenter configurable
+    default_dc_nodes = nodes_info_per_dc_map.get(default_dc)
+    default_dc_node_address = default_dc_nodes[0][0]
+    default_dc_node_port = default_dc_nodes[0][1]
+    docker_ids = []
+
+    for _, nodes_info_per_dc in nodes_info_per_dc_map.items():
+        docker_id, _, _ = start_sni_proxy(conf_dir=conf_dir, nodes_info=nodes_info)
+        docker_ids.append(docker_id)
+
+    print(create_cloud_config(conf_dir, default_dc_node_address, default_dc_node_port, nodes_info))
+    for docker_id in docker_ids:
+        stop_sni_proxy(docker_id)

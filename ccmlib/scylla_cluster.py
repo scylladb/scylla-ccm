@@ -195,7 +195,8 @@ class ScyllaCluster(Cluster):
             self._scylla_manager.stop(gently)
         kwargs = dict(**locals())
         del kwargs['self']
-        del kwargs['sni_proxy_docker_id']
+        if 'sni_proxy_docker_id' in kwargs:
+            del kwargs['sni_proxy_docker_id']
         return self.stop_nodes(**kwargs)
 
     def get_scylla_mode(self):
