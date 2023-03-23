@@ -630,7 +630,7 @@ class ScyllaNode(Node):
                 try:
                     [k, v] = s.split('=', 1)
                 except ValueError as e:
-                    print(("Bad SCYLLA_EXT_ENV variable: {}: {}", s, e))
+                    print(f"Bad SCYLLA_EXT_ENV variable: {s}: {e}")
                 else:
                     ext_env[k] = v
 
