@@ -124,6 +124,7 @@ class ScyllaNode(Node):
         candidate_dirs = [
             os.path.join(self.node_install_dir, 'share', 'cassandra', BIN_DIR),
             os.path.join(self.get_tools_java_dir(), BIN_DIR),
+            os.path.join(self.get_cqlsh_dir(), BIN_DIR),
         ]
         for candidate_dir in candidate_dirs:
             candidate = shutil.which(toolname, path=candidate_dir)
@@ -896,6 +897,9 @@ class ScyllaNode(Node):
 
     def get_jmx_dir(self):
         return common.get_jmx_dir(self.node_install_dir, self._relative_repos_root or '..')
+
+    def get_cqlsh_dir(self):
+        return os.path.join(self.node_install_dir, 'tools', 'cqlsh')
 
     def __copy_logback_files(self):
         shutil.copy(os.path.join(self.get_tools_java_dir(), 'conf', 'logback-tools.xml'),
