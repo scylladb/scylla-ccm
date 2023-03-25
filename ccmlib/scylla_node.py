@@ -121,14 +121,15 @@ class ScyllaNode(Node):
         return os.path.join(self.get_path(), 'conf')
 
     def get_tool(self, toolname):
-        candidates = [
-            common.join_bin(Path(self.node_install_dir) / 'share' / 'cassandra', BIN_DIR, toolname),
-            common.join_bin(self.get_tools_java_dir(), BIN_DIR, toolname)
+        candidate_dirs = [
+            os.path.join(self.node_install_dir, 'share', 'cassandra', BIN_DIR),
+            os.path.join(self.get_tools_java_dir(), BIN_DIR),
         ]
-        for candidate in candidates:
-            if os.path.exists(candidate):
+        for candidate_dir in candidate_dirs:
+            candidate = shutil.which(toolname, path=candidate_dir)
+            if candidate:
                 return candidate
-        raise ValueError(f"tool {toolname} wasn't found in any path: {candidates}")
+        raise ValueError(f"tool {toolname} wasn't found in any path: {candidate_dirs}")
 
     def get_tool_args(self, toolname):
         raise NotImplementedError('ScyllaNode.get_tool_args')
