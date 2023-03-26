@@ -1021,10 +1021,8 @@ class ScyllaNode(Node):
         scylla_jmx_file = os.path.join(self.get_bin_dir(), 'symlinks', 'scylla-jmx')
         if os.path.exists(scylla_jmx_file) and replace:
             os.remove(scylla_jmx_file)
-        java_exe = '/usr/bin/java'
-        java_home = os.environ.get('JAVA_HOME')
-        if java_home:
-            java_exe = os.path.join(java_home, 'bin', 'java')
+        java_home = os.environ.get('JAVA_HOME', '/usr')
+        java_exe = os.path.join(java_home, 'bin', 'java')
         os.symlink(java_exe, scylla_jmx_file)
 
         parent_dir = os.path.dirname(os.path.realpath(__file__))
