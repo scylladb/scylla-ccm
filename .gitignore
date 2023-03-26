@@ -8,6 +8,5 @@ ccm.py
 .idea/
 ccm.egg-info/
 .project
-.tox/
 .coverage
 tests/test_results
