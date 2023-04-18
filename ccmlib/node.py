@@ -185,7 +185,7 @@ class Node(object):
         update_conf = not self.__conf_updated
         if update_conf:
             self.__conf_updated = True
-        return common.make_cassandra_env(self.get_install_dir(), self.get_path(), update_conf)
+        return common.make_cassandra_env(self.get_install_dir(), self.get_path(), update_conf, hardcode_java_version='8')
 
     def get_install_cassandra_root(self):
         return self.get_install_dir()

@@ -14,8 +14,9 @@ import sys
 import time
 import tempfile
 import logging
+import pathlib
 from itertools import zip_longest
-from typing import Callable
+from typing import Callable, Optional
 
 import yaml
 from boto3.session import Session
@@ -192,7 +193,7 @@ def rmdirs(path):
         shutil.rmtree(path, ignore_errors=True)
 
 
-def make_cassandra_env(install_dir, node_path, update_conf=True):
+def make_cassandra_env(install_dir, node_path, update_conf=True, hardcode_java_version: Optional[str] = None):
     if is_win() and get_version_from_build(node_path=node_path) >= '2.1':
         sh_file = os.path.join(CASSANDRA_CONF_DIR, CASSANDRA_WIN_ENV)
     else:
@@ -241,6 +242,22 @@ def make_cassandra_env(install_dir, node_path, update_conf=True):
     env['cassandra.config'] = "file://" + os.path.join(node_path, 'conf', 'cassandra.yaml')
     env['CASSANDRA_HOME'] = install_dir
     env['CASSANDRA_CONF'] = os.path.join(node_path, 'conf')
+
+    if hardcode_java_version:
+        known_jvm_names = {
+            '8': ('8-openjdk', '8-jdk', '1.8.0-openjdk'),
+            '11': ('11-openjdk', '11-jdk', '1.11.0-openjdk'),
+        }
+        assert hardcode_java_version in known_jvm_names.keys(), \
+            f"hardcode_java_version={hardcode_java_version} not supported in:\n{known_jvm_names}"
+
+        for java_path in pathlib.Path('/usr/lib/jvm/').iterdir():
+            if java_path.is_dir and any(name in java_path.name for name in known_jvm_names[hardcode_java_version]):
+                env['JAVA_HOME'] = str(java_path)
+                break
+        else:
+            raise ArgumentError("java-8 wasn't found in /usr/lib/jvm/")
+
     return env
 
 
