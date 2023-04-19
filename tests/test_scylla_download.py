@@ -29,10 +29,3 @@ class TestUtilsDownload:
         with pytest.raises(requests.exceptions.HTTPError, match='Not Found'):
             download_file("https://s3.amazonaws.com/downloads.scylladb.com/abcdefg",
                           target_path=pathlib.Path(tmpdir) / 'scylla-manager.repo')
-
-
-if __name__ == '__main__':
-    # demo of progress bar
-    download_version_from_s3(
-        'https://s3.amazonaws.com/downloads.scylladb.com/relocatable/unstable/master/2020-08-29T22:24:05Z/scylla-package.tar.gz',
-        target_path='tempfile', verbose=True)
