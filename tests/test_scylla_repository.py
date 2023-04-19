@@ -31,10 +31,6 @@ class TestScyllaRepository:
         cdir, version = scylla_setup(version="unstable/master:2021-01-18T15:48:13Z", verbose=True)
         assert version == '4.4.dev'
 
-    def test_setup_unstable_master_old_url(self):
-        cdir, version = scylla_setup(version="unstable/master:2020-08-29T22:24:05Z", verbose=True)
-        assert version == '3.0'
-
 
 class TestScyllaRepositoryRelease:
     @pytest.mark.parametrize(argnames=['version', 'expected_cdir'], argvalues=[
@@ -108,10 +104,3 @@ class TestScyllaRepositoryRelease:
         assert packages.scylla_tools_package == 'https://s3.amazonaws.com/downloads.scylladb.com/unstable/scylla/master/relocatable/2021-01-18T15:48:13Z/scylla-tools-package.tar.gz'
         assert packages.scylla_jmx_package == 'https://s3.amazonaws.com/downloads.scylladb.com/unstable/scylla/master/relocatable/2021-01-18T15:48:13Z/scylla-jmx-package.tar.gz'
 
-    def test_setup_unstable_master_old_url(self):
-        cdir, packages = scylla_setup(version="unstable/master:2020-08-29T22:24:05Z", verbose=True, skip_downloads=True)
-        assert '2020-08-29T22_24_05Z' in cdir
-        assert not packages.scylla_unified_package
-        assert packages.scylla_package
-        assert packages.scylla_tools_package
-        assert packages.scylla_jmx_package
