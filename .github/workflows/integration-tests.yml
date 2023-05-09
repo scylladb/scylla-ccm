@@ -42,7 +42,7 @@ jobs:
         
         pip install -U pip setuptools
 
-        python setup.py install
+        pip install .
 
         if [ -f requirements-test.txt ]; then pip install -r requirements-test.txt; fi
 

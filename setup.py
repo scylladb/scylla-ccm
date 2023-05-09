@@ -24,7 +24,7 @@ setup(
     url='https://github.com/pcmanus/ccm',
     packages=['ccmlib', 'ccmlib.cmds', 'ccmlib.utils'],
     scripts=[ccmscript],
-    install_requires=['pyYaml', 'psutil', 'requests', 'packaging', 'boto3', 'tqdm'],
+    install_requires=['pyYaml', 'psutil', 'requests', 'packaging', 'boto3', 'tqdm', 'urllib3<2'],
     tests_require=['pytest'],
     classifiers=[
         "License :: OSI Approved :: Apache Software License",
