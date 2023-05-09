@@ -863,7 +863,7 @@ class Node(object):
                         print(log, end='')
                     i = i + 1
 
-    def run_cqlsh(self, cmds=None, show_output=False, cqlsh_options=None, return_output=False):
+    def run_cqlsh(self, cmds=None, show_output=False, cqlsh_options=None, return_output=False, timeout=600):
         cqlsh_options = cqlsh_options or []
         cqlsh = self.get_tool('cqlsh')
         if not isinstance(cqlsh, list):
@@ -889,7 +889,7 @@ class Node(object):
                     p.stdin.write(cmd + ';\n')
             p.stdin.write("quit;\n")
 
-            output = p.communicate()
+            output = p.communicate(timeout=timeout)
 
             for err in output[1].split('\n'):
                 if err.strip():
