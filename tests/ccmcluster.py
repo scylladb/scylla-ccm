@@ -47,6 +47,9 @@ class CCMCluster:
     def get_remove_cmd(self):
         return [self.ccm_bin, "remove", self.name]
 
+    def get_stop_cmd(self):
+        return [self.ccm_bin, "stop", self.name]
+
     def get_list_cmd(self):
         return [self.ccm_bin, "list"]
 

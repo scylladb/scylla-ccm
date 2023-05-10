@@ -41,6 +41,8 @@ class TestCCMCreateCluster:
         try:
             yield
         finally:
+            cluster_under_test.run_command(cluster_under_test.get_stop_cmd())
+            cluster_under_test.process.wait()
             copy_cluster_data(request=request)
             cluster_under_test.run_command(cluster_under_test.get_remove_cmd())
             cluster_under_test.process.wait()
@@ -74,6 +76,8 @@ class TestCCMClusterStatus:
             cluster_under_test.validate_command_result()
             yield
         finally:
+            cluster_under_test.run_command(cluster_under_test.get_stop_cmd())
+            cluster_under_test.process.wait()
             copy_cluster_data(request)
             cluster_under_test.run_command(cluster_under_test.get_remove_cmd())
             cluster_under_test.process.wait()
@@ -100,6 +104,8 @@ class TestCCMClusterStart:
         try:
             yield
         finally:
+            cluster_under_test.run_command(cluster_under_test.get_stop_cmd())
+            cluster_under_test.process.wait()
             copy_cluster_data(request)
             cluster_under_test.run_command(cluster_under_test.get_remove_cmd())
             cluster_under_test.process.wait()
@@ -147,6 +153,8 @@ class TestCCMClusterNodetool:
             cluster_under_test.validate_command_result()
             yield
         finally:
+            cluster_under_test.run_command(cluster_under_test.get_stop_cmd())
+            cluster_under_test.process.wait()
             copy_cluster_data(request)
             cluster_under_test.run_command(cluster_under_test.get_remove_cmd())
             cluster_under_test.process.wait()
@@ -204,6 +212,8 @@ class TestCCMClusterManagerSctool:
             cluster_under_test.validate_command_result()
             yield
         finally:
+            cluster_under_test.run_command(cluster_under_test.get_stop_cmd())
+            cluster_under_test.process.wait()
             copy_cluster_data(request)
             cluster_under_test.run_command(cluster_under_test.get_remove_cmd())
             cluster_under_test.process.wait()
