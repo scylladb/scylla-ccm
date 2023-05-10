@@ -252,11 +252,13 @@ def make_cassandra_env(install_dir, node_path, update_conf=True, hardcode_java_v
             f"hardcode_java_version={hardcode_java_version} not supported in:\n{known_jvm_names}"
 
         for java_path in pathlib.Path('/usr/lib/jvm/').iterdir():
-            if java_path.is_dir and any(name in java_path.name for name in known_jvm_names[hardcode_java_version]):
+            if (java_path.is_dir
+                    and any(name in java_path.name for name in known_jvm_names[hardcode_java_version])
+                    and list(java_path.rglob('java'))):
                 env['JAVA_HOME'] = str(java_path)
                 break
         else:
-            raise ArgumentError("java-8 wasn't found in /usr/lib/jvm/")
+            raise ArgumentError(f"java-8 wasn't found in /usr/lib/jvm/\n {list(pathlib.Path('/usr/lib/jvm/').iterdir())}")
 
     return env
 
