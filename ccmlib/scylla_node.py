@@ -1041,19 +1041,29 @@ class ScyllaNode(Node):
                                    os.path.join(self.get_bin_dir(), 'scylla-jmx-1.0.jar'), replace=replace)
             self.hard_link_or_copy(os.path.join(self.get_jmx_dir(), 'scylla-jmx'),
                                    os.path.join(self.get_bin_dir(), 'scylla-jmx'), replace=replace)
+            select_java = Path(self.get_jmx_dir()) / 'select-java'
         else:
             self.hard_link_or_copy(os.path.join(self.get_jmx_dir(), 'target', 'scylla-jmx-1.0.jar'),
                                    os.path.join(self.get_bin_dir(), 'scylla-jmx-1.0.jar'), replace=replace)
             self.hard_link_or_copy(os.path.join(self.get_jmx_dir(), 'scripts', 'scylla-jmx'),
                                    os.path.join(self.get_bin_dir(), 'scylla-jmx'), replace=replace)
+            select_java = Path(self.get_jmx_dir()) / 'scripts' / 'select-java'
 
         os.makedirs(os.path.join(self.get_bin_dir(), 'symlinks'), exist_ok=exist_ok)
         scylla_jmx_file = os.path.join(self.get_bin_dir(), 'symlinks', 'scylla-jmx')
         if os.path.exists(scylla_jmx_file) and replace:
             os.remove(scylla_jmx_file)
-        java_home = os.environ.get('JAVA_HOME', '/usr')
-        java_exe = os.path.join(java_home, 'bin', 'java')
-        os.symlink(java_exe, scylla_jmx_file)
+        if java_home := os.environ.get('JAVA_HOME'):
+            # user selecting specific Java
+            java_exe = Path(java_home) / 'bin' / 'java'
+            os.symlink(java_exe, scylla_jmx_file)
+        elif select_java.exists():
+            # JMX lookup logic
+            os.symlink(select_java, scylla_jmx_file)
+        else:
+            # older scylla versions, just use default java
+            java_exe = Path('/usr') / 'bin' / 'java'
+            os.symlink(java_exe, scylla_jmx_file)
 
         parent_dir = os.path.dirname(os.path.realpath(__file__))
         resources_bin_dir = os.path.join(parent_dir, 'resources', BIN_DIR)
