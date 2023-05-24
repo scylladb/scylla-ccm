@@ -16,6 +16,7 @@ from ccmlib.scylla_node import ScyllaNode
 from ccmlib.node import NodeError
 from ccmlib import scylla_repository
 from ccmlib.utils.sni_proxy import stop_sni_proxy
+from ccmlib.node import Status
 
 SNITCH = 'org.apache.cassandra.locator.GossipingPropertyFileSnitch'
 
@@ -120,6 +121,7 @@ class ScyllaCluster(Cluster):
                     last_node.watch_log_for("node is now in normal status|Starting listening for CQL clients",
                                             verbose=verbose, from_mark=last_mark,
                                             process=last_node._process_scylla)
+                    last_node.status = Status.UP
                 mark = 0
                 if os.path.exists(node.logfilename()):
                     mark = node.mark_log()
