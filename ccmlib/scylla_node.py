@@ -18,6 +18,7 @@ import psutil
 import yaml
 import glob
 import re
+import requests
 
 from ccmlib.common import CASSANDRA_SH, BIN_DIR, wait_for, copy_directory
 
@@ -307,9 +308,9 @@ class ScyllaNode(Node):
                                 self._process_scylla)
 
         if wait_other_notice:
-            for node, mark in marks:
+            for node, _ in marks:
                 t = timeout if timeout is not None else 120 if self.cluster.scylla_mode != 'debug' else 360
-                node.watch_log_for_alive(self, from_mark=mark, timeout=t)
+                node.watch_rest_for_alive(self, timeout=t)
 
         if wait_for_binary_proto:
             t = timeout * 4 if timeout is not None else 420 if self.cluster.scylla_mode != 'debug' else 900
@@ -1336,6 +1337,34 @@ class ScyllaNode(Node):
 
     def rollback(self, upgrade_to_version):
         self.upgrader.upgrade(upgrade_version=upgrade_to_version, recover_system_tables=True)
+
+    def watch_rest_for_alive(self, nodes, timeout=120):
+        """
+        Use the REST API to wait until this node detects that the nodes listed
+        in "nodes" become fully operational (live and no longer "joining").
+        This is similar to watch_log_for_alive but uses ScyllaDB's REST API
+        instead of the log file and waits for the node to be really useable,
+        not just "UP" (see issue #461)
+        """
+        tofind = nodes if isinstance(nodes, list) else [nodes]
+        tofind = set([node.address() for node in tofind])
+        url_live = f"http://{self.address()}:10000/gossiper/endpoint/live"
+        url_joining = f"http://{self.address()}:10000/storage_service/nodes/joining"
+        endtime = time.time() + timeout
+        while time.time() < endtime:
+            live = set()
+            response = requests.get(url=url_live)
+            if response.text:
+                live = set(response.json())
+            response = requests.get(url=url_joining)
+            if response.text:
+                live = live - set(response.json())
+            if tofind.issubset(live):
+                # This node thinks that all given nodes are alive and not
+                # "joining", we're done.
+                return
+            time.sleep(0.1)
+        raise TimeoutError(f"watch_rest_for_alive() timeout after {timeout} seconds")
 
     @property
     def gnutls_config_file(self):
