@@ -416,12 +416,11 @@ def setup_scylla_manager(scylla_manager_package=None, verbose=False):
         manager_install_dir = directory_name(os.path.join('manager', dir_hash))
         if not os.path.exists(manager_install_dir):
             os.makedirs(manager_install_dir)
-            destination_file = os.path.join(manager_install_dir, "manager.tar.gz")
+            _, destination_file = tempfile.mkstemp(suffix=".tar.gz", prefix="ccm-manager-")
 
             if os.path.exists(scylla_manager_package) and scylla_manager_package.endswith('.tar.gz'):
                 destination_file = scylla_manager_package
             elif is_valid(scylla_manager_package):
-                _, target = tempfile.mkstemp(suffix=".tar.gz", prefix="ccm-")
                 res = download_version_from_s3(url=scylla_manager_package, target_path=destination_file, verbose=verbose)
                 if not res:
                     download_file(url=scylla_manager_package, target_path=destination_file, verbose=verbose)

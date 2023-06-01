@@ -144,8 +144,13 @@ def download_version_from_s3(url: str, target_path: str, verbose=False):
     try:
         metadata = s3_client.head_object(Bucket=bucket_name, Key=download_path)
     except botocore.client.ClientError as ex:
-        if 'Not Found' in str(ex):
+        error_message = ex.response['Error']['Message']
+        if error_message in ('NoSuchBucket', 'NoSuchKey', 'Not Found'):
             logging.warning(f"url: '{url}' wasn't found on S3")
+            logging.warning(f"download might be very slow")
+            return None
+        elif error_message == "Forbidden":
+            logging.warning(f"url: '{url}' Forbidden (403) on S3")
             logging.warning(f"download might be very slow")
             return None
         else:
@@ -167,7 +172,7 @@ def get_url_hash(url: str) -> str:
     """
 
     if os.path.exists(url):  # if file/dir is local, hash based on the path
-        return hashlib.md5(url).hexdigest().encode()
+        return hashlib.md5(url).hexdigest()
 
     # first try is on s3
     parts = urllib.parse.urlparse(url)
@@ -177,6 +182,6 @@ def get_url_hash(url: str) -> str:
     try:
         metadata = s3_client.head_object(Bucket=bucket_name, Key=download_path)
         return metadata.get('ETag')[1:-1]
-    except botocore.client.ClientError as ex:
+    except botocore.client.ClientError:
         # fallback to http
         return requests.head(url).headers.get('ETag')[1:-1]
