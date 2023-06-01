@@ -2,6 +2,7 @@ import os
 import logging
 import shutil
 import urllib.parse
+import hashlib
 
 import tqdm
 import requests
@@ -158,3 +159,24 @@ def download_version_from_s3(url: str, target_path: str, verbose=False):
         transfer.download_file(bucket_name, download_path, target_path, callback=progress.update)
 
     return target_path
+
+
+def get_url_hash(url: str) -> str:
+    """
+    get hash (etag) or a blob in s3/http/local file/dir
+    """
+
+    if os.path.exists(url):  # if file/dir is local, hash based on the path
+        return hashlib.md5(url).hexdigest().encode()
+
+    # first try is on s3
+    parts = urllib.parse.urlparse(url)
+    _, bucket_name, download_path = parts.path.split('/', maxsplit=2)
+    s3_client = Session().client('s3', config=botocore.client.Config(signature_version=botocore.UNSIGNED))
+
+    try:
+        metadata = s3_client.head_object(Bucket=bucket_name, Key=download_path)
+        return metadata.get('ETag')[1:-1]
+    except botocore.client.ClientError as ex:
+        # fallback to http
+        return requests.head(url).headers.get('ETag')[1:-1]
