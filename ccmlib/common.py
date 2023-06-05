@@ -512,7 +512,7 @@ def scylla_extract_install_dir_and_mode(install_dir):
     return install_dir, scylla_mode
 
 
-def wait_for(func: Callable, timeout: int, first: float = 0.0, step: float = 1.0, text: str = ""):
+def wait_for(func: Callable, timeout: int, first: float = 0.0, step: float = 1.0):
     """
     Wait until func() evaluates to True.
 
@@ -523,19 +523,16 @@ def wait_for(func: Callable, timeout: int, first: float = 0.0, step: float = 1.0
     param timeout: Timeout in seconds.
     param first: Time to sleep in seconds before first attempt.
     param step: Time to sleep in seconds between attempts in seconds.
-    param text: Text to print while waiting, for debug purposes.
     """
-    start_time = time.time()
     end_time = time.time() + timeout
 
     time.sleep(first)
 
     while time.time() < end_time:
-        if text:
-            print(f"{text} ({time.time() - start_time:f} secs)")
         if func():
             return True
         time.sleep(step)
+
     return False
 
 
