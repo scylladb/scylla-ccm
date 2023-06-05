@@ -678,7 +678,7 @@ class ScyllaNode(Node):
             raise NodeError(e_msg, scylla_process)
 
         self._update_pid(scylla_process)
-        wait_for(func=lambda: self.is_running(), timeout=10, step=0.01, text="Waiting for scylla process to be running")
+        wait_for(func=lambda: self.is_running(), timeout=10, step=0.01)
 
         if self.scylla_manager and self.scylla_manager.is_agent_available:
             self.start_scylla_manager_agent()
