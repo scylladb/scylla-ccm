@@ -311,6 +311,7 @@ class ScyllaNode(Node):
             for node, _ in marks:
                 t = timeout if timeout is not None else 120 if self.cluster.scylla_mode != 'debug' else 360
                 node.watch_rest_for_alive(self, timeout=t)
+                self.watch_rest_for_alive(node, timeout=t)
 
         if wait_for_binary_proto:
             t = timeout * 4 if timeout is not None else 420 if self.cluster.scylla_mode != 'debug' else 900
