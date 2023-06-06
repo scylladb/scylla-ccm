@@ -1341,7 +1341,7 @@ class ScyllaNode(Node):
     def watch_rest_for_alive(self, nodes, timeout=120):
         """
         Use the REST API to wait until this node detects that the nodes listed
-        in "nodes" become fully operational (live and no longer "joining").
+        in "nodes" become fully operational and knows of its tokens.
         This is similar to watch_log_for_alive but uses ScyllaDB's REST API
         instead of the log file and waits for the node to be really useable,
         not just "UP" (see issue #461)
@@ -1350,6 +1350,7 @@ class ScyllaNode(Node):
         tofind = set([node.address() for node in tofind])
         url_live = f"http://{self.address()}:10000/gossiper/endpoint/live"
         url_joining = f"http://{self.address()}:10000/storage_service/nodes/joining"
+        url_tokens = f"http://{self.address()}:10000/storage_service/tokens/"
         endtime = time.time() + timeout
         while time.time() < endtime:
             live = set()
@@ -1359,9 +1360,19 @@ class ScyllaNode(Node):
             response = requests.get(url=url_joining)
             if response.text:
                 live = live - set(response.json())
+            # Verify that node knows not only about the existance of the
+            # other node, but also its tokens:
             if tofind.issubset(live):
                 # This node thinks that all given nodes are alive and not
-                # "joining", we're done.
+                # "joining", we're almost done, but still need to verify
+                # that the node knows the others' tokens.
+                check = tofind
+                tofind = set()
+                for n in check:
+                    response = requests.get(url=url_tokens+n)
+                    if response.text == '[]':
+                        tofind.add(n)
+            if not tofind:
                 return
             time.sleep(0.1)
         raise TimeoutError(f"watch_rest_for_alive() timeout after {timeout} seconds")
