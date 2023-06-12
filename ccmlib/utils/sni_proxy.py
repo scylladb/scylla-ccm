@@ -44,7 +44,7 @@ def create_cloud_config(ssl_dir, port, address, nodes_info, username='cassandra'
 
     for node_address, node_port, _, node_data_center in nodes_info:
         datacenters[node_data_center] = dict(certificateAuthorityData=cadata,
-                                             server=f'{node_address}:{node_port}',
+                                             server=f'{node_address}:{port}',
                                              nodeDomain='cql.cluster-id.scylla.com',
                                              insecureSkipTlsVerify=False)
 
@@ -63,7 +63,7 @@ def create_cloud_config(ssl_dir, port, address, nodes_info, username='cassandra'
 
     for node_address, node_port, _, node_data_center in nodes_info:
         datacenters[node_data_center] = dict(certificateAuthorityPath=os.path.join(ssl_dir, 'ccm_node.cer'),
-                                             server=f'{node_address}:{node_port}',
+                                             server=f'{node_address}:{port}',
                                              nodeDomain='cql.cluster-id.scylla.com',
                                              insecureSkipTlsVerify=False)
 
