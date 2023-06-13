@@ -1,8 +1,7 @@
 import os
 import subprocess
 import sys
-import tempfile
-
+import itertools
 
 from ccmlib import common, repository
 from ccmlib.cluster import Cluster
@@ -700,9 +699,7 @@ class ClusterStartCmd(Cmd):
                 if getattr(self.cluster, 'sni_generate_ssl_automatic', False):
                     refresh_certs(self.cluster, nodes_info)
 
-                nodes_info_per_dc_map = {}
-                for address, port, host_id, data_center in nodes_info:
-                    nodes_info_per_dc_map.setdefault(data_center, []).append((address, port, host_id, data_center))
+                nodes_info_per_dc_map = dict((k, list(g)) for k, g in itertools.groupby(nodes_info, key=lambda x: x.data_center))
 
                 listen_port = getattr(self.cluster, 'sni_proxy_listen_port', None)
                 if getattr(self.cluster, 'sni_proxy_docker_ids', None):
