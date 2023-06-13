@@ -874,7 +874,7 @@ class Node(object):
             port = self.network_interfaces['binary'][1]
         else:
             port = self.network_interfaces['thrift'][1]
-        args = cqlsh_options + [host, str(port)]
+        args = cqlsh_options + [host, str(port)] if '--cloudconf' not in cqlsh_options else cqlsh_options
         sys.stdout.flush()
         if cmds is None:
             if common.is_win():
