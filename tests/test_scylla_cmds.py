@@ -3,11 +3,15 @@ import logging
 import shutil
 import subprocess
 import getpass
+from pathlib import Path
 from datetime import datetime
 
 import pytest
 from _pytest.fixtures import FixtureRequest
+
 from ccmlib import common
+from ccmlib.cmds.command import Cmd
+
 from .test_scylla_docker_cluster import TestScyllaDockerCluster
 
 LOGGER = logging.getLogger(__name__)
@@ -223,3 +227,49 @@ class TestCCMClusterManagerSctool:
     def test_sctool(self, cluster_under_test):
         cluster_under_test.run_command(['./ccm', 'sctool', 'status'])
         cluster_under_test.validate_command_result()
+
+
+@pytest.mark.parametrize(
+    'cluster_under_test',
+    (
+     pytest.param('ccm_reloc_cluster', marks=pytest.mark.reloc),
+     ),
+    indirect=True
+)
+class TestCCMClusterSniProxy:
+    @staticmethod
+    @pytest.fixture(scope="class", autouse=True)
+    def base_setup(request, cluster_under_test):
+        try:
+            cluster_under_test.run_command(cluster_under_test.get_create_cmd(['-n', '2']))
+            cluster_under_test.validate_command_result()
+
+            cluster_under_test.run_command(cluster_under_test.get_updateconf_cmd())
+            cluster_under_test.validate_command_result()
+
+            cluster_under_test.run_command(cluster_under_test.get_start_sni_proxy_cmd())
+            cluster_under_test.validate_command_result()
+            yield
+        finally:
+            cluster_under_test.run_command(cluster_under_test.get_stop_cmd())
+            cluster_under_test.process.wait()
+            copy_cluster_data(request)
+            cluster_under_test.run_command(cluster_under_test.get_remove_cmd())
+            cluster_under_test.process.wait()
+            if os.path.exists(cluster_under_test.cluster_dir):
+                common.rmdirs(cluster_under_test.cluster_dir)
+
+    def test_cqlsh(self, cluster_under_test):
+        cmd = Cmd()
+        cmd.path = common.get_default_path()
+        cluster = cmd._load_current_cluster()
+        conf_dir = cluster.get_path()
+
+        cloud_bundle = Path(conf_dir) / 'config_data.yaml'
+
+        res = cluster.nodes['node1'].run_cqlsh(cmds='SELECT * FROM system.peers ;',
+                                               cqlsh_options=['--cloudconf', cloud_bundle],
+                                               return_output=True, show_output=True)
+
+        assert not res[1], f"cqlsh command failed:\n\n{res[1]}"
+
