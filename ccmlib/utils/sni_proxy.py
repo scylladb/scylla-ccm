@@ -3,10 +3,12 @@ import string
 import subprocess
 import json
 import base64
+import itertools
 from contextlib import contextmanager
 import tempfile
 from textwrap import dedent
 import distutils.dir_util
+from dataclasses import dataclass
 
 import yaml
 
@@ -39,12 +41,14 @@ def create_cloud_config(ssl_dir, port, address, nodes_info, username='cassandra'
     cadata = encode_base64('ccm_node.cer')
     certificate_data = encode_base64('ccm_node.cer')
     key_data = encode_base64('ccm_node.key')
-    _, _, _, default_dc = list(nodes_info)[0]  # TODO: make default datacenter configurable
+    default_dc = nodes_info[0].data_center  # TODO: make default datacenter configurable
     datacenters = {}
 
-    for node_address, node_port, _, node_data_center in nodes_info:
+    nodes_info_per_dc_map = dict((k, list(g)) for k, g in itertools.groupby(nodes_info, key=lambda x: x.data_center))
+
+    for node_data_center, dc_nodes_info in nodes_info_per_dc_map.items():
         datacenters[node_data_center] = dict(certificateAuthorityData=cadata,
-                                             server=f'{node_address}:{port}',
+                                             server=f'{dc_nodes_info[0].address}:{port}',
                                              nodeDomain='cql.cluster-id.scylla.com',
                                              insecureSkipTlsVerify=False)
 
@@ -61,9 +65,9 @@ def create_cloud_config(ssl_dir, port, address, nodes_info, username='cassandra'
 
     datacenters = {}
 
-    for node_address, node_port, _, node_data_center in nodes_info:
+    for node_data_center, dc_nodes_info in nodes_info_per_dc_map.items():
         datacenters[node_data_center] = dict(certificateAuthorityPath=os.path.join(ssl_dir, 'ccm_node.cer'),
-                                             server=f'{node_address}:{port}',
+                                             server=f'{dc_nodes_info[0].address}:{port}',
                                              nodeDomain='cql.cluster-id.scylla.com',
                                              insecureSkipTlsVerify=False)
 
@@ -104,13 +108,12 @@ def configure_sni_proxy(conf_dir, nodes_info, listen_port=443):
         """)
     tables = ""
     mapping = {}
-    address, port, host_id, data_center = list(nodes_info)[0]
-    tables += f"  ^cql.cluster-id.scylla.com$ {address}:{port}\n"
-    mapping['FIRST_ADDRESS'] = address
+    tables += f"  ^cql.cluster-id.scylla.com$ {nodes_info[0].address}:{nodes_info[0].port}\n"
+    mapping['FIRST_ADDRESS'] = nodes_info[0].address
     mapping['listen_port'] = listen_port
 
-    for address, port, host_id, _ in nodes_info:
-        tables += f"  ^{host_id}.cql.cluster-id.scylla.com$ {address}:{port}\n"
+    for node in nodes_info:
+        tables += f"  ^{node.host_id}.cql.cluster-id.scylla.com$ {node.address}:{node.port}\n"
 
     tmpl = string.Template(sniproxy_conf_tmpl)
 
@@ -118,23 +121,29 @@ def configure_sni_proxy(conf_dir, nodes_info, listen_port=443):
     if not os.path.exists(sni_proxy_path):
         os.mkdir(sni_proxy_path)
 
-    sni_proxy_for_dc_filename = data_center + '_' + 'sniproxy.conf'
+    sni_proxy_for_dc_filename = nodes_info[0].data_center + '_' + 'sniproxy.conf'
     sniproxy_conf_path = os.path.join(sni_proxy_path, sni_proxy_for_dc_filename)
 
     with open(sniproxy_conf_path, 'w') as fp:
         fp.write(tmpl.substitute(TABLES=tables, **mapping))
-
     return sniproxy_conf_path
 
 
 def start_sni_proxy(conf_dir, nodes_info, listen_port=443):
-    address, _, _, _ = list(nodes_info)[0]
     sniproxy_conf_path = configure_sni_proxy(conf_dir, nodes_info, listen_port=listen_port)
     sniproxy_dockerfile = os.path.join(os.path.dirname(__file__), '..', 'resources', 'docker', 'sniproxy')
     subprocess.check_output(['/bin/bash', '-c', f'docker build {sniproxy_dockerfile} -t sniproxy'], universal_newlines=True)
-    docker_id = subprocess.check_output(['/bin/bash', '-c', f'docker run -d --network=host -v {sniproxy_conf_path}:/etc/sniproxy.conf:z -p {listen_port} -it sniproxy'], universal_newlines=True)
+    docker_id = subprocess.check_output(['/bin/bash', '-c', f'docker run -d --network=host -v {sniproxy_conf_path}:/etc/sniproxy.conf:z -p {listen_port}:{listen_port} -it sniproxy'], universal_newlines=True)
 
-    return docker_id.strip(), address, listen_port
+    return docker_id.strip(), nodes_info[0].address, listen_port
+
+
+@dataclass
+class NodeInfo:
+    address: str
+    port: int
+    host_id: str
+    data_center: str
 
 
 def get_cluster_info(cluster, port=9142):
@@ -150,7 +159,10 @@ def get_cluster_info(cluster, port=9142):
         except json.decoder.JSONDecodeError:
             continue
         if 'broadcast_address' in host and 'host_id' in host:
-            nodes_info.append((host['broadcast_address'], port, host['host_id'], host['data_center']))
+            nodes_info.append(NodeInfo(address=host['broadcast_address'],
+                                       port=port,
+                                       host_id=host['host_id'],
+                                       data_center=host['data_center']))
 
     stdout, stderr = node1.run_cqlsh(cmds='select JSON peer,host_id,data_center from system.peers ;',
                                      return_output=True, show_output=True)
@@ -161,7 +173,10 @@ def get_cluster_info(cluster, port=9142):
         except json.decoder.JSONDecodeError:
             continue
         if 'peer' in host and 'host_id' in host:
-            nodes_info.append((host['peer'], port, host['host_id'], host['data_center']))
+            nodes_info.append(NodeInfo(address=host['peer'],
+                                       port=port,
+                                       host_id=host['host_id'],
+                                       data_center=host['data_center']))
 
     return nodes_info
 
@@ -169,7 +184,7 @@ def get_cluster_info(cluster, port=9142):
 def refresh_certs(cluster, nodes_info):
     with tempfile.TemporaryDirectory() as tmp_dir:
         dns_names = ['cql.cluster-id.scylla.com'] + \
-                    [f'{host_id}.cql.cluster-id.scylla.com' for _, _, host_id, _ in nodes_info]
+                    [f'{node.host_id}.cql.cluster-id.scylla.com' for node in nodes_info]
         generate_ssl_stores(tmp_dir, dns_names=dns_names)
         distutils.dir_util.copy_tree(tmp_dir, cluster.get_path())
 
