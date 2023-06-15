@@ -273,3 +273,15 @@ class TestCCMClusterSniProxy:
 
         assert not res[1], f"cqlsh command failed:\n\n{res[1]}"
 
+    def test_stress(self, cluster_under_test):
+        cmd = Cmd()
+        cmd.path = common.get_default_path()
+        cluster = cmd._load_current_cluster()
+        conf_dir = cluster.get_path()
+
+        cloud_bundle = Path(conf_dir) / 'config_data.yaml'
+
+        output = cluster.nodes['node1'].stress(['write', 'duration=5s', "no-warmup", '-rate',
+                                                'threads=2', '-cloudconf', f'file={cloud_bundle}'])
+
+        assert output.stdout.strip().endswith(("END", "DONE")), f"Run c-s failed: {output}"

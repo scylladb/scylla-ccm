@@ -1233,7 +1233,11 @@ class Node(object):
                 # cassandra-stress has version command
                 stress_options = [o.replace('limit=', 'throttle=') for o in stress_options]
 
-        if not ('-node' in stress_options or '-d' in stress_options):
+        options_implying_node = ['-d', '-node', '-cloudconf']
+        if any(opt in options_implying_node for opt in stress_options):
+            # no need to specify address
+            pass
+        else:
             if self.cluster.cassandra_version() < '2.1':
                 stress_options.append('-d')
                 stress_options.append(self.address())
