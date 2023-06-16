@@ -1348,6 +1348,45 @@ class ScyllaNode(Node):
                 return str(candidate)
         raise ValueError(f"gnutls.config wasn't found in any path: {candidates}")
 
+    def run_scylla_sstable(self, command, additional_args=None, keyspace=None, datafiles=None, column_families=None, batch=False):
+        """Invoke scylla-sstable, with the specified command (operation) and additional_args.
+
+        For more information about scylla-sstable, see https://docs.scylladb.com/stable/operating-scylla/admin-tools/scylla-sstable.html.
+
+        Params:
+        * command - The scylla-sstable command (operation) to run.
+        * additional_args - Additional command-line arguments to pass to scylla-sstable, this should be a list of strings.
+        * keyspace - Restrict the operation to sstables of this keyspace.
+        * datafiles - Restrict the operation to the specified sstables (Data components).
+        * column_families - Restrict the operation to sstables of these column_families. Must contain exactly one column family when datafiles is used.
+        * batch - If True, all sstables will be passed in a single batch. If False, sstables will be passed one at a time.
+            Batch-mode can be only used if column_families contains a single item.
+
+        Returns: map: {sstable: (stdout, stderr)} of all invokations. When batch == True, a single entry will be present, with empty key.
+
+        Raises: subprocess.CalledProcessError if scylla-sstable returns a non-zero exit code.
+        """
+        if additional_args is None:
+            additional_args = []
+        scylla_path = common.join_bin(self.get_path(), BIN_DIR, 'scylla')
+        env = self.get_env()
+        sstables = self._Node__gather_sstables(datafiles, keyspace, column_families)
+        ret = {}
+
+        def do_invoke(sstables):
+            common_args = [scylla_path, "sstable", command] + additional_args
+            res = subprocess.run(common_args + sstables, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+            return (res.stdout, res.stderr)
+
+        if batch:
+            if column_families is None or len(column_families) > 1:
+                raise NodeError("run_scylla_sstable(): batch mode can only be used in conjunction with a single column_family")
+            ret[""] = do_invoke(sstables)
+        else:
+            for sst in sstables:
+                ret[sst] = do_invoke([sst])
+        return ret
+
 
 class NodeUpgrader:
 
