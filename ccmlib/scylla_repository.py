@@ -26,7 +26,7 @@ import packaging.version
 
 from ccmlib.common import (
     ArgumentError, CCMError, get_default_path, rmdirs, validate_install_dir, get_scylla_version, aws_bucket_ls,
-    DOWNLOAD_IN_PROGRESS_FILE, wait_for_parallel_download_finish, print_if_standalone)
+    DOWNLOAD_IN_PROGRESS_FILE, print_if_standalone, LockFile)
 from ccmlib.utils.download import download_file, download_version_from_s3
 from ccmlib.utils.version import parse_version
 
@@ -279,19 +279,15 @@ def setup(version, verbose=True):
         # Give a chance not to start few downloads in the exactly same second
         time.sleep(random.randint(0, 5))
 
-        # If another parallel downloading has been started already, wait while it will be completed
-        if download_in_progress_file.exists():
-            print(f"Another download running into '{version_dir}'. Waiting for parallel downloading finished")
-            wait_for_parallel_download_finish(placeholder_file=download_in_progress_file.absolute())
-        else:
-            try:
-                os.makedirs(version_dir)
-            except FileExistsError as exc:
-                # If parallel process created the folder first, let to the parallel download to finish
-                print(f"Another download running into '{version_dir}'. Waiting for parallel downloading finished")
-                wait_for_parallel_download_finish(placeholder_file=download_in_progress_file.absolute())
-            else:
-                download_in_progress_file.touch()
+        os.makedirs(version_dir, exist_ok=True)
+        with LockFile(download_in_progress_file) as f:
+            if f.read_status() != 'done':
+                # First ensure that we are working on a clean directory
+                # This prevents lockfile deletion by download_packages, as it doesn't have to clean the directory.
+                for p in Path(version_dir).iterdir():
+                    if p.name != DOWNLOAD_IN_PROGRESS_FILE:
+                        shutil.rmtree(p)
+
                 try:
                     package_version, packages = download_packages(version_dir=version_dir, packages=packages, s3_url=s3_url,
                                                                   scylla_product=scylla_product, version=version, verbose=verbose)
@@ -308,7 +304,6 @@ def setup(version, verbose=True):
                     else:
                         raise
 
-                download_in_progress_file.touch()
                 args = dict(install_dir=os.path.join(version_dir, CORE_PACKAGE_DIR_NAME),
                             target_dir=version_dir,
                             package_version=package_version)
@@ -319,7 +314,7 @@ def setup(version, verbose=True):
                 else:
                     run_scylla_install_script(**args)
                 print(f"Completed to install Scylla in the folder '{version_dir}'")
-                download_in_progress_file.unlink()
+                f.write_status('done')
 
     scylla_ext_opts = os.environ.get('SCYLLA_EXT_OPTS', '')
     scylla_manager_package = os.environ.get('SCYLLA_MANAGER_PACKAGE')
@@ -349,9 +344,8 @@ def download_packages(version_dir, packages, s3_url, scylla_product, version, ve
     if packages.scylla_unified_package:
         package_version = download_version(version=version, verbose=verbose, url=packages.scylla_unified_package,
                                            target_dir=tmp_download, unified=True)
-        shutil.rmtree(version_dir)
         target_dir = Path(version_dir) / CORE_PACKAGE_DIR_NAME
-        target_dir.parent.mkdir(parents=True, exist_ok=True)
+        target_dir.parent.mkdir(parents=False, exist_ok=True)
         shutil.move(tmp_download, target_dir)
     else:
         package_version = download_version(version=version, verbose=verbose, url=packages.scylla_package,
@@ -363,7 +357,6 @@ def download_packages(version_dir, packages, s3_url, scylla_product, version, ve
         download_version(version=version, verbose=verbose, url=packages.scylla_jmx_package,
                          target_dir=os.path.join(tmp_download, 'scylla-jmx'))
 
-        shutil.rmtree(version_dir)
         shutil.move(tmp_download, version_dir)
 
     return package_version, packages
