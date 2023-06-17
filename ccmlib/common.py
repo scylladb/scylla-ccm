@@ -3,6 +3,7 @@
 #
 
 import fnmatch
+import fcntl
 import os
 import platform
 import re
@@ -14,7 +15,7 @@ import sys
 import time
 import tempfile
 import logging
-from typing import Callable
+from typing import Callable, Optional, TextIO, Union
 
 import yaml
 from boto3.session import Session
@@ -63,6 +64,145 @@ class ArgumentError(CCMError):
 
 class UnavailableSocketError(CCMError):
     pass
+
+
+class LockFile:
+    """
+    A class to create filesystem-based lockfiles that are unlocked upon
+    process termination.
+    
+    This class uses locking mechanisms provided by kernel. Currently,
+    that's `fcntl.flock`, due to its more intuitive semantics, but if
+    compatibility becomes a problem, it should be possible to switch to
+    `fcntl.lockf` or use platform-specific functions.
+
+    Lockfile stores PID of owning process and a "status" - which is an
+    arbitrary string that owning process can set. Format of the file is:
+    PID;status
+
+    Lockfile is not removed when unlocked, nor is its content cleared -
+    mere presence of a lockfile does not mean that lock is actually taken.
+
+    Lockfiles preserve status between subsequent `acquire`s. If a process executes
+    this code:
+    ```
+    lf = LockFile('lockfile')
+    lf.acquire()
+    lf.write_status('abc')
+    lf.release()
+    ```
+    then the following code executed later by the same or different process
+    will pass without assertion error:
+    ```
+    lf = LockFile('lockfile')
+    lf.acquire()
+    assert lf.read_status() == 'abc'
+    lf.release()
+    ```
+
+    This lock is not reentrant. If you already own it, and try to lock it again,
+    assertion error will be raised. In other words, the following code is incorrect:
+    ```
+    lf = LockFile('lockfile')
+    lf.acquire()
+    lf.acquire() # Assertion error will be thrown
+    ```
+
+    This class is not thread safe.
+
+    LockFile class also supports context management protocol, but because
+    currently it is only used in ccm to prevent concurrent downloads,
+    logging messages in __enter__ are specific to this use case.
+    If this class is ever needed somewhere else, this can be changed,
+    either by changing messages or the API.
+
+    Attributes
+    ----------
+    _filename: str | bytes | os.PathLike
+        Path to a lockfile - used for logging
+    _file: TextIO
+        File handle which will be used to take a lock.
+    _locked: bool
+        True if lock is currently acquired by this object.
+    """
+    _filename: Union[str, bytes, os.PathLike]
+    _file: TextIO
+    _locked: bool
+
+    def __init__(self, filename: Union[str, bytes, os.PathLike]):
+        # We use append because:
+        # - if a file doesn't exist, we need to create it
+        # - we don't want to truncate existing file
+        # - we want RW access to file
+        # 'a+' is the only mode that satisfies all of this.
+        self._filename = filename
+        self._file = open(filename, 'a+')
+        self._locked = False
+    
+    def acquire(self, blocking=True) -> (bool, Optional[int]):
+        """Tries to take a lock.
+        If `blocking` parameter is `True` (default), it will wait indefinitely.
+        If it's false,
+        If it fails, it returns PID of the process
+           that currently owns this lock.
+        """
+        assert not self._locked
+
+        flags = fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB
+        try:
+            fcntl.flock(self._file, flags)
+        except OSError:
+            (blocking_pid, _) = self.read_contents()
+            return False, blocking_pid
+        else:
+            self._locked = True
+            old_status = self.read_status()
+            self.write_status(old_status or '')
+            return True, None
+
+    def release(self):
+        assert self._locked
+        fcntl.flock(self._file, fcntl.LOCK_UN)
+        self._locked = False
+    
+    def write_status(self, new_status: str):
+        assert self._locked
+        self._file.seek(0, 0)
+        self._file.truncate()
+        self._file.write(f'{os.getpid()};{new_status}')
+        self._file.flush()
+    
+    def read_contents(self) -> (Optional[int], Optional[str]):
+        """Reads the lockfile and returns pair 
+        (pid of owning process, last status)
+        """
+        self._file.seek(0, 0)
+        file_data = self._file.read()
+        try:
+            (blocking_pid, old_status) = file_data.split(';', 1)
+            blocking_pid = int(blocking_pid)
+            return blocking_pid, old_status
+        except:
+            return None, None
+    
+    def read_status(self) -> Optional[str]:
+        return self.read_contents()[1]
+
+    def __enter__(self) -> 'LockFile':
+        success, blocking_pid_opt = self.acquire(blocking=False)
+        if success:
+            return self
+        print(f"Another download running into '{os.path.dirname(self._filename)}', "
+              f"by process '{blocking_pid_opt}'. Waiting for parallel downloading to finish. "
+              f"If process '{blocking_pid_opt}' got stuck, kill it in order to continue the operation here.")
+
+        if not wait_for(func=lambda: self.acquire(blocking=False)[0], timeout=3600):
+            raise TimeoutError(f"Relocatables download still runs in parallel from another test after 60 min. "
+                               f"Placeholder file still locked: {self._filename}")
+        return self
+ 
+    def __exit__(self, *args):
+        self.release()
 
 
 def get_default_path():
@@ -521,44 +661,37 @@ def wait_for(func: Callable, timeout: int, first: float = 0.0, step: float = 1.0
     return False
 
 
-def wait_for_parallel_download_finish(placeholder_file):
-    if not wait_for(func=lambda: not os.path.exists(placeholder_file), timeout=3600):
-        raise TimeoutError(f"Relocatables download still runs in parallel from another test after 60 min. "
-                           f"Placeholder file exists: {placeholder_file}")
-
-
 def validate_install_dir(install_dir):
     if install_dir is None:
         raise ArgumentError('Undefined installation directory')
 
     # If relocatables download is running in parallel from another test, the install_dir exists with placehoslder file
     # in the folder. Once it will be downloaded and installed, this file will be removed.
-    wait_for_parallel_download_finish(placeholder_file=os.path.join(install_dir, DOWNLOAD_IN_PROGRESS_FILE))
+    with LockFile(os.path.join(install_dir, DOWNLOAD_IN_PROGRESS_FILE)):
+        # Windows requires absolute pathing on installation dir - abort if specified cygwin style
+        if is_win():
+            if ':' not in install_dir:
+                raise ArgumentError(f'{install_dir} does not appear to be a cassandra or dse installation directory.  Please use absolute pathing (e.g. C:/cassandra.')
 
-    # Windows requires absolute pathing on installation dir - abort if specified cygwin style
-    if is_win():
-        if ':' not in install_dir:
-            raise ArgumentError('%s does not appear to be a cassandra or dse installation directory.  Please use absolute pathing (e.g. C:/cassandra.' % install_dir)
-
-    bin_dir = os.path.join(install_dir, BIN_DIR)
-    if isScylla(install_dir):
-        install_dir, mode = scylla_extract_install_dir_and_mode(install_dir)
-        bin_dir = install_dir
-        conf_dir = os.path.join(install_dir, SCYLLA_CONF_DIR)
-    elif isDse(install_dir):
-        conf_dir = os.path.join(install_dir, DSE_CASSANDRA_CONF_DIR)
-    elif isOpscenter(install_dir):
-        conf_dir = os.path.join(install_dir, OPSCENTER_CONF_DIR)
-    else:
-        conf_dir = os.path.join(install_dir, CASSANDRA_CONF_DIR)
-    cnd = os.path.exists(bin_dir)
-    cnd = cnd and os.path.exists(conf_dir)
-    if isScylla(install_dir):
-        cnd = os.path.exists(os.path.join(conf_dir, SCYLLA_CONF))
-    elif not isOpscenter(install_dir):
-        cnd = cnd and os.path.exists(os.path.join(conf_dir, CASSANDRA_CONF))
-    if not cnd:
-        raise ArgumentError('%s does not appear to be a cassandra or dse installation directory' % install_dir)
+        bin_dir = os.path.join(install_dir, BIN_DIR)
+        if isScylla(install_dir):
+            install_dir, mode = scylla_extract_install_dir_and_mode(install_dir)
+            bin_dir = install_dir
+            conf_dir = os.path.join(install_dir, SCYLLA_CONF_DIR)
+        elif isDse(install_dir):
+            conf_dir = os.path.join(install_dir, DSE_CASSANDRA_CONF_DIR)
+        elif isOpscenter(install_dir):
+            conf_dir = os.path.join(install_dir, OPSCENTER_CONF_DIR)
+        else:
+            conf_dir = os.path.join(install_dir, CASSANDRA_CONF_DIR)
+        cnd = os.path.exists(bin_dir)
+        cnd = cnd and os.path.exists(conf_dir)
+        if isScylla(install_dir):
+            cnd = os.path.exists(os.path.join(conf_dir, SCYLLA_CONF))
+        elif not isOpscenter(install_dir):
+            cnd = cnd and os.path.exists(os.path.join(conf_dir, CASSANDRA_CONF))
+        if not cnd:
+            raise ArgumentError(f'{install_dir} does not appear to be a cassandra or dse installation directory')
 
 
 def check_socket_available(itf):
