@@ -10,3 +10,4 @@ ccm.egg-info/
 .project
 .coverage
 tests/test_results
+.direnv/
