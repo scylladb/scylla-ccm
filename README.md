@@ -86,8 +86,40 @@ There is also a [Homebrew package][brew] available:
 
     brew install ccm
 
+You can also use ccm trough Nix.
+
+    Spawn new temporary shell with ccm present, without installing: `nix shell github:scylladb/scylla-ccm`
+    Install ccm: `nix profile install github:scylladb/scylla-ccm`
+    To remove / update ccm installed this way, first locate it's index in `nix profile list`.
+    To remove it, use `nix profile remove <index>`.
+    To update it use `nix profile upgrade <index>` - or `nix profile upgrade '.*'` to upgrade all Nix packages.
+
   [pip]: https://pypi.python.org/pypi/ccm
   [brew]: https://github.com/Homebrew/homebrew/blob/master/Library/Formula/ccm.rb
+
+Nix
+-----------------------
+
+This project features experimental Nix flake.
+It allows ccm to be used as a dependency in other nix projects or to quickly launch a dev shell
+with all dependencies required to run and test the project.
+
+### How to setup Nix shell
+
+1. Install Nix: https://nixos.org/download.html - on Fedora you should probably use "Single-user installation",
+   as there are some problems with multi-user due to SELinux.
+2. Activate required experimental features:
+```
+mkdir -p ~/.config/nix
+echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
+```
+   If you installed Nix in multi-user mode, you will need to restart Nix daemon.
+3. First option: using direnv. Install direnv (see: https://direnv.net/docs/installation.html ), `cd` into project directory and execute `direnv allow .`.
+   Now you will have dev env activated whenever you are in a project's directory - and automatically unloaded when you leave it.
+4. Second option: use `nix develop` command directly. This command will launch a bash session with loaded dev env. If you want to use your favourite shell,
+   pass `--command <shell>` flag to `nix develop` (in my case: `nix develop --command zsh`).
+
+If you want to install ccm using Nix, or launch a temporary shell with ccm - see "Installation" section.
 
 Usage
 -----
