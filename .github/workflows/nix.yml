@@ -1,0 +1,58 @@
+name: CCM Integration tests (using Nix)
+
+on:
+  push:
+    branches:
+     - master
+     - next*
+
+  pull_request:
+    branches:
+     - next*
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+    - uses: actions/checkout@v3
+    - uses: cachix/install-nix-action@v20
+      with:
+        github_access_token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Cache binary versions
+      id: cache-versions
+      uses: actions/cache@v2
+      with:
+        path: |
+          ~/.ccm/repository
+          ~/.ccm/scylla-repository
+        key: ${{ runner.os }}-binaries
+
+    - name: Download versions
+      if: steps.cache-versions.outputs.cache-hit != 'true'
+      run: |
+        if [ ! -f ~/.ccm/scylla-repository/unstable/master/2023-04-13T13_31_00Z ]; then
+          RELOC_VERSION="2023-04-13T13:31:00Z"
+        
+          nix develop --command ./ccm create temp -n 1 --scylla --version unstable/master:${RELOC_VERSION}
+          nix develop --command ./ccm remove
+        fi
+        nix develop --command ./ccm create temp-cas -n 1 --version 3.11.4 > /dev/null
+        nix develop --command ./ccm remove
+
+    - name: Test with pytest (python 3.9)
+      run: |
+        nix develop --command python3.9 -m pytest ./tests -x
+
+    - name: Test with pytest (python 3.11)
+      run: |
+        nix develop --command python3.11 -m pytest ./tests -x
+
+    - name: Copy logs/results
+      if: contains(github.event.pull_request.labels.*.name, 'PR-upload-log')
+      uses: actions/upload-artifact@v2
+      with:
+        name: ccm-tests-log
+        path: tests/test_results/
