@@ -943,21 +943,16 @@ def assert_jdk_valid_for_cassandra_version(cassandra_version):
         exit(1)
 
 
-def aws_bucket_ls(s3_url):
+def aws_bucket_ls(s3_url: str) -> list[str]:
     bucket_object = s3_url.replace('https://s3.amazonaws.com/', '').split('/')
     prefix = '/'.join(bucket_object[1:])
-    s3_conn = Session().client(service_name='s3', config=Config(signature_version=UNSIGNED))
-    paginator = s3_conn.get_paginator('list_objects_v2')
-    pages = paginator.paginate(Bucket=bucket_object[0], Prefix=prefix)
 
-    files_in_bucket = []
-    for page in pages:
-        if 'Contents' not in page:
-            break
+    s3_resource = Session().resource(service_name='s3', config=Config(signature_version=UNSIGNED))
+    bucket = s3_resource.Bucket(bucket_object[0])
 
-        for obj in page['Contents']:
-            files_in_bucket.append(obj['Key'].replace(prefix + "/", ''))
-    return files_in_bucket
+    files_in_bucket = bucket.objects.filter(Prefix=prefix)
+
+    return [f.key.replace(prefix + "/", '') for f in sorted(files_in_bucket, key=lambda x: x.last_modified)]
 
 
 def grouper(n, iterable, padvalue=None):
