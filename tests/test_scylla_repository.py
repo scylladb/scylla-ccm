@@ -1,8 +1,13 @@
-from unittest.mock import patch
+import typing
 
 import pytest
 
 from ccmlib.scylla_repository import setup as scylla_setup
+from ccmlib.scylla_repository import (
+    get_manager_release_url,
+    get_manager_latest_reloc_url,
+    Architecture,
+)
 
 
 @pytest.mark.repo_tests
@@ -104,3 +109,20 @@ class TestScyllaRepositoryRelease:
         assert packages.scylla_tools_package == 'https://s3.amazonaws.com/downloads.scylladb.com/unstable/scylla/master/relocatable/2021-01-18T15:48:13Z/scylla-tools-package.tar.gz'
         assert packages.scylla_jmx_package == 'https://s3.amazonaws.com/downloads.scylladb.com/unstable/scylla/master/relocatable/2021-01-18T15:48:13Z/scylla-jmx-package.tar.gz'
 
+
+@pytest.mark.parametrize('architecture', argvalues=typing.get_args(Architecture))
+class TestGetManagerFunctions:
+    def test_get_manager_latest_reloc_url(self, architecture):
+        master_version = get_manager_latest_reloc_url(architecture=architecture)
+        assert 'relocatable/unstable/master' in master_version
+        assert '-dev-' in master_version
+        assert architecture in master_version
+
+        branch_version = get_manager_latest_reloc_url('branch-3.1', architecture=architecture)
+        assert 'relocatable/unstable/branch-3.1' in branch_version
+        assert architecture in branch_version
+
+    def test_get_manager_release_url(self, architecture):
+        specific_version = get_manager_release_url('3.1.1', architecture=architecture)
+        assert specific_version == 'https://s3.amazonaws.com/downloads.scylladb.com/downloads/scylla-manager/' \
+                                   f'relocatable/scylladb-manager-3.1/scylla-manager_3.1.1-0.20230612.401edeb8_linux_{architecture}.tar.gz'
