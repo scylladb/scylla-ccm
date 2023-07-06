@@ -1,9 +1,3 @@
-import logging
-import random
-import time
-from pathlib import Path
-from typing import NamedTuple
-
 import os
 import tarfile
 import tempfile
@@ -13,6 +7,11 @@ import re
 import sys
 import glob
 import urllib
+import logging
+import random
+import time
+from pathlib import Path
+from typing import NamedTuple, Literal
 
 import requests
 import yaml
@@ -566,3 +565,40 @@ def run_scylla_unified_install_script(install_dir, target_dir, package_version):
     run('''{0}/install.sh --prefix {1} --nonroot{2}'''.format(
         install_dir, target_dir, install_opt), cwd=install_dir)
     run(f'''ln -s {install_dir}/scylla/conf conf''', cwd=target_dir)
+
+
+Architecture = Literal['x86_64', 'aarch64']
+BASE_DOWNLOADS_URL = 'https://s3.amazonaws.com/downloads.scylladb.com'
+
+
+def get_manager_latest_reloc_url(branch: str = "master", architecture: Architecture = None) -> str:
+    """
+    get the latest manager relocatable version of a specific branch
+    """
+    architecture = architecture or os.environ.get('SCYLLA_ARCH', 'x86_64')
+
+    url = f"{BASE_DOWNLOADS_URL}/manager/relocatable/unstable/{branch}/"
+    # filter only specific architecture
+    all_packages = reversed(aws_bucket_ls(url))
+    latest_package = next(filter(lambda tar: architecture in tar, all_packages))
+
+    # return latest
+    return f'{BASE_DOWNLOADS_URL}/{latest_package}'
+
+
+def get_manager_release_url(version: str = '', architecture: Architecture = None) -> str:
+    """
+    get latest official relocatable of manager releases of specific versions i.e. '3.1' or '3.1.1'
+    only works from release 3.1 and up
+    when version is empty string, won't return latest release (by date, so can be from older branch)
+    """
+    architecture = architecture or os.environ.get('SCYLLA_ARCH', 'x86_64')
+
+    url = f"{BASE_DOWNLOADS_URL}/downloads/scylla-manager/relocatable"
+
+    version_regex = re.compile('scylla-manager_(.*)-0')
+    # filter only specific architecture and version
+    all_packages = reversed(aws_bucket_ls(url))
+    latest_package = next(filter(lambda tar: architecture in tar and version in version_regex.search(tar)[0], all_packages))
+
+    return f'{BASE_DOWNLOADS_URL}/downloads/scylla-manager/relocatable/{latest_package}'
