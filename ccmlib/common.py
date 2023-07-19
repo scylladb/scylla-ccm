@@ -708,6 +708,7 @@ def get_version_from_build(install_dir=None, node_path=None):
 
 def _get_scylla_version(install_dir):
     scylla_version_files = [
+        os.path.join(install_dir, 'SCYLLA-VERSION-FILE'),
         os.path.join(install_dir, 'build', 'SCYLLA-VERSION-FILE'),
         os.path.join(install_dir, '..', '..', 'build', 'SCYLLA-VERSION-FILE'),
         os.path.join(install_dir, 'scylla-core-package', 'SCYLLA-VERSION-FILE'),
