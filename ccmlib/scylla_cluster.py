@@ -146,7 +146,8 @@ class ScyllaCluster(Cluster):
             for old_node, _ in marks:
                 for node, _, _ in started:
                     if old_node is not node:
-                        old_node.watch_rest_for_alive(node)
+                        t = 120 if self.scylla_mode != 'debug' else 600
+                        old_node.watch_rest_for_alive(node, timeout=t)
 
         return started
 
