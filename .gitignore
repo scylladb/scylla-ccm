@@ -11,3 +11,5 @@ ccm.egg-info/
 .coverage
 tests/test_results
 .direnv/
+
+.envrc
