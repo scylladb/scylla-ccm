@@ -13,6 +13,7 @@ import time
 import threading
 from pathlib import Path
 from collections import OrderedDict
+import logging
 
 import psutil
 import yaml
@@ -1347,36 +1348,40 @@ class ScyllaNode(Node):
         instead of the log file and waits for the node to be really useable,
         not just "UP" (see issue #461)
         """
-        tofind = nodes if isinstance(nodes, list) else [nodes]
-        tofind = set([node.address() for node in tofind])
-        url_live = f"http://{self.address()}:10000/gossiper/endpoint/live"
-        url_joining = f"http://{self.address()}:10000/storage_service/nodes/joining"
-        url_tokens = f"http://{self.address()}:10000/storage_service/tokens/"
-        endtime = time.time() + timeout
-        while time.time() < endtime:
-            live = set()
-            response = requests.get(url=url_live)
-            if response.text:
-                live = set(response.json())
-            response = requests.get(url=url_joining)
-            if response.text:
-                live = live - set(response.json())
-            # Verify that node knows not only about the existance of the
-            # other node, but also its tokens:
-            if tofind.issubset(live):
-                # This node thinks that all given nodes are alive and not
-                # "joining", we're almost done, but still need to verify
-                # that the node knows the others' tokens.
-                check = tofind
-                tofind = set()
-                for n in check:
-                    response = requests.get(url=url_tokens+n)
-                    if response.text == '[]':
-                        tofind.add(n)
-            if not tofind:
-                return
-            time.sleep(0.1)
-        raise TimeoutError(f"watch_rest_for_alive() timeout after {timeout} seconds")
+        logging.getLogger('urllib3.connectionpool').disabled = True
+        try:
+            tofind = nodes if isinstance(nodes, list) else [nodes]
+            tofind = set([node.address() for node in tofind])
+            url_live = f"http://{self.address()}:10000/gossiper/endpoint/live"
+            url_joining = f"http://{self.address()}:10000/storage_service/nodes/joining"
+            url_tokens = f"http://{self.address()}:10000/storage_service/tokens/"
+            endtime = time.time() + timeout
+            while time.time() < endtime:
+                live = set()
+                response = requests.get(url=url_live)
+                if response.text:
+                    live = set(response.json())
+                response = requests.get(url=url_joining)
+                if response.text:
+                    live = live - set(response.json())
+                # Verify that node knows not only about the existance of the
+                # other node, but also its tokens:
+                if tofind.issubset(live):
+                    # This node thinks that all given nodes are alive and not
+                    # "joining", we're almost done, but still need to verify
+                    # that the node knows the others' tokens.
+                    check = tofind
+                    tofind = set()
+                    for n in check:
+                        response = requests.get(url=url_tokens+n)
+                        if response.text == '[]':
+                            tofind.add(n)
+                if not tofind:
+                    return
+                time.sleep(0.1)
+            raise TimeoutError(f"watch_rest_for_alive() timeout after {timeout} seconds")
+        finally:
+            logging.getLogger('urllib3.connectionpool').disabled = False
 
     @property
     def gnutls_config_file(self):
