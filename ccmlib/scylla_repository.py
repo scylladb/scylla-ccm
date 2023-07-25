@@ -412,23 +412,33 @@ def setup_scylla_manager(scylla_manager_package=None, verbose=False):
         dir_hash = get_url_hash(scylla_manager_package)
 
         # select a dir to change this version of scylla-manager based on the md5 of the path or the etag of the s3 object
-        manager_install_dir = directory_name(os.path.join('manager', dir_hash))
-        if not os.path.exists(manager_install_dir):
-            os.makedirs(manager_install_dir)
-            _, destination_file = tempfile.mkstemp(suffix=".tar.gz", prefix="ccm-manager-")
+        manager_install_dir = Path(directory_name(Path('manager') / dir_hash))
+        os.makedirs(manager_install_dir, exist_ok=True)
+        with LockFile(manager_install_dir / DOWNLOAD_IN_PROGRESS_FILE) as f:
+            if f.read_status() != 'done':
+                # First ensure that we are working on a clean directory
+                # This prevents lockfile deletion by download_packages, as it doesn't have to clean the directory.
+                for p in Path(manager_install_dir).iterdir():
+                    if p.name != DOWNLOAD_IN_PROGRESS_FILE:
+                        if p.is_dir():
+                            shutil.rmtree(path=p)
+                        else:
+                            p.unlink(missing_ok=True)
 
-            if os.path.exists(scylla_manager_package) and scylla_manager_package.endswith('.tar.gz'):
-                destination_file = scylla_manager_package
-            elif is_valid(scylla_manager_package):
-                res = download_version_from_s3(url=scylla_manager_package, target_path=destination_file, verbose=verbose)
-                if not res:
-                    download_file(url=scylla_manager_package, target_path=destination_file, verbose=verbose)
+                _, destination_file = tempfile.mkstemp(suffix=".tar.gz", prefix="ccm-manager-")
 
-            run(f"""
-                tar -xvf {destination_file} -C {manager_install_dir}
-                rm -f {destination_file}
-                """)
+                if os.path.exists(scylla_manager_package) and scylla_manager_package.endswith('.tar.gz'):
+                    destination_file = scylla_manager_package
+                elif is_valid(scylla_manager_package):
+                    res = download_version_from_s3(url=scylla_manager_package, target_path=destination_file, verbose=verbose)
+                    if not res:
+                        download_file(url=scylla_manager_package, target_path=destination_file, verbose=verbose)
 
+                run(f"""
+                    tar -xvf {destination_file} -C {manager_install_dir}
+                    rm -f {destination_file}
+                    """)
+                f.write_status('done')
         return manager_install_dir
 
 
