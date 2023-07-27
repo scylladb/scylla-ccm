@@ -42,6 +42,8 @@ class ScyllaCluster(Cluster):
 
         self.started = False
         self.force_wait_for_cluster_start = (force_wait_for_cluster_start != False)
+        self.default_wait_other_notice_timeout = 120 if self.scylla_mode != 'debug' else 600
+        self.default_wait_for_binary_proto = 420 if self.scylla_mode != 'debug' else 900
         self._scylla_manager = None
         self.skip_manager_server = skip_manager_server
         self.scylla_version = cassandra_version
@@ -146,8 +148,7 @@ class ScyllaCluster(Cluster):
             for old_node, _ in marks:
                 for node, _, _ in started:
                     if old_node is not node:
-                        t = 120 if self.scylla_mode != 'debug' else 600
-                        old_node.watch_rest_for_alive(node, timeout=t)
+                        old_node.watch_rest_for_alive(node, timeout=self.default_wait_other_notice_timeout)
 
         return started
 
