@@ -974,20 +974,19 @@ class Node(object):
         self._create_directory()
 
     def run_sstable2json(self, out_file=None, keyspace=None, datafiles=None, column_families=None, enumerate_keys=False):
-        print("running")
         if out_file is None:
-            out_file = sys.stdout
+            out_file = subprocess.PIPE
         sstable2json = self._find_cmd('sstabledump')
         env = self.get_env()
         sstablefiles = self.__gather_sstables(datafiles, keyspace, column_families)
-        print(sstablefiles)
+        common.print_if_standalone(str(sstablefiles), debug_callback=self.info, end='')
         for sstablefile in sstablefiles:
-            print(f"-- {os.path.basename(sstablefile)} -----")
+            common.print_if_standalone(f"-- {os.path.basename(sstablefile)} -----", debug_callback=self.info, end='')
             args = sstable2json + [sstablefile]
             if enumerate_keys:
                 args = args + ["-e"]
-            subprocess.call(args, env=env, stdout=out_file)
-            print("")
+            res = subprocess.run(args, env=env, stdout=out_file, text=True, check=True)
+            common.print_if_standalone(res.stdout if res.stdout else '', debug_callback=self.info, end='')
 
     def run_json2sstable(self, in_file, ks, cf, keyspace=None, datafiles=None, column_families=None, enumerate_keys=False):
         json2sstable = self._find_cmd('json2sstable')
