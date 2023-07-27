@@ -275,7 +275,7 @@ class ScyllaNode(Node):
         return bool(self.grep_log(f"{bootstrap_message}|{resharding_message}", from_mark=from_mark))
 
     def _start_scylla(self, args, marks, update_pid, wait_other_notice,
-                      wait_for_binary_proto, ext_env, timeout=None):
+                      wait_for_binary_proto, ext_env):
         log_file = os.path.join(self.get_path(), 'logs', 'system.log')
         # In case we are restarting a node
         # we risk reading the old cassandra.pid file
@@ -311,20 +311,20 @@ class ScyllaNode(Node):
                 raise NodeError(f"Error starting node {self.name}",
                                 self._process_scylla)
 
-        if wait_other_notice:
-            for node, _ in marks:
-                t = timeout if timeout is not None else 120 if self.cluster.scylla_mode != 'debug' else 600
-                node.watch_rest_for_alive(self, timeout=t)
-                self.watch_rest_for_alive(node, timeout=t)
-
         if wait_for_binary_proto:
-            t = timeout * 4 if timeout is not None else 420 if self.cluster.scylla_mode != 'debug' else 900
+            t = self.cluster.default_wait_for_binary_proto
             from_mark = self.mark
             try:
-                self.wait_for_binary_interface(from_mark=from_mark, process=self._process_scylla, timeout=timeout or 180)
-            except TimeoutError as e:
+                self.wait_for_binary_interface(from_mark=from_mark, process=self._process_scylla, timeout=t)
+            except TimeoutError:
                 self.wait_for_starting(from_mark=self.mark, timeout=t)
-                self.wait_for_binary_interface(from_mark=from_mark, process=self._process_scylla, timeout=0)
+                self.wait_for_binary_interface(from_mark=from_mark, process=self._process_scylla, timeout=t)
+
+        if wait_other_notice:
+            for node, _ in marks:
+                t = self.cluster.default_wait_other_notice_timeout
+                node.watch_rest_for_alive(self, timeout=t)
+                self.watch_rest_for_alive(node, timeout=t)
 
         return self._process_scylla
 
