@@ -1336,8 +1336,12 @@ class Node(object):
             cmd += f" {table}"
         self.nodetool(cmd, **kwargs)
 
-    def compact(self):
-        self.nodetool("compact")
+    def compact(self, keyspace = "", tables = []):
+        compact_cmd = ["compact"]
+        if keyspace:
+            compact_cmd.append(keyspace)
+        compact_cmd += tables
+        self.nodetool(" ".join(compact_cmd))
 
     def drain(self, block_on_log=False):
         mark = self.mark_log()
