@@ -3,6 +3,7 @@
 
 from datetime import datetime
 import errno
+import json
 import os
 import signal
 import shutil
@@ -13,6 +14,8 @@ import time
 import threading
 from pathlib import Path
 from collections import OrderedDict
+from typing import Any, Dict, List
+
 import logging
 
 import psutil
@@ -1432,6 +1435,49 @@ class ScyllaNode(Node):
             for sst in sstables:
                 ret[sst] = do_invoke([sst])
         return ret
+
+    def dump_sstables(self,
+                      keyspace: str,
+                      column_family: str) -> List[Dict[str, Any]]:
+        """dump the partitions in the specified table using `scylla sstable dump-data`
+
+        :param keyspace: restrict the operation to sstables of this keyspace
+        :param column_family: restrict the operation to sstables of this column_family
+        :return: return all the partitions collected in the specified sstables
+        :raises: subprocess.CalledProcessError if scylla-sstable returns a non-zero exit code.
+
+        a typical return value might look like:
+        ```
+        [
+          {
+            'key': {'token': '-4069959284402364209',
+                    'raw': '000400000001',
+                    'value': '1'},
+            'tombstone': {'timestamp': 1690533264324595,
+                          'deletion_time': '2023-07-28 08:34:24z'}
+          },
+          {
+            'key': {'token': '-2249632751995682149',
+                    'raw': '00040000005e',
+                    'value': '94'},
+            'clustering_elements': [
+              {
+                'type': clustering-row',
+                'key': {...},
+                'marker': {...},
+                'columns': {...},
+            ]
+          }
+        ]
+        ```
+        """
+        sstable_dumps = self.run_scylla_sstable('dump-data', ['--merge'],
+                                                keyspace=keyspace,
+                                                column_families=[column_family],
+                                                batch=True)
+        assert '' in sstable_dumps
+        stdout, _ = sstable_dumps['']
+        return json.loads(stdout)['sstables']['anonymous']
 
 
 class NodeUpgrader:
