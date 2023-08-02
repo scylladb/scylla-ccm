@@ -14,7 +14,7 @@ import time
 import threading
 from pathlib import Path
 from collections import OrderedDict
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import logging
 
@@ -1438,11 +1438,13 @@ class ScyllaNode(Node):
 
     def dump_sstables(self,
                       keyspace: str,
-                      column_family: str) -> List[Dict[str, Any]]:
+                      column_family: str,
+                      datafiles: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """dump the partitions in the specified table using `scylla sstable dump-data`
 
         :param keyspace: restrict the operation to sstables of this keyspace
         :param column_family: restrict the operation to sstables of this column_family
+        :param datafiles: restrict the operation to the given sstables
         :return: return all the partitions collected in the specified sstables
         :raises: subprocess.CalledProcessError if scylla-sstable returns a non-zero exit code.
 
@@ -1474,6 +1476,7 @@ class ScyllaNode(Node):
         sstable_dumps = self.run_scylla_sstable('dump-data', ['--merge'],
                                                 keyspace=keyspace,
                                                 column_families=[column_family],
+                                                datafiles=datafiles,
                                                 batch=True)
         assert '' in sstable_dumps
         stdout, _ = sstable_dumps['']
