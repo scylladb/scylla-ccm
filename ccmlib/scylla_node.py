@@ -1418,11 +1418,18 @@ class ScyllaNode(Node):
         if additional_args is None:
             additional_args = []
         scylla_path = common.join_bin(self.get_path(), BIN_DIR, 'scylla')
-        env = self.get_env()
         sstables = self._Node__gather_sstables(datafiles, keyspace, column_families)
         ret = {}
 
         def do_invoke(sstables):
+            # there are chances that the table is not replicated on this node,
+            # in that case, scylla tool will fail to dump the sstables and error
+            # out. let's just return an empty list for the partitions, so that
+            # dump_sstables() can still parse it in the same way.
+            if not sstables:
+                empty_dump = {'sstables': {'anonymous': []}}
+                stdout, stderr = json.dumps(empty_dump), ''
+                return (stdout, stderr)
             common_args = [scylla_path, "sstable", command] + additional_args
             res = subprocess.run(common_args + sstables, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
             return (res.stdout, res.stderr)
