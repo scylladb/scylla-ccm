@@ -985,10 +985,13 @@ class Node(object):
             args = sstable2json + [sstablefile]
             if enumerate_keys:
                 args = args + ["-e"]
-            res = subprocess.run(args, env=env, stdout=out_file, stderr=subprocess.PIPE, text=True)
-            if not res.returncode == 0 and "Cannot find file" not in res.stderr:
-                common.print_if_standalone(res.stderr, debug_callback=self.info, end='')
-                raise ToolError(args, exit_status=res.returncode, stdout=res.stdout, stderr=res.stderr)
+            try:
+                res = subprocess.run(args, env=env, stdout=out_file, text=True, check=True)
+            except CalledProcessError as e:
+                if 'Cannot find file' in res.stderr:
+                    pass
+                else:
+                    raise ToolError(e.cmd, e.returncode, e.stdout, e.stderr)
             common.print_if_standalone(res.stdout if res.stdout else '', debug_callback=self.info, end='')
 
     def run_json2sstable(self, in_file, ks, cf, keyspace=None, datafiles=None, column_families=None, enumerate_keys=False):
