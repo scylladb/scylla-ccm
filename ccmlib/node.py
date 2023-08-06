@@ -1836,7 +1836,7 @@ class Node(object):
                     self.pid = int(f.readline().strip().decode('utf-16'))
                 else:
                     self.pid = int(f.readline().strip())
-                self.all_pids.append(self.pid)
+                self.all_pids = list(set(self.all_pids) | {self.pid})
         except IOError as e:
             raise NodeError(f'Problem starting node {self.name} due to {e}', process)
         self.__update_status()
