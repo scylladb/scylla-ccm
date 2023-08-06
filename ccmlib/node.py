@@ -987,12 +987,12 @@ class Node(object):
                 args = args + ["-e"]
             try:
                 res = subprocess.run(args, env=env, stdout=out_file, text=True, check=True)
+                common.print_if_standalone(res.stdout if res.stdout else '', debug_callback=self.info, end='')
             except subprocess.CalledProcessError as e:
-                if 'Cannot find file' in res.stderr:
+                if 'Cannot find file' in e.stderr:
                     pass
                 else:
                     raise ToolError(e.cmd, e.returncode, e.stdout, e.stderr)
-            common.print_if_standalone(res.stdout if res.stdout else '', debug_callback=self.info, end='')
 
     def run_json2sstable(self, in_file, ks, cf, keyspace=None, datafiles=None, column_families=None, enumerate_keys=False):
         json2sstable = self._find_cmd('json2sstable')
