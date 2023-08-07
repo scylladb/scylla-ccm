@@ -626,7 +626,10 @@ def scylla_extract_mode(path):
     # path/url examples:
     #   /jenkins/data/relocatable/unstable/master/202001192256/scylla-package.tar.gz
     #   url=https://downloads.scylla.com/relocatable/unstable/master/202001192256/scylla-debug-package.tar.gz
-    m = re.search(r'(^|/)(scylla|scylla-enterprise)(-(?P<mode>\w+))?(-(\w+))?-package([-./][\w./]+|$)', path)
+    #   url=https://downloads.scylladb.com/unstable/scylla/master/relocatable/latest/scylla-debug-unified-5.4.0~dev-0.20230801.37b548f46365.x86_64.tar.gz
+    #   url=https://s3.amazonaws.com/downloads.scylladb.com/unstable/scylla-enterprise/enterprise/relocatable/latest/scylla-enterprise-debug-unstripped-2023.3.0~dev-0.20230806.6dc3aeaf312c.aarch64.tar.gz
+    name = os.path.split(path)[-1]
+    m = re.search(r'(^|/)(?P<product>scylla(?:-enterprise)?)(?:-(?P<mode>debug|dev|release))?-.*\.tar\.gz', name)
     if m:
         mode = m.groupdict().get('mode')
         return mode if mode in ('debug', 'dev') else 'release'
