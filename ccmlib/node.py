@@ -986,10 +986,10 @@ class Node(object):
             if enumerate_keys:
                 args = args + ["-e"]
             try:
-                res = subprocess.run(args, env=env, stdout=out_file, text=True, check=True)
+                res = subprocess.run(args, env=env, stdout=out_file, stderr=subprocess.PIPE, text=True, check=True)
                 common.print_if_standalone(res.stdout if res.stdout else '', debug_callback=self.info, end='')
             except subprocess.CalledProcessError as e:
-                if 'Cannot find file' in e.stderr:
+                if e.stderr and 'Cannot find file' in e.stderr:
                     pass
                 else:
                     raise ToolError(e.cmd, e.returncode, e.stdout, e.stderr)
