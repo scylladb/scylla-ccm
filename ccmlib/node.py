@@ -75,8 +75,8 @@ class ToolError(Exception):
 
 NodetoolError = ToolError
 
-# Groups: 1 = cf, 2 = tmp or none, 3 = suffix (Compacted or Data.db)
-_sstable_regexp = re.compile(r'((?P<keyspace>[^\s-]+)-(?P<cf>[^\s-]+)-)?(?P<tmp>tmp(link)?-)?(?P<version>[^\s-]+)-(?P<number>\d+)-(?P<big>big-)?(?P<suffix>[a-zA-Z]+)\.[a-zA-Z0-9]+$')
+# Groups: 0 = ks, 1 = cf, 2 = tmp or none, 3 = version, 4 = identifier (generation), 4 = "big-" or none, 5 = suffix (Compacted or Data.db)
+_sstable_regexp = re.compile(r'((?P<keyspace>[^\s-]+)-(?P<cf>[^\s-]+)-)?(?P<tmp>tmp(link)?-)?(?P<version>[^\s-]+)-(?P<identifier>[^-]+)-(?P<big>big-)?(?P<suffix>[a-zA-Z]+)\.[a-zA-Z0-9]+$')
 
 
 class Node(object):
@@ -1871,10 +1871,10 @@ class Node(object):
                     raise NodeError("File doesn't seem to be a valid sstable filename: " + datafile)
 
                 sstable = sstable.groupdict()
-                if not sstable['tmp'] and sstable['number'] not in sstables:
+                if not sstable['tmp'] and sstable['identifier'] not in sstables:
                     if not os.path.exists(datafile):
                         raise IOError("File doesn't exist: " + datafile)
-                    sstables.add(sstable['number'])
+                    sstables.add(sstable['identifier'])
                     files.append(datafile)
 
         return files
