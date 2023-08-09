@@ -347,7 +347,7 @@ class Node(object):
             assert result.stdout, f"Empty command '\"{find_cmd}\" output"
             all_sstable_files = result.stdout.splitlines()
 
-            sstable_version_regex = re.compile(r'(\w+)-\d+-(.+)\.(db|txt|sha1|crc32)')
+            sstable_version_regex = re.compile(r'(\w+)-[^-]+-(.+)\.(db|txt|sha1|crc32)')
 
             sstable_versions = {sstable_version_regex.search(f).group(1) for f in all_sstable_files if
                                 sstable_version_regex.search(f)}
