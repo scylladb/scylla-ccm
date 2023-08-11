@@ -1455,6 +1455,10 @@ class ScyllaNode(Node):
         :return: return all the partitions collected in the specified sstables
         :raises: subprocess.CalledProcessError if scylla-sstable returns a non-zero exit code.
 
+        the $SSTABLE is returned from this method, please see
+        https://opensource.docs.scylladb.com/stable/operating-scylla/admin-tools/scylla-sstable.html#dump-data
+        for the JSON schema of it.
+
         a typical return value might look like:
         ```
         [
@@ -1471,10 +1475,21 @@ class ScyllaNode(Node):
                     'value': '94'},
             'clustering_elements': [
               {
-                'type': clustering-row',
+                'type': 'clustering-row',
                 'key': {...},
                 'marker': {...},
-                'columns': {...},
+                'columns': {
+                  'c1': {
+                    'is_live': True,
+                    'type': 'regular',
+                    'timestamp': 1691723027979972,
+                    'ttl': '1234s',
+                    'expiry': '2023-08-11 03:24:21z',
+                    'value': 'new',
+                  },
+                  'c2': {...}
+                }
+              }
             ]
           }
         ]
