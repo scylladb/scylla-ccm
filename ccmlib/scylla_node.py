@@ -1489,6 +1489,96 @@ class ScyllaNode(Node):
         stdout, _ = sstable_dumps['']
         return json.loads(stdout)['sstables']['anonymous']
 
+    def dump_sstable_stats(self,
+                           keyspace: str,
+                           column_family: str,
+                           datafiles: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        """dump the partitions in the specified table using `scylla sstable dump-data`
+
+        :param keyspace: restrict the operation to sstables of this keyspace
+        :param column_family: restrict the operation to sstables of this column_family
+        :param datafiles: restrict the operation to the given sstables
+        :return: return all the statistics collected in the specified sstables
+        :raises: subprocess.CalledProcessError if scylla-sstable returns a non-zero exit code.
+
+        the $SSTABLE is returned from this method, please see
+        https://opensource.docs.scylladb.com/stable/operating-scylla/admin-tools/scylla-sstable.html#dump-statistics
+        for the JSON schema of it.
+
+        a typical return value might look like:
+        ```
+        {
+          "/home/joe/scylladb/testlog/release/scylla-6/data/system_schema/columns-24101c25a2ae3af787c1b40ee1aca33f/mc-2-big-Data.db": {
+            "offsets": {
+              "validation": 36,
+              "compaction": 89,
+              "stats": 117,
+              "serialization": 4510
+            },
+            "validation": {
+              "partitioner": "org.apache.cassandra.dht.Murmur3Partitioner",
+              "filter_chance": 0.01
+            },
+            "compaction": {
+              "cardinality": [
+                255,
+                255,
+                ...
+              ]
+            },
+            "stats": {
+              "estimated_partition_size": [
+                {
+                  "offset": 1,
+                  "value": 0
+                },
+                ...
+              ],
+              "estimated_cells_count": [
+                {
+                  "offset": 1,
+                  "value": 0
+                },
+                ...
+              ],
+              "position": {
+                "id": 200533039,
+                "pos": 277953
+              },
+              "min_timestamp": 1691641905811667,
+              "max_timestamp": 1691641905811668,
+              "min_local_deletion_time": 1691641905,
+              "max_local_deletion_time": 2147483647,
+              "min_ttl": 0,
+              "max_ttl": 0,
+              "compression_ratio": 0.3668619791666667,
+              "estimated_tombstone_drop_time": {
+                "1691641905": 2
+              },
+              "sstable_level": 0,
+              "repaired_at": 0,
+              ...
+              "columns_count": 1755,
+              "rows_count": 351,
+              ...
+            },
+            "serialization_header": {
+              "min_timestamp_base": 248761905811667,
+              ...
+            }
+          },
+          ...
+        }
+        ```
+        """
+        sstable_stats = self.run_scylla_sstable('dump-statistics',
+                                                keyspace=keyspace,
+                                                column_families=[column_family],
+                                                datafiles=datafiles,
+                                                batch=True)
+        assert '' in sstable_stats
+        stdout, _ = sstable_stats['']
+        return json.loads(stdout)['sstables']
 
 class NodeUpgrader:
 
