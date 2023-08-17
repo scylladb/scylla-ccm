@@ -889,7 +889,18 @@ class Node(object):
                     p.stdin.write(cmd + ';\n')
             p.stdin.write("quit;\n")
 
-            output = p.communicate(timeout=timeout)
+            try:
+                output = p.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired as e:
+                self.error(f"(EE) {e}")
+                pat = re.compile(r'\r*\n')
+                if e.stdout:
+                    for err in pat.split(e.stdout.decode()):
+                        self.error(f"(EE) <stdout> {err}")
+                if e.stderr:
+                    for err in pat.split(e.stderr.decode()):
+                        self.error(f"(EE) <stdout> {err}")
+                raise e
 
             for err in output[1].split('\n'):
                 if err.strip():
