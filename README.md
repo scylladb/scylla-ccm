@@ -36,6 +36,22 @@ $ ccm start
 # Wait a lot...
 ```
 
+### Creating a cluster of nodes with a specific build-id:
+
+Let's say you want to create a cluster of Scylla with build id `f6e718548e76ccf3564ed2387b6582ba8d37793c` (it's `Scylla 2023.1.0~rc8-20230731.b6f7c5a6910c`).
+
+1. Go to https://backtrace.scylladb.com and find your desired Scylla version
+2. Click the arrow down symbol (\\/) to show all available download links
+3. Download the unified Scylla package (`unified-pack-url-x86_64`)
+4. Create a 3 node cluster:
+```bash
+# The unified package will be extracted to ~/.ccm/scylla-repository/my_custom_scylla
+# Make sure that the version name (my_custom_scylla) is different for each unified package you use, otherwise ccm will use the previously extracted version.
+ccm create my_cluster -n 3 --scylla --vnodes \
+    --version my_custom_scylla \
+    --scylla-unified-package-uri=/home/$USER/Downloads/scylla-enterprise-unified-2023.1.0\~rc8-0.20230731.b6f7c5a6910c.x86_64.tar.gz
+```
+
 Requirements
 ------------
 
