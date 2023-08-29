@@ -14,6 +14,7 @@ import time
 import threading
 from pathlib import Path
 from collections import OrderedDict
+from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
 import logging
@@ -282,7 +283,7 @@ class ScyllaNode(Node):
         # we risk reading the old cassandra.pid file
         self._delete_old_pid()
 
-        env_copy = self._launch_env
+        env_copy = deepcopy(self._launch_env)
         env_copy['SCYLLA_HOME'] = self.get_path()
         env_copy.update(ext_env)
 
