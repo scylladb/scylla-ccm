@@ -1414,7 +1414,11 @@ class ScyllaNode(Node):
                 stdout, stderr = json.dumps(empty_dump), ''
                 return (stdout, stderr)
             common_args = [scylla_path, "sstable", command] + additional_args
-            res = subprocess.run(common_args + sstables, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+            try:
+                env = self._launch_env
+            except AttributeError:
+                env = os.environ
+            res = subprocess.run(common_args + sstables, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True, env=env)
             return (res.stdout, res.stderr)
 
         if batch:
