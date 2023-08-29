@@ -47,6 +47,7 @@ class ScyllaNode(Node):
         self._node_install_dir = None
         self._node_scylla_version = None
         self._relative_repos_root = None
+        self._launch_env = dict(os.environ)
         super(ScyllaNode, self).__init__(name, cluster, auto_bootstrap,
                                          thrift_interface, storage_interface,
                                          jmx_port, remote_debug_port,
@@ -281,10 +282,7 @@ class ScyllaNode(Node):
         # we risk reading the old cassandra.pid file
         self._delete_old_pid()
 
-        try:
-            env_copy = self._launch_env
-        except AttributeError:
-            env_copy = os.environ
+        env_copy = self._launch_env
         env_copy['SCYLLA_HOME'] = self.get_path()
         env_copy.update(ext_env)
 
@@ -1024,7 +1022,6 @@ class ScyllaNode(Node):
                     raise RuntimeError(f'{search_pattern}: found too make matches: {res}')
                 loader = res[0]
 
-                self._launch_env = dict(os.environ)
                 self._launch_env['LD_LIBRARY_PATH'] = dbuild_so_dir
 
                 patchelf_cmd = [loader, os.path.join(dbuild_so_dir, 'patchelf'), '--set-interpreter', loader, dst]
@@ -1414,11 +1411,7 @@ class ScyllaNode(Node):
                 stdout, stderr = json.dumps(empty_dump), ''
                 return (stdout, stderr)
             common_args = [scylla_path, "sstable", command] + additional_args
-            try:
-                env = self._launch_env
-            except AttributeError:
-                env = os.environ
-            res = subprocess.run(common_args + sstables, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True, env=env)
+            res = subprocess.run(common_args + sstables, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True, env=self._launch_env)
             return (res.stdout, res.stderr)
 
         if batch:
