@@ -1891,8 +1891,10 @@ class Node(object):
         return files
 
     def __cleanup_sstables(self, keyspace, cf):
-        if keyspace != 'system_schema':
-            self.get_sstables('system_schema', '', cleanup_unsealed=True)
+        system_keyspace_names = ['system_schema', 'system']
+        if keyspace not in system_keyspace_names:
+            for system_keyspace_name in system_keyspace_names:
+                self.get_sstables(system_keyspace_name, '', cleanup_unsealed=True)
         try:
             return self.get_sstables(keyspace, cf, cleanup_unsealed=True)
         except common.ArgumentError:
