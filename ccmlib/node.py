@@ -1210,14 +1210,24 @@ class Node(object):
         for f in files:
             if os.path.exists(f.replace('Data.db', 'Compacted')):
                 files.remove(f)
-            if (ignore_unsealed or cleanup_unsealed) and os.path.exists(f.replace('Data.db', 'TOC.txt.tmp')):
+        if ignore_unsealed or cleanup_unsealed:
+            # sstablelevelreset tries to open all sstables under the configured
+            # `data_file_directories` in cassandra.yaml. if any of them does not
+            # have missing component, it complains in its stderr. and some tests
+            # using this tool checks the stderr for unexpected error message, so
+            # we need to remove all unsealed sstable files in this case.
+            for toc_tmp in glob.glob(os.path.join(keyspace_dir, cf_glob, '*TOC.txt.tmp')):
                 if cleanup_unsealed:
-                    print(f"get_sstables: Cleaning up unsealed SSTable: {f}")
-                    for i in glob.glob(f.replace('Data.db', '*')):
-                        os.remove(i)
+                    self.info(f"get_sstables: Cleaning up unsealed SSTable: {toc_tmp}")
+                    for unsealed in glob.glob(toc_tmp.replace('TOC.txt.tmp', '*')):
+                        os.remove(unsealed)
                 else:
-                    print(f"get_sstables: Ignoring unsealed SSTable: {f}")
-                files.remove(f)
+                    self.info(f"get_sstables: Ignoring unsealed SSTable: {toc_tmp}")
+                data_sst = toc_tmp.replace('TOC.txt.tmp', 'Data.db')
+                try:
+                    files.remove(data_sst)
+                except ValueError:
+                    pass
         return files
 
     def stress_process(self, stress_options, **kwargs):
