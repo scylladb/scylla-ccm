@@ -863,12 +863,16 @@ class Node(object):
                         print(log, end='')
                     i = i + 1
 
-    def run_cqlsh(self, cmds=None, show_output=False, cqlsh_options=None, return_output=False, timeout=600):
+    def run_cqlsh(self, cmds=None, show_output=False, cqlsh_options=None, return_output=False, timeout=600, extra_env=None):
         cqlsh_options = cqlsh_options or []
         cqlsh = self.get_tool('cqlsh')
         if not isinstance(cqlsh, list):
             cqlsh = [cqlsh]
+
         env = self.get_env()
+        if extra_env:
+            env.update(extra_env)
+
         host = self.network_interfaces['thrift'][0]
         if self.get_base_cassandra_version() >= 2.1:
             port = self.network_interfaces['binary'][1]
