@@ -29,11 +29,11 @@ CORE_PACKAGE_DIR_NAME = 'scylla-core-package'
 SCYLLA_VERSION_FILE = 'SCYLLA-VERSION-FILE'
 
 RELOCATABLE_URLS_BASE = ['https://s3.amazonaws.com/downloads.scylladb.com/unstable/scylla/{0}/relocatable/{1}',
-                         'https://s3.amazonaws.com/downloads.scylladb.com/relocatable/unstable/{0}/{1}']
-RELEASE_RELOCATABLE_URLS_BASE = 'https://s3.amazonaws.com/downloads.scylladb.com/downloads/scylla/relocatable/scylladb-{0}'
-ENTERPRISE_RELEASE_RELOCATABLE_URLS_BASE = 'https://s3.amazonaws.com/downloads.scylladb.com/downloads/scylla-enterprise/relocatable/scylladb-{0}'
-ENTERPRISE_RELOCATABLE_URLS_BASE = ['https://s3.amazonaws.com/downloads.scylladb.com/unstable/scylla-enterprise/{0}/relocatable/{1}',
-                                    'https://s3.amazonaws.com/downloads.scylladb.com/enterprise/relocatable/unstable/{0}/{1}']
+                         'https://s3.amazonaws.com/downloads.scylladb.com/unstable/scylla-enterprise/{0}/relocatable/{1}',
+                         'https://s3.amazonaws.com/downloads.scylladb.com/relocatable/unstable/{0}/{1}',
+                         'https://s3.amazonaws.com/downloads.scylladb.com/enterprise/relocatable/unstable/{0}/{1}']
+RELEASE_RELOCATABLE_URLS_BASE = ['https://s3.amazonaws.com/downloads.scylladb.com/downloads/scylla/relocatable/scylladb-{1}',
+                                 'https://s3.amazonaws.com/downloads.scylladb.com/downloads/scylla-enterprise/relocatable/scylladb-{1}']
 
 
 def run(cmd, cwd=None):
@@ -67,10 +67,7 @@ def release_packages(s3_url, version, arch='x86_64', scylla_product='scylla'):
     :param version:
     :return:
     """
-
     major_version = extract_major_version(version)
-    s3_url = s3_url.format(major_version)
-    
     files_in_bucket = aws_bucket_ls(s3_url)
 
     if not files_in_bucket:
@@ -252,18 +249,14 @@ def setup(version, verbose=True, skip_downloads=False):
 
         if type_n_version[0] == 'release':
             scylla_product = 'scylla-enterprise' if parse_version(extract_major_version(s3_version)) > parse_version("2018.1") else 'scylla'
-            scylla_product = os.environ.get('SCYLLA_PRODUCT', scylla_product)
-            if 'enterprise' in scylla_product:
-                s3_url = ENTERPRISE_RELEASE_RELOCATABLE_URLS_BASE
-            else:
-                s3_url = RELEASE_RELOCATABLE_URLS_BASE
+            major_version = extract_major_version(s3_version)
+
+            s3_url = get_relocatable_s3_url('', major_version, RELEASE_RELOCATABLE_URLS_BASE)
+
             packages, type_n_version[1] = release_packages(s3_url=s3_url, version=s3_version, arch=scylla_arch, scylla_product=scylla_product)
         else:
             _, branch = type_n_version[0].split("/")
-            if 'enterprise' in scylla_product:
-                s3_url = get_relocatable_s3_url(branch, s3_version, ENTERPRISE_RELOCATABLE_URLS_BASE)
-            else:
-                s3_url = get_relocatable_s3_url(branch, s3_version, RELOCATABLE_URLS_BASE)
+            s3_url = get_relocatable_s3_url(branch, s3_version, RELOCATABLE_URLS_BASE)
 
             try:
                 build_manifest = read_build_manifest(s3_url)
@@ -325,11 +318,14 @@ def setup(version, verbose=True, skip_downloads=False):
                 # This prevents lockfile deletion by download_packages, as it doesn't have to clean the directory.
                 for p in Path(version_dir).iterdir():
                     if p.name != DOWNLOAD_IN_PROGRESS_FILE:
-                        shutil.rmtree(p)
+                        if p.is_dir() and not p.is_symlink():
+                            shutil.rmtree(path=p)
+                        else:
+                            p.unlink(missing_ok=True)
 
                 try:
                     package_version, packages = download_packages(version_dir=version_dir, packages=packages, s3_url=s3_url,
-                                                                  scylla_product=scylla_product, version=version, verbose=verbose)
+                                                                  version=version, verbose=verbose)
                 except requests.HTTPError as err:
                     if '404' in err.args[0]:
                         packages_x86_64 = RelocatablePackages(
@@ -338,8 +334,7 @@ def setup(version, verbose=True, skip_downloads=False):
                             scylla_package=os.path.join(s3_url, f'{scylla_product}-x86_64-package.tar.gz')
                         )
                         package_version, packages = download_packages(version_dir=version_dir, packages=packages_x86_64,
-                                                                      s3_url=s3_url, scylla_product=scylla_product,
-                                                                      version=version, verbose=verbose)
+                                                                      s3_url=s3_url, version=version, verbose=verbose)
                     else:
                         raise
 
@@ -365,7 +360,7 @@ def setup(version, verbose=True, skip_downloads=False):
     return version_dir, get_scylla_version(version_dir)
 
 
-def download_packages(version_dir, packages, s3_url, scylla_product, version, verbose):
+def download_packages(version_dir, packages, s3_url, version, verbose):
     if not packages and not s3_url:
         packages = RelocatablePackages(scylla_jmx_package=os.environ.get('SCYLLA_JMX_PACKAGE'),
                                        scylla_tools_package=os.environ.get("SCYLLA_TOOLS_JAVA_PACKAGE") or
