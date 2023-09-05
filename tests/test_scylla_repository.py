@@ -14,6 +14,11 @@ from ccmlib.scylla_repository import (
 @pytest.mark.skip("slow integration test")
 class TestScyllaRepository:
     @pytest.mark.parametrize(argnames=['version', 'expected_version_string'], argvalues=[
+        ("release:2020.1", '2020.1'),
+        ("release:2021.1", '2021.1'),
+        ("release:2022.1", '2022.1'),
+        ("release:2022.2", '2022.2'),
+        ("release:2023.1", '2023.1'),
         ("release:5.1", '5.1'),
         ("release:5.0", '5.0'),
         ("release:4.6", '4.6'),
@@ -28,13 +33,14 @@ class TestScyllaRepository:
         cdir, version = scylla_setup(version=version, verbose=True)
         assert expected_version_string in version
 
-    def test_setup_release_enterprise(self):
-        cdir, version = scylla_setup(version="release:2020.1.5", verbose=True)
-        assert version == '2020.1.5'
-
     def test_setup_unstable_master_new_url(self):
-        cdir, version = scylla_setup(version="unstable/master:2021-01-18T15:48:13Z", verbose=True)
-        assert version == '4.4.dev'
+        cdir, version = scylla_setup(version="unstable/master:2023-09-05T13:59:07Z", verbose=True)
+        assert version == '5.4.0-dev'
+
+    def test_setup_unstable_enterprise_new_url(self):
+        cdir, version = scylla_setup(version="unstable/enterprise:2023-06-15T06:53:32Z", verbose=True)
+        assert version == '2023.3.0-dev'
+
 
 
 class TestScyllaRepositoryRelease:
