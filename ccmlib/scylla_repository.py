@@ -395,8 +395,7 @@ def download_packages(version_dir, packages, s3_url, scylla_product, version, ve
 
         download_version(version=version, verbose=verbose, url=packages.scylla_jmx_package,
                          target_dir=os.path.join(tmp_download, 'scylla-jmx'))
-
-        shutil.move(tmp_download, version_dir)
+        shutil.copytree(tmp_download, version_dir, dirs_exist_ok=True)
 
     return package_version, packages
 
@@ -571,6 +570,7 @@ def run_scylla_unified_install_script(install_dir, target_dir, package_version):
         run(r'''sed -i 's/systemctl --user.*/echo "commented out systemctl command"/' ./install.sh ./**/install.sh''',
             cwd=install_dir)
         run(r'''sed -i 's|/run/systemd/system|/run|' ./install.sh ./**/install.sh''',  cwd=install_dir)
+        run(fr'''sed -i 's/if check_usermode_support; then/if false; then/' ./**/install.sh''', cwd=install_dir)
 
     run('''{0}/install.sh --prefix {1} --nonroot{2}'''.format(
         install_dir, target_dir, install_opt), cwd=install_dir)
