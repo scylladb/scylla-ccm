@@ -148,6 +148,16 @@ class ScyllaNode(Node):
         return common.make_cassandra_env(self.get_install_cassandra_root(),
                                          self.get_node_cassandra_root(), update_conf=update_conf)
 
+    def _get_environ(self, extra_env = None, /, **kwargs):
+        try:
+            env = self._launch_env
+        except AttributeError:
+            env = dict(os.environ)
+        if extra_env is not None:
+            env.update(extra_env)
+        env.update(kwargs)
+        return env
+
     def get_cassandra_version(self):
         # TODO: Handle versioning
         return '3.0'
@@ -212,14 +222,13 @@ class ScyllaNode(Node):
                 '-jar',
                 jmx_jar]
         log_file = os.path.join(self.get_path(), 'logs', 'system.log.jmx')
-        env_copy = os.environ
-        env_copy['SCYLLA_HOME'] = self.get_path()
+        env = self._get_environ(SCYLLA_HOME=self.get_path())
 
         message = f"Starting scylla-jmx: args={args}"
         self.debug(message)
         with open(log_file, 'a') as jmx_log:
             jmx_log.write(f"{message}\n")
-            self._process_jmx = subprocess.Popen(args, stdout=jmx_log, stderr=jmx_log, close_fds=True, env=env_copy)
+            self._process_jmx = subprocess.Popen(args, stdout=jmx_log, stderr=jmx_log, close_fds=True, env=env)
         self._process_jmx.poll()
         # When running on ccm standalone, the waiter thread would block
         # the create commands. Besides in that mode, waiting is unnecessary,
@@ -281,16 +290,11 @@ class ScyllaNode(Node):
         # we risk reading the old cassandra.pid file
         self._delete_old_pid()
 
-        try:
-            env_copy = self._launch_env
-        except AttributeError:
-            env_copy = os.environ
-        env_copy['SCYLLA_HOME'] = self.get_path()
-        env_copy.update(ext_env)
+        env = self._get_environ(ext_env, SCYLLA_HOME=self.get_path())
 
         with open(log_file, 'a') as scylla_log:
             self._process_scylla = \
-                subprocess.Popen(args, stdout=scylla_log, stderr=scylla_log, close_fds=True, env=env_copy)
+                subprocess.Popen(args, stdout=scylla_log, stderr=scylla_log, close_fds=True, env=env)
         self._process_scylla.poll()
         # When running on ccm standalone, the waiter thread would block
         # the create commands. Besides in that mode, waiting is unnecessary,
@@ -1024,8 +1028,8 @@ class ScyllaNode(Node):
                     raise RuntimeError(f'{search_pattern}: found too make matches: {res}')
                 loader = res[0]
 
-                self._launch_env = dict(os.environ)
-                self._launch_env['LD_LIBRARY_PATH'] = dbuild_so_dir
+
+                self._launch_env = self._get_environ(LD_LIBRARY_PATH=dbuild_so_dir)
 
                 patchelf_cmd = [loader, os.path.join(dbuild_so_dir, 'patchelf'), '--set-interpreter', loader, dst]
                 def run_patchelf(patchelf_cmd):
@@ -1414,10 +1418,7 @@ class ScyllaNode(Node):
                 stdout, stderr = json.dumps(empty_dump), ''
                 return (stdout, stderr)
             common_args = [scylla_path, "sstable", command] + additional_args
-            try:
-                env = self._launch_env
-            except AttributeError:
-                env = os.environ
+            env = self._get_environ()
             res = subprocess.run(common_args + sstables, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True, env=env)
             return (res.stdout, res.stderr)
 
