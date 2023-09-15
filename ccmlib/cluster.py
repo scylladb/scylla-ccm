@@ -720,3 +720,7 @@ class Cluster(object):
     @staticmethod
     def is_docker():
         return False
+
+    @property
+    def tablets_enabled(self) -> bool:
+        return 'tablets' in self._config_options.get('experimental_features', [])
