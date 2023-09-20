@@ -769,11 +769,7 @@ def normalize_interface(itf):
 def parse_settings(args):
     settings = {}
     for s in args:
-        if is_win():
-            # Allow for absolute path on Windows for value in key/value pair
-            splitted = s.split(':', 1)
-        else:
-            splitted = s.split(':')
+        splitted = s.split(':', 1)
         if len(splitted) != 2:
             raise ArgumentError("A new setting should be of the form 'key: value', got " + s)
         key = splitted[0].strip()
@@ -784,10 +780,7 @@ def parse_settings(args):
         elif val.lower() == "false":
             val = False
         else:
-            try:
-                val = int(val)
-            except ValueError:
-                pass
+            val = yaml.safe_load(val)
         splitted = key.split('.')
         if len(splitted) == 2:
             try:

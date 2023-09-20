@@ -590,7 +590,10 @@ class NodeUpdateconfCmd(Cmd):
         return "Update the cassandra config files for this node (useful when updating cassandra)"
 
     def get_parser(self):
-        usage = "usage: ccm node_name updateconf [options] [ new_setting | ...  ], where new_setting should be a string of the form 'compaction_throughput_mb_per_sec: 32'"
+        usage = ("usage: ccm node_name updateconf [options] [ new_setting | ...  ], "
+                 "where new_setting should be a string of the form 'key:val'; "
+                 "where 'key' is the name of an option, 'val' is the YAML representation of its value, "
+                 "nested options can be separated with a period like 'client_encryption_options.enabled: false'")
         parser = self._get_default_parser(usage, self.description())
         parser.add_option('--no-hh', '--no-hinted-handoff', action="store_false",
                           dest="hinted_handoff", default=True, help="Disable hinted handoff")
