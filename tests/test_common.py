@@ -1,6 +1,10 @@
-from ccmlib.common import scylla_extract_mode, LockFile
 import tempfile
 import os
+
+import pytest
+import yaml
+
+from ccmlib.common import scylla_extract_mode, LockFile, parse_settings
 
 
 def test_scylla_extract_mode():
@@ -66,3 +70,25 @@ def test_lockfile_retain_status_by_default():
     assert lf.acquire(blocking=False)[0] is True
     assert lf.read_status() == 'some_status_1'
     lf.release()
+
+def test_parse_settings():
+    res = parse_settings(["number:12", "string:somthing", "bool:false"])
+    assert res == {'bool': False, 'number': 12, 'string': 'somthing'}
+
+    res = parse_settings(["nested.number:12", "nested.string:somthing", "nested.bool:false"])
+    assert res == {'nested': {'bool': False, 'number': 12, 'string': 'somthing'}}
+
+    # a fix that need to be backported from upstream
+    # https://github.com/riptano/ccm/commit/37afe6ab86fe03d5be7d0cf7a328dccac035a9a0
+    # res = parse_settings(["double.nested.number:12", "double.nested.string:somthing", "double.nested.bool:false"])
+    # assert res == {'double': {'nested': {'bool': False, 'number': 12, 'string': 'somthing'}}}
+
+    res = parse_settings(["experimental_features:[udf,tablets]"])
+    assert res == {'experimental_features': ['udf', 'tablets']}
+
+    res = parse_settings(["experimental_features:['udf',\"tablets\"]"])
+    assert res == {'experimental_features': ['udf', 'tablets']}
+
+    # would break if incorrect yaml format is passed in the value
+    with pytest.raises(yaml.parser.ParserError):
+        parse_settings(["experimental_features:['udf',\"tablets\""])

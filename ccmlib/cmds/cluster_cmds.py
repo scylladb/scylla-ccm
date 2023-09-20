@@ -821,7 +821,10 @@ class ClusterUpdateconfCmd(Cmd):
         return "Update the cassandra config files for all nodes"
 
     def get_parser(self):
-        usage = "usage: ccm updateconf [options] [ new_setting | ...  ], where new_setting should be a string of the form 'compaction_throughput_mb_per_sec: 32'; nested options can be separated with a period like 'client_encryption_options.enabled: false'"
+        usage = ("usage: ccm updateconf [options] [ new_setting | ...  ], "
+                 "where new_setting should be a string of the form 'key:val'; "
+                 "where 'key' is the name of an option, 'val' is the YAML representation of its value, "
+                 "nested options can be separated with a period like 'client_encryption_options.enabled: false'")
         parser = self._get_default_parser(usage, self.description())
         parser.add_option('--no-hh', '--no-hinted-handoff', action="store_false",
                           dest="hinted_handoff", default=True, help="Disable hinted handoff")
@@ -861,7 +864,10 @@ class ClusterUpdatedseconfCmd(Cmd):
         return "Update the dse config files for all nodes"
 
     def get_parser(self):
-        usage = "usage: ccm updatedseconf [options] [ new_setting | ...  ], where new_setting should be a string of the form 'max_solr_concurrency_per_core: 2'; nested options can be separated with a period like 'cql_slow_log_options.enabled: true'"
+        usage = ("usage: ccm updatedseconf [options] [ new_setting | ...  ], "
+                 "where new_setting should be a string of the form 'key:val'; "
+                 "where 'key' is the name of an option, 'val' is the YAML representation of its value, "
+                 "nested options can be separated with a period like 'client_encryption_options.enabled: false'")
         parser = self._get_default_parser(usage, self.description())
         return parser
 
