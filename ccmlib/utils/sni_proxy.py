@@ -13,7 +13,7 @@ from dataclasses import dataclass
 import yaml
 
 from ccmlib.utils.ssl_utils import generate_ssl_stores
-
+from ccmlib.common import wait_for
 
 @contextmanager
 def file_or_memory(path=None, data=None):
@@ -132,7 +132,10 @@ def configure_sni_proxy(conf_dir, nodes_info, listen_port=443):
 def start_sni_proxy(conf_dir, nodes_info, listen_port=443):
     sniproxy_conf_path = configure_sni_proxy(conf_dir, nodes_info, listen_port=listen_port)
     sniproxy_dockerfile = os.path.join(os.path.dirname(__file__), '..', 'resources', 'docker', 'sniproxy')
-    subprocess.check_output(['/bin/bash', '-c', f'docker build {sniproxy_dockerfile} -t sniproxy'], universal_newlines=True)
+    def build_sniproxy():
+        subprocess.check_output(['/bin/bash', '-c', f'docker build {sniproxy_dockerfile} -t sniproxy'], universal_newlines=True)
+    wait_for(func=build_sniproxy, timeout=360, step=1)
+
     docker_id = subprocess.check_output(['/bin/bash', '-c', f'docker run -d --network=host -v {sniproxy_conf_path}:/etc/sniproxy.conf:z -p {listen_port}:{listen_port} -it sniproxy'], universal_newlines=True)
 
     return docker_id.strip(), nodes_info[0].address, listen_port
