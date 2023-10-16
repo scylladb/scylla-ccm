@@ -33,6 +33,7 @@ def test_scylla_extract_mode():
     assert scylla_extract_mode("url=https://downloads.scylla.com/relocatable/unstable/master/202001192256/scylla-debug-package.tar.gz") == 'debug'
     assert scylla_extract_mode("url=https://downloads.scylladb.com/unstable/scylla/master/relocatable/latest/scylla-debug-unified-5.4.0~dev-0.20230801.37b548f46365.x86_64.tar.gz") == 'debug'
     assert scylla_extract_mode("url=https://s3.amazonaws.com/downloads.scylladb.com/unstable/scylla-enterprise/enterprise/relocatable/latest/scylla-enterprise-debug-unstripped-2023.3.0~dev-0.20230806.6dc3aeaf312c.aarch64.tar.gz") == 'debug'
+    assert scylla_extract_mode("/jenkins/workspace/scylla-master/dtest-debug/scylla/build/debug/dist/tar/scylla-debug-unified-5.4.0~dev-0.20231013.055f0617064d.x86_64.tar.gz") == 'debug'
 
 # Those tests assume that LockFile uses fcntl.flock
 # If it switches to anything else, the tests need to be adjusted.
