@@ -42,11 +42,12 @@ class ScyllaCluster(Cluster):
 
         self.started = False
         self.force_wait_for_cluster_start = (force_wait_for_cluster_start != False)
-        self.default_wait_other_notice_timeout = 120 if self.scylla_mode != 'debug' else 600
-        self.default_wait_for_binary_proto = 420 if self.scylla_mode != 'debug' else 900
+        self.__set_default_timeouts()
         self._scylla_manager = None
         self.skip_manager_server = skip_manager_server
         self.scylla_version = cassandra_version
+
+        self.debug(f"ScyllaCluster: cassandra_version={cassandra_version} docker_image={docker_image} install_dir={install_dir} scylla_mode={self.scylla_mode} default_wait_other_notice_timeout={self.default_wait_other_notice_timeout} default_wait_for_binary_proto={self.default_wait_for_binary_proto}")
 
         super(ScyllaCluster, self).__init__(path, name, partitioner,
                                             install_dir, create_directory,
@@ -71,7 +72,14 @@ class ScyllaCluster(Cluster):
     def load_from_repository(self, version, verbose):
         install_dir, version = scylla_repository.setup(version, verbose)
         install_dir, self.scylla_mode = common.scylla_extract_install_dir_and_mode(install_dir)
+        assert self.scylla_mode is not None
+        self.__set_default_timeouts()
+        self.debug(f"ScyllaCluster: load_from_repository: install_dir={install_dir} scylla_mode={self.scylla_mode} default_wait_other_notice_timeout={self.default_wait_other_notice_timeout} default_wait_for_binary_proto={self.default_wait_for_binary_proto}")
         return install_dir, version
+
+    def __set_default_timeouts(self):
+        self.default_wait_other_notice_timeout = 120 if self.scylla_mode != 'debug' else 600
+        self.default_wait_for_binary_proto = 420 if self.scylla_mode != 'debug' else 900
 
     # override get_node_jmx_port for scylla-jmx
     # scylla-jmx listens on the unique node address (127.0.<cluster.id><node.id>)
