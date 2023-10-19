@@ -1307,6 +1307,12 @@ class ScyllaNode(Node):
         raise ValueError(f"gnutls.config wasn't found in any path: {candidates}")
 
 
+    def wait_for_compactions(self, idle_timeout = None):
+        if idle_timeout is None:
+            idle_timeout = 300 if self.scylla_mode() != 'debug' else 900
+        super(ScyllaNode, self).wait_for_compactions(idle_timeout=idle_timeout)
+
+
 class NodeUpgrader:
 
     """
@@ -1435,8 +1441,3 @@ class NodeUpgrader:
         if self.node.node_scylla_version != expected_version:
             raise NodeUpgradeError("Node hasn't been upgraded. Expected version after upgrade: %s, Got: %s" % (
                                     expected_version, self.node.node_scylla_version))
-
-    def wait_for_compactions(self, idle_timeout=None):
-        if idle_timeout is None:
-            idle_timeout = 300 if self.scylla_mode() != 'debug' else 900
-        super(ScyllaNode, self).wait_for_compactions(idle_timeout=idle_timeout)
