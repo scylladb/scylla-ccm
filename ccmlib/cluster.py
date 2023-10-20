@@ -250,6 +250,16 @@ class Cluster(object):
     #    The datacenters are automatically named as dc{i}, starting from 1, the rack is named RAC1
     #    For example, [3, 2] would translate to the following topology {'dc1': {'RAC1': 3}, 'dc2': {'RAC1': 2}}
     #    Where 3 nodes are populated in dc1/RAC1, and 2 nodes are populated in dc2/RAC1
+    # 3.a dict[str: int] - specifying the number of nodes in a multi DC, single RACK per DC cluster
+    #     The dictionary keys explicitly identify each datacenter name, and the value is the number of nodes in the DC.
+    #     For example, {'DC1': 3, 'DC2': 2] would translate to the following topology {'DC1': {'RAC1': 3}, 'DC2': {'RAC1': 2}}
+    # 3.b dict[str: list[int]] - specifying the number of nodes in a multi DC, multi RACK cluster
+    #     The dictionary keys explicitly identify each datacenter name, and the value is the number of nodes in each RACK in the DC.
+    #     Racks are automatically named as RAC{i}, starting from 1
+    #     For example, {'DC1': [2, 2, 2], 'DC2': [3, 3]] would translate to the following topology {'DC1': {'RAC1': 2, 'RAC2': 2, 'RAC3': 2}, 'DC2': {'RAC1': 3, 'RAC2': 3}}
+    # 3.c dict[str: dict[str: int]] - specifying the number of nodes in a multi DC, multi RACK cluster
+    #     The dictionary keys explicitly identify each datacenter and rack names and the values are the number of nodes in each RACK in the DC.
+    #     For example, {'DC1': {'RC1-1': 2, 'RC1-2': 2, 'RC1-3': 2}, 'DC2': {'RC2-1': 3, 'RC2-2': 3}}
     def populate(self, nodes, debug=False, tokens=None, use_vnodes=False, ipprefix=None, ipformat=None):
         if ipprefix:
             self.ipprefix = ipprefix
@@ -268,6 +278,16 @@ class Cluster(object):
                 dc = f"dc{i + 1}"
                 n = nodes[i]
                 topology[dc] = OrderedDict([(None, n)])
+        elif isinstance(nodes, dict):
+            for dc, x in nodes.items():
+                if isinstance(x, int):
+                    topology[dc] = OrderedDict([(None, x)])
+                elif isinstance(x, list):
+                    topology[dc] = OrderedDict([(None, n) for n in x])
+                elif isinstance(x, dict):
+                    topology[dc] = OrderedDict([(rack, n) for rack, n in x.items()])
+                else:
+                    raise common.ArgumentError(f'invalid dc racks type {type(x)}: {x}: nodes={nodes}')
         else:
             raise common.ArgumentError(f'invalid nodes type {type(nodes)}: {nodes}')
         node_count = 0
