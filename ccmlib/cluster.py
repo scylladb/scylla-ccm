@@ -222,7 +222,7 @@ class Cluster(object):
     def cassandra_version(self):
         return self.version()
 
-    def add(self, node, is_seed, data_center=None):
+    def add(self, node, is_seed, data_center=None, rack=None):
         if node.name in self.nodes:
             raise common.ArgumentError(f'Cannot create existing node {node.name}')
         self.nodes[node.name] = node
@@ -230,6 +230,7 @@ class Cluster(object):
             self.seeds.append(node)
         self._update_config()
         node.data_center = data_center
+        node.rack = rack
         node.set_log_level(self.__log_level)
 
         for debug_class in self._debug:
@@ -238,6 +239,7 @@ class Cluster(object):
             node.set_log_level("TRACE", trace_class)
 
         if data_center is not None:
+            self.debug(f"{node.name}: data_center={node.data_center} rack={node.rack} snitch={self.snitch}")
             self.__update_topology_files()
         node._save()
         return self
@@ -286,7 +288,7 @@ class Cluster(object):
             self._update_config()
         return self
 
-    def new_node(self, i, auto_bootstrap=False, debug=False, initial_token=None, add_node=True, is_seed=True, data_center=None):
+    def new_node(self, i, auto_bootstrap=False, debug=False, initial_token=None, add_node=True, is_seed=True, data_center=None, rack=None):
         ipformat = self.get_ipformat()
         binary = None
         if parse_version(self.version()) >= parse_version('1.2'):
@@ -300,7 +302,7 @@ class Cluster(object):
                                 initial_token=initial_token,
                                 binary_interface=binary)
         if add_node:
-            self.add(node, is_seed=is_seed, data_center=data_center)
+            self.add(node, is_seed=is_seed, data_center=data_center, rack=rack)
         return node
 
     def create_node(self, name, auto_bootstrap, thrift_interface, storage_interface, jmx_port, remote_debug_port, initial_token, save=True, binary_interface=None):
@@ -646,14 +648,14 @@ class Cluster(object):
             self.__update_topology_using_rackdc_properties()
 
     def __update_topology_using_toplogy_properties(self):
-        dcs = [('default', 'dc1')]
+        dcs = [('default', 'dc1', 'r1')]
         for node in self.nodelist():
             if node.data_center is not None:
-                dcs.append((node.address(), node.data_center))
+                dcs.append((node.address(), node.data_center, node.rack or 'r1'))
 
         content = ""
-        for k, v in dcs:
-            content = f"{content}{k}={v}:r1\n"
+        for k, v, r in dcs:
+            content = f"{content}{k}={v}:{r}\n"
 
         for node in self.nodelist():
             topology_file = os.path.join(node.get_conf_dir(), 'cassandra-topology.properties')
@@ -665,10 +667,13 @@ class Cluster(object):
             dc = 'dc1'
             if node.data_center is not None:
                 dc = node.data_center
+            rack = 'RAC1'
+            if node.rack is not None:
+                rack = node.rack
             rackdc_file = os.path.join(node.get_conf_dir(), 'cassandra-rackdc.properties')
             with open(rackdc_file, 'w') as f:
                 f.write(f"dc={dc}\n")
-                f.write("rack=RAC1\n")
+                f.write(f"rack={rack}\n")
 
     def enable_ssl(self, ssl_path, require_client_auth):
         shutil.copyfile(os.path.join(ssl_path, 'keystore.jks'), os.path.join(self.get_path(), 'keystore.jks'))
