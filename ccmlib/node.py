@@ -114,6 +114,7 @@ class Node(object):
         self.pid = None
         self.all_pids = []
         self.data_center = None
+        self.rack = None
         self.workload = None
         self.__config_options = {}
         self.__install_dir = None
@@ -162,6 +163,8 @@ class Node(object):
                 node.__config_options = data['config_options']
             if 'data_center' in data:
                 node.data_center = data['data_center']
+            if 'rack' in data:
+                node.rack = data['rack']
             if 'workload' in data:
                 node.workload = data['workload']
             return node
