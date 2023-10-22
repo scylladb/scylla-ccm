@@ -376,10 +376,10 @@ def get_tagged_version_numbers(series='stable'):
     releases = []
     if series == 'testing':
         # Testing releases always have a hyphen after the version number:
-        tag_regex = re.compile('^refs/tags/cassandra-([0-9]+\.[0-9]+\.[0-9]+-.*$)')
+        tag_regex = re.compile(r'^refs/tags/cassandra-([0-9]+\.[0-9]+\.[0-9]+-.*$)')
     else:
         # Stable and oldstable releases are just a number:
-        tag_regex = re.compile('^refs/tags/cassandra-([0-9]+\.[0-9]+\.[0-9]+$)')
+        tag_regex = re.compile(r'^refs/tags/cassandra-([0-9]+\.[0-9]+\.[0-9]+$)')
 
     tag_url = urllib.request.urlopen(GITHUB_TAGS)
     for ref in (i.get('ref', '') for i in json.loads(tag_url.read())):

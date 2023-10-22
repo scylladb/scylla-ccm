@@ -832,7 +832,7 @@ def get_version_from_build(install_dir=None, node_path=None):
         build = os.path.join(install_dir, 'build.xml')
         with open(build) as f:
             for line in f:
-                match = re.search('name="base\.version" value="([0-9.]+)[^"]*"', line)
+                match = re.search(r'name="base\.version" value="([0-9.]+)[^"]*"', line)
                 if match:
                     return match.group(1)
     raise CCMError("Cannot find version")
@@ -853,7 +853,7 @@ def _get_scylla_version(install_dir):
             # return only version strings (loosly) conforming to PEP-440
             # See https://www.python.org/dev/peps/pep-0440/
             # 'i.j(.|-)dev[N]' < 'i.j.rc[N]' < 'i.j.k' < i.j(.|-)post[N]
-            if re.fullmatch('(\d+!)?\d+([.-]\d+)*([a-z]+\d*)?([.-](post|dev|rc)\d*)*', v):
+            if re.fullmatch(r'(\d+!)?\d+([.-]\d+)*([a-z]+\d*)?([.-](post|dev|rc)\d*)*', v):
                 return v
     return '3.0'
 
@@ -885,7 +885,7 @@ def get_scylla_version(install_dir):
 def get_dse_version(install_dir):
     for root, dirs, files in os.walk(install_dir):
         for file in files:
-            match = re.search('^dse(?:-core)?-([0-9.]+)(?:-SNAPSHOT)?\.jar', file)
+            match = re.search(r'^dse(?:-core)?-([0-9.]+)(?:-SNAPSHOT)?\.jar', file)
             if match:
                 return match.group(1)
     return None
@@ -895,7 +895,7 @@ def get_dse_cassandra_version(install_dir):
     clib = os.path.join(install_dir, 'resources', 'cassandra', 'lib')
     for file in os.listdir(clib):
         if fnmatch.fnmatch(file, 'cassandra-all*.jar'):
-            match = re.search('cassandra-all-([0-9.]+)(?:-.*)?\.jar', file)
+            match = re.search(r'cassandra-all-([0-9.]+)(?:-.*)?\.jar', file)
             if match:
                 return match.group(1)
     raise ArgumentError("Unable to determine Cassandra version in: " + install_dir)
@@ -931,7 +931,7 @@ def invalidate_cache():
 
 def get_jdk_version():
     version = subprocess.check_output(['java', '-version'], stderr=subprocess.STDOUT)
-    ver_pattern = '\"(\d+\.\d+).*\"'
+    ver_pattern = r'\"(\d+\.\d+).*\"'
     return re.search(ver_pattern, str(version)).groups()[0]
 
 
