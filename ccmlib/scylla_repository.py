@@ -127,7 +127,7 @@ def release_packages(s3_url, version, arch='x86_64', scylla_product='scylla'):
         # If found packages for released version
         if version.count('.') == 1:
             # Choose relocatable packages for latest release version
-            a = re.findall(f'-{version}\.(\d+)(?:-|\.)', ','.join(candidates))
+            a = re.findall(rf'-{version}\.(\d+)(?:-|\.)', ','.join(candidates))
             latest_candidate = f"{version}.{max(set(a))}" if a else ''
         elif version.count('.') == 2:
             # Choose relocatable packages for supplied version
@@ -141,7 +141,7 @@ def release_packages(s3_url, version, arch='x86_64', scylla_product='scylla'):
         if '.rc' in version:
             latest_candidate = version
         else:
-            a = re.findall('\.rc(\d+)(?:-|\.)', ','.join(all_packages))
+            a = re.findall(r'\.rc(\d+)(?:-|\.)', ','.join(all_packages))
             latest_candidate = f"{version}.rc{max(set(a))}" if a else ""
 
         release_packages = [package for package in all_packages if latest_candidate in package]
