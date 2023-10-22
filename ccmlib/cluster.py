@@ -244,6 +244,12 @@ class Cluster(object):
         node._save()
         return self
 
+    # nodes can be provided in multiple notations, determining the cluster topology:
+    # 1. int - specifying the number of nodes in a single DC, single RACK cluster
+    # 2. list[int] - specifying the number of nodes in a multi DC, single RACK per DC cluster
+    #    The datacenters are automatically named as dc{i}, starting from 1, the rack is named RAC1
+    #    For example, [3, 2] would translate to the following topology {'dc1': {'RAC1': 3}, 'dc2': {'RAC1': 2}}
+    #    Where 3 nodes are populated in dc1/RAC1, and 2 nodes are populated in dc2/RAC1
     def populate(self, nodes, debug=False, tokens=None, use_vnodes=False, ipprefix=None, ipformat=None):
         if ipprefix:
             self.ipprefix = ipprefix
@@ -253,21 +259,34 @@ class Cluster(object):
             self.ipformat = ipformat
         elif not self.ipformat:
             self.ipformat = self.ipprefix + "%d"
-        node_count = nodes
-        dcs = []
         self.use_vnodes = use_vnodes
-        if isinstance(nodes, list):
+        topology = OrderedDict()
+        if isinstance(nodes, int):
+            topology[None] = OrderedDict([(None, nodes)])
+        elif isinstance(nodes, list):
+            for i in range(0, len(nodes)):
+                dc = f"dc{i + 1}"
+                n = nodes[i]
+                topology[dc] = OrderedDict([(None, n)])
+        else:
+            raise common.ArgumentError(f'invalid nodes type {type(nodes)}: {nodes}')
+        node_count = 0
+        dcs = list(topology.keys())
+        node_locations = []
+        for dc, racks in topology.items():
+            assert dc is None or isinstance(dc, str)
+            for rack, n in racks.items():
+                assert rack is None or isinstance(rack, str)
+                assert isinstance(n, int)
+                node_count += n
+                for _ in range(n):
+                    node_locations.append((dc, rack))
+        if dcs != [None]:
             self.set_configuration_options(values={'endpoint_snitch': self.snitch})
-            node_count = 0
-            i = 0
-            for c in nodes:
-                i = i + 1
-                node_count = node_count + c
-                for x in range(0, c):
-                    dcs.append('dc%d' % i)
+        self.use_vnodes = use_vnodes
 
         if node_count < 1:
-            raise common.ArgumentError(f'invalid node count {nodes}')
+            raise common.ArgumentError(f'invalid topology {topology}')
 
         for i in range(1, node_count + 1):
             if f'node{i}' in list(self.nodes.values()):
@@ -279,12 +298,13 @@ class Cluster(object):
             else:
                 tokens = self.balanced_tokens_across_dcs(dcs)
 
+        assert node_count == len(node_locations)
         for i in range(1, node_count + 1):
             tk = None
             if tokens is not None and i - 1 < len(tokens):
                 tk = tokens[i - 1]
-            dc = dcs[i - 1] if i - 1 < len(dcs) else None
-            self.new_node(i, debug=debug, initial_token=tk, data_center=dc)
+            dc, rack = node_locations[i - 1]
+            self.new_node(i, debug=debug, initial_token=tk, data_center=dc, rack=rack)
             self._update_config()
         return self
 
