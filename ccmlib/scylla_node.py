@@ -1353,18 +1353,22 @@ class ScyllaNode(Node):
     def watch_rest_for_alive(self, nodes, timeout=120):
         """
         Use the REST API to wait until this node detects that the nodes listed
-        in "nodes" become fully operational and knows of its tokens.
+        in "nodes" become fully operational as normal token owners.
         This is similar to watch_log_for_alive but uses ScyllaDB's REST API
         instead of the log file and waits for the node to be really useable,
         not just "UP" (see issue #461)
         """
         logging.getLogger('urllib3.connectionpool').disabled = True
         try:
-            tofind = nodes if isinstance(nodes, list) else [nodes]
-            tofind = set([node.address() for node in tofind])
+            nodes_tofind = nodes if isinstance(nodes, list) else [nodes]
+            tofind = set([node.address() for node in nodes_tofind])
+            tofind_host_id_map = dict([(node.address(), node.hostid()) for node in nodes_tofind])
+            found = set()
+            found_host_id_map = dict()
             url_live = f"http://{self.address()}:10000/gossiper/endpoint/live"
             url_joining = f"http://{self.address()}:10000/storage_service/nodes/joining"
             url_tokens = f"http://{self.address()}:10000/storage_service/tokens/"
+            url_host_ids = f"http://{self.address()}:10000/storage_service/host_id"
             endtime = time.time() + timeout
             while time.time() < endtime:
                 live = set()
@@ -1375,20 +1379,37 @@ class ScyllaNode(Node):
                 if response.status_code == requests.codes.ok:
                     live = live - set(response.json())
                 # Verify that node knows not only about the existance of the
-                # other node, but also its tokens:
+                # other node, but also its host_id as a normal token owner:
                 if tofind.issubset(live):
                     # This node thinks that all given nodes are alive and not
                     # "joining", we're almost done, but still need to verify
                     # that the node knows the others' tokens.
                     check = tofind
-                    tofind = set()
+                    have_no_tokens = set()
                     for n in check:
                         response = requests.get(url=url_tokens+n)
                         if response.text == '[]':
-                            tofind.add(n)
-                if not tofind:
-                    return
+                            have_no_tokens.add(n)
+                    if not have_no_tokens:
+                        # and that the node knows that the others' are normal token owners.
+                        host_id_map = dict()
+                        response = requests.get(url=url_host_ids)
+                        if response.status_code == requests.codes.ok:
+                            for r in response.json():
+                                host_id_map[r['key']] = r['value']
+                        # Verify that the other nodes are considered normal token owners on this node
+                        # and their host_id matches the host_id the client knows about
+                        normal = set([addr for addr, id in host_id_map.items() \
+                                    if addr in tofind_host_id_map and \
+                                    (id == tofind_host_id_map[addr] or not tofind_host_id_map[addr])])
+                        tofind = tofind.difference(normal)
+                        if not tofind:
+                            return
+                        # Update cumulative maps for debugging
+                        found = found.union(normal)
+                        found_host_id_map.update(host_id_map)
                 time.sleep(0.1)
+            self.debug(f"watch_rest_for_alive: tofind={tofind} found={found}: tofind_host_id_map={tofind_host_id_map} found_host_id_map={found_host_id_map}")
             raise TimeoutError(f"watch_rest_for_alive() timeout after {timeout} seconds")
         finally:
             logging.getLogger('urllib3.connectionpool').disabled = False
