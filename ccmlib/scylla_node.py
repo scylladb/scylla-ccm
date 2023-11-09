@@ -1496,7 +1496,7 @@ class ScyllaNode(Node):
                            keyspace: str,
                            column_family: str,
                            datafiles: Optional[List[str]] = None) -> List[Dict[str, Any]]:
-        """dump the partitions in the specified table using `scylla sstable dump-data`
+        """dump the partitions in the specified table using `scylla sstable dump-statistics`
 
         :param keyspace: restrict the operation to sstables of this keyspace
         :param column_family: restrict the operation to sstables of this column_family
