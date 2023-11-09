@@ -1364,10 +1364,10 @@ class ScyllaNode(Node):
             while time.time() < endtime:
                 live = set()
                 response = requests.get(url=url_live)
-                if response.text:
+                if response.status_code == requests.codes.ok:
                     live = set(response.json())
                 response = requests.get(url=url_joining)
-                if response.text:
+                if response.status_code == requests.codes.ok:
                     live = live - set(response.json())
                 # Verify that node knows not only about the existance of the
                 # other node, but also its tokens:
