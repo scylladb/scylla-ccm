@@ -316,6 +316,11 @@ class ScyllaNode(Node):
                 raise NodeError(f"Error starting node {self.name}",
                                 self._process_scylla)
 
+        # Reset self.node_hostid so it will be retrieved again once the node restarts
+        # since it might restart with a different host_id than it previously
+        # had if it was wiped and reused for bootstrap / replace.
+        self.node_hostid = None
+
         if wait_for_binary_proto:
             t = self.cluster.default_wait_for_binary_proto
             from_mark = self.mark
