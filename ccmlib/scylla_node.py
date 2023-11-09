@@ -71,6 +71,7 @@ class ScyllaNode(Node):
         self.agent_pid = None
         self.upgraded = False
         self.upgrader = NodeUpgrader(node=self)
+        self.node_hostid = None
         self._create_directory()
 
     @property
@@ -1329,6 +1330,17 @@ class ScyllaNode(Node):
 
     def rollback(self, upgrade_to_version):
         self.upgrader.upgrade(upgrade_version=upgrade_to_version, recover_system_tables=True)
+
+    def hostid(self, timeout=60, force_refresh=False):
+        if self.node_hostid and not force_refresh:
+            return self.node_hostid
+        node_address = self.address()
+        url = f"http://{node_address}:10000/storage_service/hostid/local"
+        response = requests.get(url=url, timeout=timeout)
+        if response.status_code == requests.codes.ok:
+            self.node_hostid = response.json()
+            return self.node_hostid
+        return None
 
     def watch_rest_for_alive(self, nodes, timeout=120):
         """
