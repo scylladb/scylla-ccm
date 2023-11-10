@@ -1339,12 +1339,15 @@ class ScyllaNode(Node):
     def hostid(self, timeout=60, force_refresh=False):
         if self.node_hostid and not force_refresh:
             return self.node_hostid
-        node_address = self.address()
-        url = f"http://{node_address}:10000/storage_service/hostid/local"
-        response = requests.get(url=url, timeout=timeout)
-        if response.status_code == requests.codes.ok:
-            self.node_hostid = response.json()
-            return self.node_hostid
+        try:
+            node_address = self.address()
+            url = f"http://{node_address}:10000/storage_service/hostid/local"
+            response = requests.get(url=url, timeout=timeout)
+            if response.status_code == requests.codes.ok:
+                self.node_hostid = response.json()
+                return self.node_hostid
+        except Exception as e:
+            self.error(f"Failed to get hostid using {url}: {e}")
         return None
 
     def watch_rest_for_alive(self, nodes, timeout=120):
