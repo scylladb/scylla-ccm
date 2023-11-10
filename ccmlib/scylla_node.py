@@ -284,7 +284,8 @@ class ScyllaNode(Node):
             time.sleep(sleep_time)
         return bool(self.grep_log(f"{bootstrap_message}|{resharding_message}", from_mark=from_mark))
 
-    def _start_scylla(self, args, marks, update_pid, wait_other_notice,
+    def _start_scylla(self, args, marks, update_pid,
+                      wait_other_notice, wait_normal_token_owner,
                       wait_for_binary_proto, ext_env):
         log_file = os.path.join(self.get_path(), 'logs', 'system.log')
         # In case we are restarting a node
@@ -333,8 +334,8 @@ class ScyllaNode(Node):
         if wait_other_notice:
             for node, _ in marks:
                 t = self.cluster.default_wait_other_notice_timeout
-                node.watch_rest_for_alive(self, timeout=t)
-                self.watch_rest_for_alive(node, timeout=t)
+                node.watch_rest_for_alive(self, timeout=t, wait_normal_token_owner=wait_normal_token_owner)
+                self.watch_rest_for_alive(node, timeout=t, wait_normal_token_owner=wait_normal_token_owner)
 
         return self._process_scylla
 
@@ -458,7 +459,7 @@ class ScyllaNode(Node):
 
     # Scylla Overload start
     def start(self, join_ring=True, no_wait=False, verbose=False,
-              update_pid=True, wait_other_notice=None, replace_token=None,
+              update_pid=True, wait_other_notice=None, wait_normal_token_owner=None, replace_token=None,
               replace_address=None, replace_node_host_id=None, jvm_args=None, wait_for_binary_proto=None,
               profile_options=None, use_jna=False, quiet_start=False):
         """
@@ -470,6 +471,9 @@ class ScyllaNode(Node):
           - wait_other_notice: if True, this method returns only when all other
             live node of the cluster
             have marked this node UP.
+          - wait_normal_token_owner: if wait_other_notice is True and wait_normal_token_owner
+            is True or None, this method returns only when all other nodes see this node as normal
+            token owner, and vice-versa
           - replace_token: start the node with the -Dcassandra.replace_token
             option.
           - replace_node_host_id: start the node with the
@@ -490,6 +494,8 @@ class ScyllaNode(Node):
             wait_for_binary_proto = self.cluster.force_wait_for_cluster_start and not no_wait
         if wait_other_notice is None:
             wait_other_notice = self.cluster.force_wait_for_cluster_start and not no_wait
+        if wait_normal_token_owner is None and wait_other_notice:
+            wait_normal_token_owner = True
         if jvm_args is None:
             jvm_args = []
 
@@ -676,10 +682,11 @@ class ScyllaNode(Node):
         message = f"Starting scylla: args={args} wait_other_notice={wait_other_notice} wait_for_binary_proto={wait_for_binary_proto}"
         self.debug(message)
 
-        scylla_process = self._start_scylla(args, marks, update_pid,
-                                            wait_other_notice,
-                                            wait_for_binary_proto,
-                                            ext_env)
+        scylla_process = self._start_scylla(args=args, marks=marks, update_pid=update_pid,
+                                            wait_other_notice=wait_other_notice,
+                                            wait_normal_token_owner=wait_normal_token_owner,
+                                            wait_for_binary_proto=wait_for_binary_proto,
+                                            ext_env=ext_env)
         self._start_jmx(data)
 
         ip_addr, _ = self.network_interfaces['storage']
@@ -1345,13 +1352,16 @@ class ScyllaNode(Node):
             self.error(f"Failed to get hostid using {url}: {e}")
         return None
 
-    def watch_rest_for_alive(self, nodes, timeout=120):
+    def watch_rest_for_alive(self, nodes, timeout=120, wait_normal_token_owner=True):
         """
         Use the REST API to wait until this node detects that the nodes listed
-        in "nodes" become fully operational as normal token owners.
+        in "nodes" become fully operational.
         This is similar to watch_log_for_alive but uses ScyllaDB's REST API
         instead of the log file and waits for the node to be really useable,
         not just "UP" (see issue #461)
+
+        Params:
+          - wait_normal_token_owner: return only when this node sees all other nodes as normal token owner (True by default).
         """
         logging.getLogger('urllib3.connectionpool').disabled = True
         try:
@@ -1386,6 +1396,8 @@ class ScyllaNode(Node):
                         if response.text == '[]':
                             have_no_tokens.add(n)
                     if not have_no_tokens:
+                        if not wait_normal_token_owner:
+                            return
                         # and that the node knows that the others' are normal token owners.
                         host_id_map = dict()
                         response = requests.get(url=url_host_ids)

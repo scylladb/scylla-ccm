@@ -100,13 +100,15 @@ class ScyllaCluster(Cluster):
             node._update_pid(p)
 
     def start_nodes(self, nodes=None, no_wait=False, verbose=False, wait_for_binary_proto=None,
-              wait_other_notice=None, jvm_args=None, profile_options=None,
+              wait_other_notice=None, wait_normal_token_owner=None, jvm_args=None, profile_options=None,
               quiet_start=False):
         if wait_for_binary_proto is None:
             wait_for_binary_proto = self.force_wait_for_cluster_start
         if wait_other_notice is None:
             wait_other_notice = self.force_wait_for_cluster_start
-        self.debug(f"start_nodes: no_wait={no_wait} wait_for_binary_proto={wait_for_binary_proto} wait_other_notice={wait_other_notice} force_wait_for_cluster_start={self.force_wait_for_cluster_start}")
+        if wait_normal_token_owner is None and wait_other_notice:
+            wait_normal_token_owner = True
+        self.debug(f"start_nodes: no_wait={no_wait} wait_for_binary_proto={wait_for_binary_proto} wait_other_notice={wait_other_notice} wait_normal_token_owner={wait_normal_token_owner} force_wait_for_cluster_start={self.force_wait_for_cluster_start}")
         self.started=True
 
         p = None
@@ -137,7 +139,8 @@ class ScyllaCluster(Cluster):
                 p = node.start(update_pid=False, jvm_args=jvm_args,
                                profile_options=profile_options, no_wait=no_wait,
                                wait_for_binary_proto=wait_for_binary_proto,
-                               wait_other_notice=wait_other_notice)
+                               wait_other_notice=wait_other_notice,
+                               wait_normal_token_owner=False)
                 started.append((node, p, mark))
                 marks.append((node, mark))
 
@@ -156,7 +159,8 @@ class ScyllaCluster(Cluster):
             for old_node, _ in marks:
                 for node, _, _ in started:
                     if old_node is not node:
-                        old_node.watch_rest_for_alive(node, timeout=self.default_wait_other_notice_timeout)
+                        old_node.watch_rest_for_alive(node, timeout=self.default_wait_other_notice_timeout,
+                                                      wait_normal_token_owner=wait_normal_token_owner)
 
         return started
 
