@@ -55,12 +55,11 @@ ccm create my_cluster -n 3 --scylla --vnodes \
 Requirements
 ------------
 
-- A working python installation (tested to work with python 3.11).
-- pyYAML (http://pyyaml.org/ -- `sudo easy_install pyYaml`)
-- ant (http://ant.apache.org/, on Mac OS X, `brew install ant`)
-- psutil (https://pypi.python.org/pypi/psutil)
-- Java (which version depends on the version of Cassandra you plan to use. If
-  unsure, use Java 7 as it is known to work with current versions of Cassandra).
+- A working python installation (tested to work with python 3.12).
+- `pip install -e .` to install the required dependencies.
+- Java if cassandra is used or older scylla < 6.0 (which version depends on the version 
+  of Cassandra you plan to use. If unsure, use Java 8 as it is known to 
+  work with current versions of Cassandra).
 - ccm only works on localhost for now. If you want to create multiple
   node clusters, the simplest way is to use multiple loopback aliases. On
   modern linux distributions you probably don't need to do anything, but
@@ -75,17 +74,8 @@ Requirements
 
 Known issues
 ------------
-Windows only:
-  - `node start` pops up a window, stealing focus.
-  - cli and cqlsh started from ccm show incorrect prompts on command-prompt
-  - non nodetool-based command-line options fail (sstablesplit, scrub, etc)
-  - cli_session does not accept commands.
-  - To install psutil, you must use the .msi from pypi. pip install psutil will not work
-  - You will need ant.bat in your PATH in order to build C* from source
-  - You must run with an Unrestricted Powershell Execution-Policy if using Cassandra 2.1.0+
-  - Ant installed via [chocolatey](https://chocolatey.org/) will not be found by ccm, so you must create a symbolic
-    link in order to fix the issue (as administrator):
-    - cmd /c mklink C:\ProgramData\chocolatey\bin\ant.bat C:\ProgramData\chocolatey\bin\ant.exe
+
+- this fork of ccm doesn't support Windows
 
 Installation
 ------------

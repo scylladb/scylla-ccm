@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import NamedTuple, Literal
 
 import requests
-import yaml
+from ruamel.yaml import YAML
 import packaging.version
 
 from ccmlib.common import (
@@ -22,6 +22,10 @@ from ccmlib.common import (
     DOWNLOAD_IN_PROGRESS_FILE, print_if_standalone, LockFile, get_installed_scylla_package_hash)
 from ccmlib.utils.download import download_file, download_version_from_s3, get_url_hash, save_source_file
 from ccmlib.utils.version import parse_version
+
+yaml = YAML()
+yaml.default_flow_style = False
+
 
 GIT_REPO = "http://github.com/scylladb/scylla.git"
 
@@ -185,7 +189,7 @@ def read_build_manifest(url):
     #
     #    url-id: 2022-08-29T08:05:34Z
     #    docker-image-name: scylla-nightly:5.2.0-dev-0.20220829.67c91e8bcd61
-    return yaml.safe_load(res.content)
+    return yaml.load(res.content)
 
 
 def normalize_scylla_version(version):
