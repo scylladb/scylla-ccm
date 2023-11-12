@@ -2,7 +2,7 @@ import tempfile
 import os
 
 import pytest
-import yaml
+import ruamel
 
 from ccmlib.common import scylla_extract_mode, LockFile, parse_settings
 
@@ -94,5 +94,5 @@ def test_parse_settings():
     assert res == {'experimental_features': ['udf', 'tablets']}
 
     # would break if incorrect yaml format is passed in the value
-    with pytest.raises(yaml.parser.ParserError):
+    with pytest.raises(ruamel.yaml.parser.ParserError):
         parse_settings(["experimental_features:['udf',\"tablets\""])
