@@ -19,12 +19,15 @@ import locale
 from collections import namedtuple
 from typing import List, Optional
 
-import yaml
+from ruamel.yaml import YAML
 
 from ccmlib import common
 from ccmlib.cli_session import CliSession
 from ccmlib.repository import setup
 from ccmlib.utils.version import parse_version
+
+yaml = YAML()
+yaml.default_flow_style = False
 
 class Status():
     UNINITIALIZED = "UNINITIALIZED"
@@ -139,7 +142,7 @@ class Node(object):
         node_path = os.path.join(path, name)
         filename = os.path.join(node_path, 'node.conf')
         with open(filename, 'r') as f:
-            data = yaml.safe_load(f)
+            data = yaml.load(f)
         try:
             itf = data['interfaces']
             initial_token = None
@@ -1638,12 +1641,12 @@ class Node(object):
         if self.workload is not None:
             values['workload'] = self.workload
         with open(filename, 'w') as f:
-            yaml.safe_dump(values, f)
+            yaml.dump(values, f)
 
     def __update_yaml(self):
         conf_file = os.path.join(self.get_conf_dir(), common.CASSANDRA_CONF)
         with open(conf_file, 'r') as f:
-            data = yaml.safe_load(f)
+            data = yaml.load(f)
 
         with open(conf_file, 'r') as f:
             yaml_text = f.read()
@@ -1695,7 +1698,7 @@ class Node(object):
                     data[name] = full_options[name]
 
         with open(conf_file, 'w') as f:
-            yaml.safe_dump(data, f, default_flow_style=False)
+            yaml.dump(data, f)
 
     def _update_log4j(self):
         append_pattern = 'log4j.appender.R.File='
@@ -2017,7 +2020,7 @@ class Node(object):
     def get_conf_option(self, option):
         conf_file = os.path.join(self.get_conf_dir(), common.CASSANDRA_CONF)
         with open(conf_file, 'r') as f:
-            data = yaml.safe_load(f)
+            data = yaml.load(f)
 
         if option in data:
             return data[option]

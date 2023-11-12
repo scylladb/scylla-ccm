@@ -19,10 +19,13 @@ import pathlib
 from itertools import zip_longest
 from typing import Callable, Optional, TextIO, Union, List
 
-import yaml
+from ruamel.yaml import YAML
 from boto3.session import Session
 from botocore import UNSIGNED
 from botocore.client import Config
+
+yaml = YAML()
+yaml.default_flow_style = False
 
 BIN_DIR = "bin"
 CASSANDRA_CONF_DIR = "conf"
@@ -244,7 +247,7 @@ def get_config():
         return {}
 
     with open(config_path, 'r') as f:
-        return yaml.safe_load(f)
+        return yaml.load(f)
 
 
 def now_ms():
@@ -781,7 +784,7 @@ def parse_settings(args):
         elif val.lower() == "false":
             val = False
         else:
-            val = yaml.safe_load(val)
+            val = yaml.load(val)
         splitted = key.split('.')
         if len(splitted) == 2:
             try:
@@ -918,7 +921,7 @@ def is_dse_cluster(path):
             cluster_path = os.path.join(path, name)
             filename = os.path.join(cluster_path, 'cluster.conf')
             with open(filename, 'r') as f:
-                data = yaml.safe_load(f)
+                data = yaml.load(f)
             if 'dse_dir' in data:
                 return True
     except IOError:

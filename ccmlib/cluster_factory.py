@@ -1,6 +1,6 @@
 import os
 
-import yaml
+from ruamel.yaml import YAML
 
 from ccmlib import common, repository
 from ccmlib.cluster import Cluster
@@ -10,6 +10,8 @@ from ccmlib.scylla_docker_cluster import ScyllaDockerCluster
 from ccmlib import repository
 from ccmlib.node import Node
 
+yaml = YAML()
+yaml.default_flow_style = False
 
 class ClusterFactory():
 
@@ -18,7 +20,7 @@ class ClusterFactory():
         cluster_path = os.path.join(path, name)
         filename = os.path.join(cluster_path, 'cluster.conf')
         with open(filename, 'r') as f:
-            data = yaml.safe_load(f)
+            data = yaml.load(f)
         try:
             install_dir = None
             scylla_manager_install_path = data.get('scylla_manager_install_path')

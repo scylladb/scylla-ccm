@@ -3,7 +3,7 @@ from shutil import copyfile
 from subprocess import check_call, run, PIPE
 import logging
 
-import yaml
+from ruamel.yaml import YAML
 
 from ccmlib.scylla_cluster import ScyllaCluster
 from ccmlib.scylla_node import ScyllaNode
@@ -12,6 +12,8 @@ from ccmlib import common
 
 LOGGER = logging.getLogger("ccm")
 
+yaml = YAML()
+yaml.default_flow_style = False
 
 class ScyllaDockerCluster(ScyllaCluster):
     def __init__(self, *args, **kwargs):
