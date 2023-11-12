@@ -11,12 +11,15 @@ from textwrap import dedent
 from shutil import copytree
 from dataclasses import dataclass
 
-import yaml
+from ruamel.yaml import YAML
 
 from ccmlib.utils.ssl_utils import generate_ssl_stores
 from ccmlib.common import wait_for
 
 logger = logging.getLogger(__name__)
+
+yaml = YAML()
+yaml.default_flow_style = False
 
 @contextmanager
 def file_or_memory(path=None, data=None):
@@ -64,7 +67,7 @@ def create_cloud_config(ssl_dir, port, address, nodes_info, username='cassandra'
                   currentContext='default')
 
     with open(os.path.join(ssl_dir, 'config_data.yaml'), 'w') as config_file:
-        config_file.write(yaml.safe_dump(config, sort_keys=False))
+        yaml.dump(config, config_file)
 
     datacenters = {}
 
@@ -83,7 +86,7 @@ def create_cloud_config(ssl_dir, port, address, nodes_info, username='cassandra'
                   currentContext='default')
 
     with open(os.path.join(ssl_dir, 'config_path.yaml'), 'w') as config_file:
-        config_file.write(yaml.safe_dump(config, sort_keys=False))
+        yaml.dump(config, config_file)
 
     return os.path.join(ssl_dir, 'config_data.yaml'), os.path.join(ssl_dir, 'config_path.yaml')
 
