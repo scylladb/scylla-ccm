@@ -8,13 +8,15 @@ import time
 from collections import OrderedDict, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
-import yaml
+from ruamel.yaml import YAML
 
 from ccmlib import common, repository
 from ccmlib.node import Node, NodeError
 from ccmlib.common import logger
 from ccmlib.utils.version import parse_version
 
+yaml = YAML()
+yaml.default_flow_style = False
 
 class Cluster(object):
 
@@ -675,7 +677,7 @@ class Cluster(object):
             cluster_config['sni_proxy_listen_port'] = self.sni_proxy_listen_port
 
         with open(filename, 'w') as f:
-            yaml.safe_dump(cluster_config, f)
+            yaml.dump(cluster_config, f)
 
     def __update_pids(self, started):
         for node, p, _ in started:
