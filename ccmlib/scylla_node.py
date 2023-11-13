@@ -1384,7 +1384,7 @@ class ScyllaNode(Node):
                 return str(candidate)
         raise ValueError(f"gnutls.config wasn't found in any path: {candidates}")
 
-    def run_scylla_sstable(self, command, additional_args=None, keyspace=None, datafiles=None, column_families=None, batch=False):
+    def run_scylla_sstable(self, command, additional_args=None, keyspace=None, datafiles=None, column_families=None, batch=False, text=True):
         """Invoke scylla-sstable, with the specified command (operation) and additional_args.
 
         For more information about scylla-sstable, see https://docs.scylladb.com/stable/operating-scylla/admin-tools/scylla-sstable.html.
@@ -1397,6 +1397,7 @@ class ScyllaNode(Node):
         * column_families - Restrict the operation to sstables of these column_families. Must contain exactly one column family when datafiles is used.
         * batch - If True, all sstables will be passed in a single batch. If False, sstables will be passed one at a time.
             Batch-mode can be only used if column_families contains a single item.
+        * text - If True, output of the command is treated as text, if not as bytes
 
         Returns: map: {sstable: (stdout, stderr)} of all invokations. When batch == True, a single entry will be present, with empty key.
 
@@ -1404,6 +1405,7 @@ class ScyllaNode(Node):
         """
         if additional_args is None:
             additional_args = []
+
         scylla_path = common.join_bin(self.get_path(), BIN_DIR, 'scylla')
         sstables = self._Node__gather_sstables(datafiles, keyspace, column_families)
         ret = {}
@@ -1419,7 +1421,7 @@ class ScyllaNode(Node):
                 return (stdout, stderr)
             common_args = [scylla_path, "sstable", command] + additional_args
             env = self._get_environ()
-            res = subprocess.run(common_args + sstables, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True, env=env)
+            res = subprocess.run(common_args + sstables, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=text, check=True, env=env)
             return (res.stdout, res.stderr)
 
         if batch:
@@ -1582,6 +1584,41 @@ class ScyllaNode(Node):
         assert '' in sstable_stats
         stdout, _ = sstable_stats['']
         return json.loads(stdout)['sstables']
+
+    def dump_sstable_scylla_metadata(self,
+                           keyspace: str,
+                           column_family: str,
+                           datafiles: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        """dump scylla metadata using `scylla sstable dump-scylla-metadata`
+
+        :param keyspace: restrict the operation to sstables of this keyspace
+        :param column_family: restrict the operation to sstables of this column_family
+        :param datafiles: restrict the operation to the given sstables
+        :return: return all the statistics collected in the specified sstables
+        :raises: subprocess.CalledProcessError if scylla-sstable returns a non-zero exit code.
+
+        the $SSTABLE is returned from this method, please see
+        https://opensource.docs.scylladb.com/stable/operating-scylla/admin-tools/scylla-sstable.html#dump-scylla-metadata
+        for the JSON schema of it.
+        """
+
+        additional_args = ['--scylla-yaml-file', str(Path(self.get_conf_dir()) / common.SCYLLA_CONF)]
+        if keyspace:
+            additional_args += ['--keyspace', keyspace]
+
+        if column_family:
+            additional_args += ['--table', column_family]
+
+        sstable_stats = self.run_scylla_sstable('dump-scylla-metadata',
+                                                additional_args=additional_args,
+                                                keyspace=keyspace,
+                                                column_families=[column_family],
+                                                datafiles=datafiles,
+                                                batch=True,
+                                                text=False)
+        assert '' in sstable_stats
+        stdout, _ = sstable_stats['']
+        return json.loads(stdout.decode('utf-8', 'ignore'))['sstables']
 
     def wait_for_compactions(self, idle_timeout = None):
         if idle_timeout is None:
