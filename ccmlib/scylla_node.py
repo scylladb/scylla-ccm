@@ -47,10 +47,10 @@ class ScyllaNode(Node):
         self._node_install_dir = None
         self._node_scylla_version = None
         self._relative_repos_root = None
-        super(ScyllaNode, self).__init__(name, cluster, auto_bootstrap,
-                                         thrift_interface, storage_interface,
-                                         jmx_port, remote_debug_port,
-                                         initial_token, save, binary_interface)
+        super().__init__(name, cluster, auto_bootstrap,
+                         thrift_interface, storage_interface,
+                         jmx_port, remote_debug_port,
+                         initial_token, save, binary_interface)
         self.__global_log_level = 'info'
         self.__classes_log_level = {}
         self.get_cassandra_version()
@@ -1304,7 +1304,7 @@ class ScyllaNode(Node):
         raise NotImplementedError('ScyllaNode._write_agent_log4j_properties')
 
     def flush(self, ks=None, table=None, **kwargs):
-        super(ScyllaNode, self).flush(ks, table, **kwargs)
+        super().flush(ks, table, **kwargs)
 
     def _run_scylla_executable_with_option(self, option, scylla_exec_path=None):
         if not scylla_exec_path:
@@ -1623,7 +1623,7 @@ class ScyllaNode(Node):
     def wait_for_compactions(self, idle_timeout = None):
         if idle_timeout is None:
             idle_timeout = 300 if self.scylla_mode() != 'debug' else 900
-        super(ScyllaNode, self).wait_for_compactions(idle_timeout=idle_timeout)
+        super().wait_for_compactions(idle_timeout=idle_timeout)
 
 
 class NodeUpgrader:
