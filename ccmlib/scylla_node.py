@@ -1645,6 +1645,30 @@ class ScyllaNode(Node):
         stdout, _ = outputs['']
         return json.loads(stdout)['sstables']
 
+    def validate_sstable_checksums(self,
+                                   keyspace: str,
+                                   column_family: str,
+                                   datafiles: Optional[List[str]] = None):
+        """validate sstables in given keyspace.column_family using `scylla sstable validate-checksums`
+
+        :param keyspace: restrict the operation to sstables of this keyspace
+        :param column_family: restrict the operation to sstables of this column_family
+        :param datafiles: restrict the operation to the given sstables
+        :return: return all the validation results performed of the specified sstables
+        :raises: subprocess.CalledProcessError if scylla-sstable returns a non-zero exit code.
+
+        the $ROOT is returned from this method, please see
+        https://opensource.docs.scylladb.com/stable/operating-scylla/admin-tools/scylla-sstable#validate-checksums
+        for the JSON schema of it
+        """
+        outputs = self.run_scylla_sstable('validate-checksums',
+                                          keyspace=keyspace,
+                                          column_families=[column_family],
+                                          datafiles=datafiles,
+                                          batch=True)
+        stdout, _ = outputs['']
+        return json.loads(stdout)['sstables']
+
     def wait_for_compactions(self, idle_timeout = None):
         if idle_timeout is None:
             idle_timeout = 300 if self.scylla_mode() != 'debug' else 900
