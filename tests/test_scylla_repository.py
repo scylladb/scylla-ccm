@@ -120,8 +120,11 @@ class TestScyllaRepositoryRelease:
 class TestGetManagerFunctions:
     def test_get_manager_latest_reloc_url(self, architecture):
         master_version = get_manager_latest_reloc_url(architecture=architecture)
+        # the URL looks like
+        # https://s3.amazonaws.com/downloads.scylladb.com/manager/
+        #   relocatable/unstable/master/2023-11-20T21:55:21Z/scylla-manager_3.2.3-0.20231115.6f5dc312-SNAPSHOT_linux_x86_64.tar.gz
         assert 'relocatable/unstable/master' in master_version
-        assert '-dev-' in master_version
+        assert '-SNAPSHOT' in master_version
         assert architecture in master_version
 
         branch_version = get_manager_latest_reloc_url('branch-3.1', architecture=architecture)
