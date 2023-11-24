@@ -1669,10 +1669,15 @@ class ScyllaNode(Node):
         stdout, _ = outputs['']
         return json.loads(stdout)['sstables']
 
-    def wait_for_compactions(self, idle_timeout = None):
+    def wait_for_compactions(self,
+                             keyspace=None,
+                             column_family=None,
+                             idle_timeout=None):
         if idle_timeout is None:
             idle_timeout = 300 if self.scylla_mode() != 'debug' else 900
-        super().wait_for_compactions(idle_timeout=idle_timeout)
+        super().wait_for_compactions(keyspace=keyspace,
+                                     column_family=column_family,
+                                     idle_timeout=idle_timeout)
 
 
 class NodeUpgrader:

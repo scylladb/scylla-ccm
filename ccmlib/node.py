@@ -745,30 +745,66 @@ class Node(object):
         else:
             return False
 
-    def wait_for_compactions(self, idle_timeout=300):
+    def _parse_pending_tasks(self, output, keyspace, column_family):
+        # "nodetool compactionstats" prints the compaction stats like:
+        # pending tasks: 42
+        # - ks1.cf1: 13
+        # - ks1.cf2: 19
+        # - ks2.cf1: 10
+        head_pattern = r"pending tasks:\s*(?P<tasks>\d+)"
+        tail_pattern = re.compile(r'\-\s+(\w+)\.(\w+):\s*(\d+)')
+        head, *tail = output.strip().split('\n')
+
+        if keyspace is None and column_family is None:
+            matched = re.search(head_pattern, head)
+            if not matched:
+                raise RuntimeError(f"Cannot find 'pending tasks' in nodetool output.\nOutput: {output}")
+            return int(matched.group('tasks'))
+
+        # if keyspace or column_family is specified, check active tasks
+        # of the specified ks.cf instead
+        def matches(expected, actual):
+            if expected is None:
+                return True
+            return expected == actual
+
+        total = 0
+        for line in tail:
+            ks, cf, num = tail_pattern.search(line).groups()
+            if matches(keyspace, ks) and matches(column_family, cf):
+                total += int(num)
+        return total
+
+    def wait_for_compactions(self,
+                             keyspace=None,
+                             column_family=None,
+                             idle_timeout=300):
+        """Wait for all compactions to finish on this node.
+
+        :param keyspace: only wait for the compactions performed for specified
+            keyspace. if not specified, all keyspaces are waited
+        :param column_family: only wait for the compactions performed for
+            specified column_family. if not specified, all keyspaces are waited
+        :param idle_timeout: the time in seconds to wait for progress.
+            Total time to wait is undeteremined, as long as we observe forward
+            progress.
         """
-        Wait for all compactions to finish on this node.
-        idle_timeout is the time in seconds to wait for progress.
-        Total time to wait is undeteremined, as long as we observe forward progress.
-        """
-        pending_tasks = None
+        pending_tasks = -1
         last_change = None
-        pattern = re.compile(r"pending tasks:\s*(?P<tasks>\d+)")
         while not last_change or time.time() - last_change < idle_timeout:
             output, err = self.nodetool("compactionstats", capture_output=True)
-            m = pattern.search(output)
-            if not m:
-                raise RuntimeError(f"Cannot find 'pending tasks' in nodetool output.\nOutput: {output}")
-            n = int(m.group('tasks'))
+            n = self._parse_pending_tasks(output, keyspace, column_family)
+            # no active tasks, good!
             if n == 0:
                 return
             if n != pending_tasks:
-                pending_tasks = n
                 last_change = time.time()
-                if n > pending_tasks:     # background progress
+                if 0 < pending_tasks < n:
+                    # background progress
                     self.warning(f"Pending compaction tasks increased from {pending_tasks} to {n} while waiting for compactions.")
+                pending_tasks = n
             time.sleep(1)
-        raise TimeoutError(f"Waiting for compactions timed out after {idle_timeout} seconds with {pending_tasks} pending tasks remaining.")
+        raise TimeoutError(f"Waiting for compactions timed out after {idle_timeout} seconds with pending tasks remaining: {output}.")
 
     def nodetool(self, cmd, capture_output=True, wait=True, timeout=None, verbose=True):
         """
