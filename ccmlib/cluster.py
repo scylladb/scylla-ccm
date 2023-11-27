@@ -222,9 +222,15 @@ class Cluster(object):
     def cassandra_version(self):
         return self.version()
 
+    def auto_seed(self, node):
+        # For legacy purposes, every new node is configured as seed by default.
+        return True
+
     def add(self, node, is_seed, data_center=None, rack=None):
         if node.name in self.nodes:
             raise common.ArgumentError(f'Cannot create existing node {node.name}')
+        if is_seed is None:
+            is_seed = self.auto_seed(node)
         self.nodes[node.name] = node
         if is_seed:
             self.seeds.append(node)
@@ -328,7 +334,7 @@ class Cluster(object):
             self._update_config()
         return self
 
-    def new_node(self, i, auto_bootstrap=False, debug=False, initial_token=None, add_node=True, is_seed=True, data_center=None, rack=None):
+    def new_node(self, i, auto_bootstrap=False, debug=False, initial_token=None, add_node=True, is_seed=None, data_center=None, rack=None):
         ipformat = self.get_ipformat()
         binary = None
         if parse_version(self.version()) >= parse_version('1.2'):

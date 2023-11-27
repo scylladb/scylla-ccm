@@ -275,6 +275,11 @@ class ScyllaCluster(Cluster):
 
         self._update_config(install_dir=self.nodelist()[0].node_install_dir)
 
+    def auto_seed(self, node):
+        # Starting from version 4.3 / 2021.1,
+        # only the first node should be a seed in Scylla
+        return not self.nodelist()
+
 
 class ScyllaManager:
     def __init__(self, scylla_cluster, install_dir=None):
