@@ -544,8 +544,6 @@ class ScyllaNode(Node):
         with open(conf_file, 'r') as f:
             data = yaml.safe_load(f)
         jvm_args = jvm_args + ['--api-address', data['api_address']]
-        jvm_args = jvm_args + ['--collectd-hostname',
-                               f'{socket.gethostname()}.{self.name}']
 
         args = [launch_bin, '--options-file', options_file, '--log-to-stdout', '1']
 
