@@ -1256,9 +1256,8 @@ class Node(object):
         has_throttle = any(['throttle=' in o for o in stress_options])
         if has_limit or has_throttle:
             args = stress + ['version']
-            p = subprocess.Popen(args,
-                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
-                                 **kwargs)
+            _kwargs = {**kwargs, **dict(stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)}
+            p = subprocess.Popen(args, **_kwargs)
             stdout, stderr = p.communicate()
 
             if p.returncode == 1 and has_throttle:
