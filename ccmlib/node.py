@@ -104,7 +104,8 @@ class Node(object):
         self.name = name
         self.cluster = cluster
         self.status = Status.UNINITIALIZED
-        self.auto_bootstrap = auto_bootstrap
+        # auto_bootstrap is deprecated
+        _ = auto_bootstrap
         self.network_interfaces = {'thrift': common.normalize_interface(thrift_interface),
                                    'storage': common.normalize_interface(storage_interface),
                                    'binary': common.normalize_interface(binary_interface)}
@@ -150,7 +151,9 @@ class Node(object):
             binary_interface = None
             if 'binary' in itf and itf['binary'] is not None:
                 binary_interface = tuple(itf['binary'])
-            node = cluster.create_node(data['name'], data['auto_bootstrap'], tuple(itf['thrift']), tuple(itf['storage']), data[
+            # auto_bootstrap is deprecated
+            auto_bootstrap = True
+            node = cluster.create_node(data['name'], auto_bootstrap, tuple(itf['thrift']), tuple(itf['storage']), data[
                                        'jmx_port'], remote_debug_port, initial_token, save=False, binary_interface=binary_interface)
             node.status = data['status']
             if 'pid' in data:
@@ -301,7 +304,6 @@ class Node(object):
         if not only_status:
             if show_cluster:
                 print(f"{indent}{'cluster'}={self.cluster.name}")
-            print(f"{indent}{'auto_bootstrap'}={self.auto_bootstrap}")
             print(f"{indent}{'thrift'}={self.network_interfaces['thrift']}")
             if self.network_interfaces['binary'] is not None:
                 print(f"{indent}{'binary'}={self.network_interfaces['binary']}")
@@ -1614,7 +1616,6 @@ class Node(object):
         values = {
             'name': self.name,
             'status': self.status,
-            'auto_bootstrap': self.auto_bootstrap,
             'interfaces': self.network_interfaces,
             'jmx_port': self.jmx_port,
             'config_options': self.__config_options,
@@ -1643,7 +1644,6 @@ class Node(object):
             yaml_text = f.read()
 
         data['cluster_name'] = self.cluster.name
-        data['auto_bootstrap'] = self.auto_bootstrap
         data['initial_token'] = self.initial_token
         if not self.cluster.use_vnodes and self.get_base_cassandra_version() >= 1.2:
             data['num_tokens'] = 1
