@@ -549,8 +549,15 @@ class ScyllaNode(Node):
 
         MB = 1024 * 1024
 
-        def process_opts(opts, args_translation_map = {}):
+        def process_opts(opts, args_translation_map = {}, allowed_duplicates_set = set()):
             ext_args = OrderedDict()
+            def should_add_option(key):
+                real_key = args_translation_map.get(key, key)
+                if real_key.startswith("--scylla-manager"):
+                    return False
+                elif real_key in ext_args and real_key not in allowed_duplicates_set:
+                    return False
+                return True
             opts_i = 0
             while opts_i < len(opts):
                 # the command line options show up either like "--foo value-of-foo"
@@ -569,26 +576,27 @@ class ScyllaNode(Node):
                         vals.append(opts[opts_i])
                         opts_i += 1
                     val = ' '.join(vals)
-                if key not in ext_args and not key.startswith("--scylla-manager"):
-                    ext_args[args_translation_map.get(key, key)] = val
+                if should_add_option(key):
+                    ext_args.setdefault(args_translation_map.get(key, key),set()).add(val)
             return ext_args
 
         scylla_params_translation_map = {"-m" : "--memory", "-c" : "--smp"}
+        scylla_params_allow_multiple = {"--experimental-features"}
         # Lets search for default overrides in SCYLLA_EXT_OPTS
-        env_args = process_opts(os.getenv('SCYLLA_EXT_OPTS', "").split(), scylla_params_translation_map)
+        env_args = process_opts(os.getenv('SCYLLA_EXT_OPTS', "").split(), scylla_params_translation_map, scylla_params_allow_multiple)
 
         # precalculate self._mem_mb_per_cpu if --memory is given in SCYLLA_EXT_OPTS
         # and it wasn't set explicitly by the test
         if not self._mem_mb_set_during_test and '--memory' in env_args:
-            memory = self.parse_size(env_args['--memory'])
-            smp = int(env_args['--smp']) if '--smp' in env_args else self._smp
+            memory = self.parse_size(list(env_args['--memory'])[0])
+            smp = int(list(env_args['--smp'])[0]) if '--smp' in env_args else self._smp
             self._mem_mb_per_cpu = int((memory / smp) // MB)
 
         cmd_args = process_opts(jvm_args)
 
         # use '--memory' in jmv_args if mem_mb_per_cpu was not set by the test
         if not self._mem_mb_set_during_test and '--memory' in cmd_args:
-            self._memory = self.parse_size(cmd_args['--memory'])
+            self._memory = self.parse_size(list(cmd_args['--memory'])[0])
 
         ext_args = env_args
         ext_args.update(cmd_args)
@@ -596,11 +604,14 @@ class ScyllaNode(Node):
             if k == '--smp':
                 # get smp from args if not set by the test
                 if not self._smp_set_during_test:
-                    self._smp = int(v)
+                    self._smp = int(list(v)[0])
             elif k != '--memory':
-                args.append(k)
-                if v:
-                    args.append(v)
+                if not v:
+                    args.append(k)
+                else:
+                    for val in v:
+                        args.append(k)
+                        args.append(val)
 
         args.extend(translated_args)
 
