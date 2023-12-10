@@ -549,7 +549,7 @@ class ScyllaNode(Node):
 
         MB = 1024 * 1024
 
-        def process_opts(opts):
+        def process_opts(opts, args_translation_map = {}):
             ext_args = OrderedDict()
             opts_i = 0
             while opts_i < len(opts):
@@ -570,11 +570,12 @@ class ScyllaNode(Node):
                         opts_i += 1
                     val = ' '.join(vals)
                 if key not in ext_args and not key.startswith("--scylla-manager"):
-                    ext_args[key] = val
+                    ext_args[args_translation_map.get(key, key)] = val
             return ext_args
 
+        scylla_params_translation_map = {"-m" : "--memory", "-c" : "--smp"}
         # Lets search for default overrides in SCYLLA_EXT_OPTS
-        env_args = process_opts(os.getenv('SCYLLA_EXT_OPTS', "").split())
+        env_args = process_opts(os.getenv('SCYLLA_EXT_OPTS', "").split(), scylla_params_translation_map)
 
         # precalculate self._mem_mb_per_cpu if --memory is given in SCYLLA_EXT_OPTS
         # and it wasn't set explicitly by the test
