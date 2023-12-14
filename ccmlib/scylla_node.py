@@ -619,8 +619,6 @@ class ScyllaNode(Node):
         if self.scylla_mode() == 'debug' and '--blocked-reactor-notify-ms' not in args:
             args += ['--blocked-reactor-notify-ms', '5000']
         # TODO add support for classes_log_level
-        if '--collectd' not in args:
-            args += ['--collectd', '0']
         if '--cpuset' not in args:
             args += ['--overprovisioned']
         if '--prometheus-address' not in args:
