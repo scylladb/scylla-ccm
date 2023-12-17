@@ -1381,24 +1381,25 @@ class Node(object):
 
     @staticmethod
     def _set_stress_val(key, val, res):
-        # Set locale to the user's default value (usually specified in the LANG)
-        locale.setlocale(locale.LC_NUMERIC, '')
+        def parse_num(s):
+            return locale.atof(s.replace(',', ''))
+
         if "[" in val:
             p = re.compile(r'^\s*([\d\.\,]+\d?)\s*\[.*')
             m = p.match(val)
             if m:
-                res[key] = locale.atof(m.group(1))
+                res[key] = parse_num(m.group(1))
             p = re.compile(r'^.*READ:\s*([\d\.\,]+\d?)[^\d].*')
             m = p.match(val)
             if m:
-                res[key + ":read"] = locale.atof(m.group(1))
+                res[key + ":read"] = parse_num(m.group(1))
             p = re.compile(r'.*WRITE:\s*([\d\.\,]+\d?)[^\d].*')
             m = p.match(val)
             if m:
-                res[key + ":write"] = locale.atof(m.group(1))
+                res[key + ":write"] = parse_num(m.group(1))
         else:
             try:
-                res[key] = locale.atof(val)
+                res[key] = parse_num(val)
             except ValueError:
                 res[key] = val
 
