@@ -8,7 +8,6 @@ import yaml
 import uuid
 import datetime
 
-from distutils.version import LooseVersion
 
 from ccmlib import common
 from ccmlib.cluster import Cluster
@@ -16,6 +15,7 @@ from ccmlib.scylla_node import ScyllaNode
 from ccmlib.node import NodeError
 from ccmlib import scylla_repository
 from ccmlib.utils.sni_proxy import stop_sni_proxy
+from ccmlib.utils.version import ComparableScyllaVersion
 
 SNITCH = 'org.apache.cassandra.locator.GossipingPropertyFileSnitch'
 
@@ -298,7 +298,7 @@ class ScyllaManager:
     def version(self):
         stdout, _ = self.sctool(["version"], ignore_exit_status=True)
         version_string = stdout[stdout.find(": ") + 2:].strip()  # Removing unnecessary information
-        version_code = LooseVersion(version_string)
+        version_code = ComparableScyllaVersion(version_string)
         return version_code
 
     def _install(self, install_dir):
@@ -318,8 +318,7 @@ class ScyllaManager:
             data['database'] = {}
         data['database']['hosts'] = [self.scylla_cluster.get_node_ip(1)]
         data['database']['replication_factor'] = 3
-        if install_dir and (self.version < LooseVersion("2.5") or
-                            LooseVersion('666') < self.version < LooseVersion('666.dev-0.20210430.2217cc84')):
+        if install_dir and self.version < ComparableScyllaVersion("2.5"):
             data['database']['migrate_dir'] = os.path.join(install_dir, 'schema', 'cql')
         if 'https' in data:
             del data['https']
@@ -332,7 +331,7 @@ class ScyllaManager:
         data['logger']['mode'] = 'stderr'
         if not 'repair' in data:
             data['repair'] = {}
-        if self.version < LooseVersion("2.2"):
+        if self.version < ComparableScyllaVersion("2.2"):
             data['repair']['segments_per_repair'] = 16
         data['prometheus'] = f"{self.scylla_cluster.get_node_ip(1)}:56091"
         # Changing port to 56091 since the manager and the first node share the same ip and 56090 is already in use

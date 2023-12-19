@@ -11,10 +11,11 @@ import sys
 import tarfile
 import tempfile
 import time
+from typing import List
 import urllib
-from distutils.version import LooseVersion
 
 
+from ccmlib.utils.version import ComparableCassandraVersion
 from ccmlib.common import (ArgumentError, CCMError, get_default_path,
                            platform_binary, rmdirs, validate_install_dir,
                            assert_jdk_valid_for_cassandra_version, get_version_from_build)
@@ -373,7 +374,7 @@ def get_tagged_version_numbers(series='stable'):
     """Retrieve git tags and find version numbers for a release series
 
     series - 'stable', 'oldstable', or 'testing'"""
-    releases = []
+    releases: List[ComparableCassandraVersion] = []
     if series == 'testing':
         # Testing releases always have a hyphen after the version number:
         tag_regex = re.compile(r'^refs/tags/cassandra-([0-9]+\.[0-9]+\.[0-9]+-.*$)')
@@ -385,15 +386,15 @@ def get_tagged_version_numbers(series='stable'):
     for ref in (i.get('ref', '') for i in json.loads(tag_url.read())):
         m = tag_regex.match(ref)
         if m:
-            releases.append(LooseVersion(m.groups()[0]))
+            releases.append(ComparableCassandraVersion(m.groups()[0]))
 
     # Sort by semver:
     releases.sort(reverse=True)
 
-    stable_major_version = LooseVersion(str(releases[0].version[0]) + "." + str(releases[0].version[1]))
+    stable_major_version = ComparableCassandraVersion(str(releases[0].version[0]) + "." + str(releases[0].version[1]))
     stable_releases = [r for r in releases if r >= stable_major_version]
     oldstable_releases = [r for r in releases if r not in stable_releases]
-    oldstable_major_version = LooseVersion(str(oldstable_releases[0].version[0]) + "." + str(oldstable_releases[0].version[1]))
+    oldstable_major_version = ComparableCassandraVersion(str(oldstable_releases[0].version[0]) + "." + str(oldstable_releases[0].version[1]))
     oldstable_releases = [r for r in oldstable_releases if r >= oldstable_major_version]
 
     if series == 'testing':
