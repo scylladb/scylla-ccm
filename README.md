@@ -90,7 +90,7 @@ Windows only:
 Installation
 ------------
 
-ccm uses python distutils so from the source directory run:
+ccm uses python setuptools (with distutils fallback) so from the source directory run:
 
     sudo ./setup.py install
 
