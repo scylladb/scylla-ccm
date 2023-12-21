@@ -1382,7 +1382,7 @@ class Node(object):
     @staticmethod
     def _set_stress_val(key, val, res):
         def parse_num(s):
-            return locale.atof(s.replace(',', ''))
+            return float(s.replace(',', ''))
 
         if "[" in val:
             p = re.compile(r'^\s*([\d\.\,]+\d?)\s*\[.*')
