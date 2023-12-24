@@ -773,7 +773,10 @@ class Node(object):
 
         total = 0
         for line in tail:
-            ks, cf, num = tail_pattern.search(line).groups()
+            m = tail_pattern.search(line)
+            if not m:
+                break
+            ks, cf, num = m.groups()
             if matches(keyspace, ks) and matches(column_family, cf):
                 total += int(num)
         return total
