@@ -747,7 +747,8 @@ class Node(object):
         else:
             return False
 
-    def _parse_pending_tasks(self, output, keyspace, column_family):
+    @staticmethod
+    def _parse_pending_tasks(output, keyspace, column_family):
         # "nodetool compactionstats" prints the compaction stats like:
         # pending tasks: 42
         # - ks1.cf1: 13
