@@ -29,7 +29,7 @@ from ccmlib.common import CASSANDRA_SH, BIN_DIR, wait_for, copy_directory
 from ccmlib import common
 from ccmlib.node import Node, NodeUpgradeError
 from ccmlib.node import Status
-from ccmlib.node import NodeError
+from ccmlib.node import NodeError, ToolError
 from ccmlib.node import TimeoutError
 from ccmlib.scylla_repository import setup, get_scylla_version
 from ccmlib.utils.version import parse_version
@@ -1469,7 +1469,9 @@ class ScyllaNode(Node):
                 return (stdout, stderr)
             common_args = [scylla_path, "sstable", command] + additional_args
             env = self._get_environ()
-            res = subprocess.run(common_args + sstables, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=text, check=True, env=env)
+            res = subprocess.run(common_args + sstables, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=text, check=False, env=env)
+            if res.returncode:
+                raise ToolError(command=' '.join(common_args + sstables), exit_status=res.returncode, stdout=res.stdout, stderr=res.stderr)
             return (res.stdout, res.stderr)
 
         if batch:
