@@ -447,6 +447,14 @@ class Cluster(object):
         seed_index = self.seeds.index(node)
         return [s.network_interfaces['storage'][0] for s in self.seeds[:seed_index + 1]]
 
+    def add_seed(self, node):
+        if type(node) is Node:
+            address = node.address()
+        else:
+            address = node
+        if not address in self.seeds:
+            self.seeds.append(address)
+
     def show(self, verbose):
         msg = f"Cluster: '{self.name}'"
         print(msg)
