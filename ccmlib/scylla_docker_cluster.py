@@ -242,6 +242,7 @@ class ScyllaDockerNode(ScyllaNode):
         if not only_status:
             if show_cluster:
                 print(f"{indent}{'cluster'}={self.cluster.name}")
+            print(f"{indent}{'auto_bootstrap'}={self.auto_bootstrap}")
             print(f"{indent}{'thrift'}={self.network_interfaces['thrift']}")
             if self.network_interfaces['binary'] is not None:
                 print(f"{indent}{'binary'}={self.network_interfaces['binary']}")
@@ -268,6 +269,7 @@ class ScyllaDockerNode(ScyllaNode):
         values = {
             'name': self.name,
             'status': self.status,
+            'auto_bootstrap': self.auto_bootstrap,
             'interfaces': self.network_interfaces,
             'jmx_port': self.jmx_port,
             'docker_id': docker_id,
