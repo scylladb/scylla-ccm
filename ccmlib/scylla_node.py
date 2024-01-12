@@ -1106,6 +1106,7 @@ class ScyllaNode(Node):
             data = yaml.safe_load(f)
 
         data['cluster_name'] = self.cluster.name
+        data['auto_bootstrap'] = self.auto_bootstrap
         data['initial_token'] = self.initial_token
         if (not self.cluster.use_vnodes and
                 self.get_base_cassandra_version() >= 1.2):
