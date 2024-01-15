@@ -571,9 +571,7 @@ class ScyllaNode(Node):
                 o = opts[opts_i]
                 opts_i += 1
                 if '=' in o:
-                    opt = o.replace('=', ' ', 1).split()
-                    key = opt[0]
-                    val = opt[1]
+                    key, val = o.split('=', 1)
                 else:
                     key = o
                     vals = []
