@@ -595,7 +595,8 @@ def isScylla(install_dir):
         return True
 
     scylla_build_modes = ['debug', 'dev', 'release']
-    for mode in scylla_build_modes:
+    cmake_build_types = ['Debug', 'Dev', 'RelWithDebInfo']
+    for mode in scylla_build_modes + cmake_build_types:
         if os.path.exists(os.path.join(install_dir, 'build', mode, 'scylla')):
             return True
 
