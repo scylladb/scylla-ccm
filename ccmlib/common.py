@@ -591,11 +591,15 @@ def isScylla(install_dir):
 
         raise ArgumentError('Undefined installation directory')
 
-    return (os.path.exists(os.path.join(install_dir, 'scylla')) or
-            os.path.exists(os.path.join(install_dir, 'build', 'debug', 'scylla')) or
-            os.path.exists(os.path.join(install_dir, 'build', 'dev', 'scylla')) or
-            os.path.exists(os.path.join(install_dir, 'build', 'release', 'scylla')) or
-            os.path.exists(os.path.join(install_dir, 'bin', 'scylla')))
+    if os.path.exists(os.path.join(install_dir, 'scylla')):
+        return True
+
+    scylla_build_modes = ['debug', 'dev', 'release']
+    for mode in scylla_build_modes:
+        if os.path.exists(os.path.join(install_dir, 'build', mode, 'scylla')):
+            return True
+
+    return os.path.exists(os.path.join(install_dir, 'bin', 'scylla'))
 
 
 def isOpscenter(install_dir):
