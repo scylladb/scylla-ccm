@@ -4,7 +4,6 @@
 import errno
 import glob
 import itertools
-import math
 import os
 import re
 import shutil
@@ -17,7 +16,6 @@ import warnings
 from datetime import datetime
 import locale
 from collections import namedtuple
-from typing import List, Optional
 
 import yaml
 
@@ -1321,14 +1319,7 @@ class Node(object):
                 # specify used jmx port if not already set
                 if not [opt for opt in stress_options if opt.startswith('jmx=')]:
                     stress_options.extend(['-port', 'jmx=' + self.jmx_port])
-        if self.cluster.tablets_enabled:
-            smp = sum([node._smp or 1 for node in self.cluster.nodes.values()])
-            # default initial tablets: 32 * `sum of SMPs in cluster` coerced to power of 2 (suitable for small number of tables)
-            initial_tablets = int(math.pow(2, math.ceil(math.log(smp*32, 2))))
-            self.debug("tablets enabled, adjusting stress options by replication strategy change.")
-            stress_options = self._set_keyspace_initial_tablets(
-                stress_options, datacenter=self.data_center, initial_tablets=initial_tablets
-            )
+
         args = stress + stress_options
         stdout_handle = kwargs.pop("stdout", subprocess.PIPE)
         stderr_handle = kwargs.pop("stderr", subprocess.PIPE)
@@ -1345,41 +1336,6 @@ class Node(object):
             return handle_external_tool_process(p, ['stress'] + stress_options)
         except KeyboardInterrupt:
             pass
-
-    @staticmethod
-    def _set_keyspace_initial_tablets(stress_options: List[str], initial_tablets:int = 8,
-                                      datacenter: Optional[str] = None, rf: int = 1) -> List[str]:
-        normalized_stress_options = []
-        for stress_option in stress_options:
-            # sometimes users pass schema params in one str, split it
-            if stress_option.startswith("-schema"):
-                if " " in stress_option:
-                    normalized_stress_options += stress_option.split()
-                    continue
-            normalized_stress_options.append(stress_option)
-        stress_options = normalized_stress_options
-        datacenter = datacenter or 'datacenter1'
-        default_replication = f"replication(strategy=NetworkTopologyStrategy,{datacenter}={rf},initial_tablets={initial_tablets})"
-        try:
-            idx = stress_options.index('-schema')
-            replication = stress_options[idx + 1]
-            if 'replication' in replication:
-                if 'NetworkTopologyStrategy' in replication:
-                    # if NTP already set, just prepend initial_tablets
-                    replication = re.sub(r'replication\(.+?\)',
-                                         lambda m: m.group(0).replace(')', f',initial_tablets={initial_tablets})'), replication)
-                else:
-                    replication = re.sub(r'replication\(.*factor=(\d+)\)',
-                                         f'replication(strategy=NetworkTopologyStrategy,{datacenter}=' + r'\1' + f',initial_tablets={initial_tablets})',
-                                         replication)
-                stress_options[idx + 1] = replication
-            else:
-                # no replication provided in -schema, use default
-                stress_options.insert(idx + 1, default_replication)
-        except ValueError:
-            # no -schema provided
-            stress_options += ['-schema', default_replication]
-        return stress_options
 
     @staticmethod
     def _set_stress_val(key, val, res):
