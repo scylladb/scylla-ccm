@@ -9,10 +9,13 @@ import stat
 import subprocess
 import time
 
-import yaml
+from ruamel.yaml import YAML
 
 from ccmlib import common
 from ccmlib.node import Node, NodeError
+
+yaml = YAML()
+yaml.default_flow_style = False
 
 
 class DseNode(Node):
@@ -293,7 +296,7 @@ class DseNode(Node):
     def __update_yaml(self):
         conf_file = os.path.join(self.get_path(), 'resources', 'dse', 'conf', 'dse.yaml')
         with open(conf_file, 'r') as f:
-            data = yaml.safe_load(f)
+            data = yaml.load(f)
 
         data['system_key_directory'] = os.path.join(self.get_path(), 'keys')
 
@@ -310,7 +313,7 @@ class DseNode(Node):
                 data[name] = full_options[name]
 
         with open(conf_file, 'w') as f:
-            yaml.safe_dump(data, f, default_flow_style=False)
+            yaml.dump(data, f)
 
     def _update_log4j(self):
         super(DseNode, self)._update_log4j()
