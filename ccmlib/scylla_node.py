@@ -1465,7 +1465,10 @@ class ScyllaNode(Node):
             if not sstables:
                 empty_dump = {'sstables': {'anonymous': []}}
                 stdout, stderr = json.dumps(empty_dump), ''
-                return (stdout, stderr)
+                if text:
+                    return stdout, stderr
+                else:
+                    return stdout.encode('utf-8'), stderr.encode('utf-8')
             common_args = [scylla_path, "sstable", command] + additional_args
             env = self._get_environ()
             res = subprocess.run(common_args + sstables, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=text, check=False, env=env)
