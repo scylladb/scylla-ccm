@@ -24,7 +24,7 @@ import glob
 import re
 import requests
 
-from ccmlib.common import CASSANDRA_SH, BIN_DIR, wait_for, copy_directory
+from ccmlib.common import CASSANDRA_SH, BIN_DIR, wait_for, copy_directory, print_if_standalone
 
 from ccmlib import common
 from ccmlib.node import Node, NodeUpgradeError
@@ -533,10 +533,10 @@ class ScyllaNode(Node):
                     try:
                         common.check_socket_available(itf)
                     except Exception as msg:
-                        print(f"{msg}. Looking for offending processes...")
+                        print_if_standalone(f"{msg}. Looking for offending processes...", debug_callback=logging.error)
                         for proc in psutil.process_iter():
                             if any(self.cluster.ipprefix in cmd for cmd in proc.cmdline()):
-                                print(f"name={proc.name()} pid={proc.pid} cmdline={proc.cmdline()}")
+                                print_if_standalone(f"name={proc.name()} pid={proc.pid} cmdline={proc.cmdline()}",  debug_callback=logging.error)
                         raise msg
 
         marks = []
