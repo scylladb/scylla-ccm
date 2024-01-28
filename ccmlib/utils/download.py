@@ -1,6 +1,7 @@
 import os
 import logging
 import shutil
+import subprocess
 import urllib.parse
 import hashlib
 
@@ -172,7 +173,14 @@ def get_url_hash(url: str) -> str:
     """
 
     if os.path.exists(url):  # if file/dir is local, hash based on the path
-        return hashlib.md5(url).hexdigest()
+        result = subprocess.run(['md5sum', url], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if result.stderr:
+            raise OSError(f"Failed to get file hash by running 'md5sum {url}' command. Error: {result.stderr.decode('utf-8')}")
+
+        # Example of command output:
+        #   d2be7852b8c65f74c1da8c9efbc7e408 /scylla-ccm/tests/tests/test_data/scylla_unified_master_2023_04_03.tar.gz
+        hash_result = result.stdout.decode('utf-8').split()
+        return hash_result[0] if hash_result else ""
 
     # first try is on s3
     parts = urllib.parse.urlparse(url)
@@ -185,3 +193,10 @@ def get_url_hash(url: str) -> str:
     except botocore.client.ClientError:
         # fallback to http
         return requests.head(url).headers.get('ETag')[1:-1]
+
+
+def save_source_file(source_file: str, version: str, url: str, url_hash: str):
+    with open(source_file, 'w') as f:
+        f.write(f"version={version}\n")
+        f.write(f"url={url}\n")
+        f.write(f"hash={url_hash}\n")

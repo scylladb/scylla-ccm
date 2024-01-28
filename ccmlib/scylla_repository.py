@@ -19,14 +19,15 @@ import packaging.version
 
 from ccmlib.common import (
     ArgumentError, CCMError, get_default_path, rmdirs, validate_install_dir, get_scylla_version, aws_bucket_ls,
-    DOWNLOAD_IN_PROGRESS_FILE, print_if_standalone, LockFile)
-from ccmlib.utils.download import download_file, download_version_from_s3, get_url_hash
+    DOWNLOAD_IN_PROGRESS_FILE, print_if_standalone, LockFile, get_installed_scylla_package_hash)
+from ccmlib.utils.download import download_file, download_version_from_s3, get_url_hash, save_source_file
 from ccmlib.utils.version import parse_version
 
 GIT_REPO = "http://github.com/scylladb/scylla.git"
 
 CORE_PACKAGE_DIR_NAME = 'scylla-core-package'
 SCYLLA_VERSION_FILE = 'SCYLLA-VERSION-FILE'
+SOURCE_FILE_NAME = "source.txt"
 
 RELOCATABLE_URLS_BASE = ['https://s3.amazonaws.com/downloads.scylladb.com/unstable/scylla/{0}/relocatable/{1}',
                          'https://s3.amazonaws.com/downloads.scylladb.com/unstable/scylla-enterprise/{0}/relocatable/{1}',
@@ -244,7 +245,14 @@ def setup(version, verbose=True, skip_downloads=False):
         type_n_version = version.split(os.path.sep, 1)
     version_dir = version_directory(version) if not skip_downloads else None
 
-    if len(type_n_version) == 2 and version_dir is None:
+    # If the test version is unstable (not release, maybe private branch) and installation folder exists,
+    # we want to check if this version was downloaded nd installed already in the past and was changed.
+    # In this case the version should be downloaded and installed again.
+    # Compare hash of saved version (it is saved in the 'scylla-core-package/source.txt' file) and hash of a new package.
+    # If it is same - skip the download. If not - remove existing folder and download again.
+    validate_by_hash = version_dir is not None and type_n_version[0] != "release"
+
+    if len(type_n_version) == 2 and (version_dir is None or validate_by_hash):
         s3_version = type_n_version[1]
 
         if type_n_version[0] == 'release':
@@ -302,6 +310,32 @@ def setup(version, verbose=True, skip_downloads=False):
 
     if skip_downloads:
         return directory_name(version), packages
+
+    if validate_by_hash and packages:
+        # Validate if packages hash was changed and the new package(s) have to be downloaded
+        map_field_to_dir_name = {"scylla_unified_package": CORE_PACKAGE_DIR_NAME,
+                                 "scylla_package": CORE_PACKAGE_DIR_NAME,
+                                 "scylla_tools_package": "scylla-tools-java",
+                                 "scylla_jmx_package": "scylla-jmx"
+                                 }
+        for package in zip(packages._fields, packages):
+            if not package[1]:
+                continue
+
+            new_hash = get_url_hash(package[1])
+            package_dir = map_field_to_dir_name[package[0]]
+            current_hash = get_installed_scylla_package_hash(source_file=Path(version_dir) / package_dir / SOURCE_FILE_NAME)
+            if new_hash and new_hash == current_hash:
+                continue
+            else:
+                # Current hash may be None. It may be due to uncompleted downloading and installation.
+                # Or because of it is old installation that was not saved the hash yet.
+                # In any case the new download and installation should be performed.
+                # For this goal we need to remove existing folder and start downloading again
+                # remove version_dir
+                rmdirs(version_dir)
+                version_dir = None
+                break
 
     if version_dir is None:
         # Create version folder and add placeholder file to prevent parallel downloading from another test.
@@ -490,10 +524,15 @@ def download_version(version, url=None, verbose=False, target_dir=None, unified=
         # add breadcrumb so we could list the origin of each part easily for debugging
         # for example listing all the version we have in ccm scylla-repository
         # find  ~/.ccm/scylla-repository/*/ -iname source.txt | xargs cat
-        source_breadcrumb_file = os.path.join(target_dir, 'source.txt')
-        with open(source_breadcrumb_file, 'w') as f:
-            f.write(f"version={version}\n")
-            f.write(f"url={url}\n")
+        source_breadcrumb_file = os.path.join(target_dir, SOURCE_FILE_NAME)
+        # To improve caching of local tarballs, save hash of current package.
+        # In case the relocatable package was downloaded in the past and saved locally, by comparing of package hash we can decide
+        # if the package was changed and we need to download it again
+        url_hash = get_url_hash(url=url)
+        save_source_file(source_file=source_breadcrumb_file,
+                         version=version,
+                         url=url,
+                         url_hash=url_hash)
 
         return package_version
     except urllib.error.URLError as e:

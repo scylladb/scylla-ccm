@@ -1,8 +1,11 @@
+import time
 import typing
+from pathlib import Path
+import random
 
 import pytest
 
-from ccmlib.scylla_repository import setup as scylla_setup
+from ccmlib.scylla_repository import setup as scylla_setup, CORE_PACKAGE_DIR_NAME, SOURCE_FILE_NAME
 from ccmlib.scylla_repository import (
     get_manager_release_url,
     get_manager_latest_reloc_url,
@@ -40,7 +43,6 @@ class TestScyllaRepository:
     def test_setup_unstable_enterprise_new_url(self):
         cdir, version = scylla_setup(version="unstable/enterprise:2023-06-15T06:53:32Z", verbose=True)
         assert version == '2023.3.0-dev'
-
 
 
 class TestScyllaRepositoryRelease:
@@ -114,6 +116,59 @@ class TestScyllaRepositoryRelease:
         assert packages.scylla_package == 'https://s3.amazonaws.com/downloads.scylladb.com/unstable/scylla/master/relocatable/2021-01-18T15:48:13Z/scylla-package.tar.gz'
         assert packages.scylla_tools_package == 'https://s3.amazonaws.com/downloads.scylladb.com/unstable/scylla/master/relocatable/2021-01-18T15:48:13Z/scylla-tools-package.tar.gz'
         assert packages.scylla_jmx_package == 'https://s3.amazonaws.com/downloads.scylladb.com/unstable/scylla/master/relocatable/2021-01-18T15:48:13Z/scylla-jmx-package.tar.gz'
+
+
+class TestReinstallPackages:
+    @staticmethod
+    def corrupt_hash_value(source_file):
+        file_text = source_file.read_text()
+        file_text = file_text.replace("hash=", "hash=123")
+        source_file.write_text(file_text)
+
+    def test_setup_no_unified_packages_reinstall(self):
+        """
+        Validate that if package hash is changed, new package will be downloaded.
+        - download the Scylla packages. Packages hash will be saved in the "source.txt" file under relevant package folder
+        - change the hash to be wrong for one of the packages (choose the package randomly). No matter hash of which package is wrong -
+        all packages should be re-downloaded
+        - run setup again. It expected that the packages will be downloaded again. The download time should be not short.
+        Actually time without download should be around 5 ms, and with download about 35 ms. I put here more than 20
+        """
+        cdir, version = scylla_setup(version="unstable/master:2021-01-18T15:48:13Z", verbose=True, skip_downloads=False)
+        assert '2021-01-18T15_48_13Z' in cdir
+        assert version == '4.4.dev'
+
+        package_to_corrupt = random.choice([CORE_PACKAGE_DIR_NAME, "scylla-tools-java", "scylla-jmx"])
+        self.corrupt_hash_value(Path(cdir) / package_to_corrupt / SOURCE_FILE_NAME)
+
+        start_time = time.time()
+        cdir, version = scylla_setup(version="unstable/master:2021-01-18T15:48:13Z", verbose=True, skip_downloads=False)
+        end_time = time.time()
+        assert (end_time - start_time) > 20
+
+        assert '2021-01-18T15_48_13Z' in cdir
+        assert version == '4.4.dev'
+
+    def test_setup_unified_package_reinstall(self):
+        """
+        Validate that if package hash is changed, new package will be downloaded.
+        - download the unified package. Package hash will be saved in the "source.txt" file
+        - change the hash to be wrong
+        - run setup again. It expected that the package will be downloaded again. The download time should be not short.
+        Actually time without download should be less than 3 ms, and with download about 9 ms. I put here more than 20
+        """
+        cdir, version = scylla_setup(version="unstable/master:2023-04-03T22:38:18Z", verbose=True, skip_downloads=False)
+        assert '2023-04-03T22_38_18Z' in cdir
+        assert version == '5.3.0-dev'
+
+        self.corrupt_hash_value(Path(cdir) / CORE_PACKAGE_DIR_NAME / SOURCE_FILE_NAME)
+
+        start_time = time.time()
+        cdir, version = scylla_setup(version="unstable/master:2023-04-03T22:38:18Z", verbose=True, skip_downloads=False)
+        end_time = time.time()
+        assert (end_time - start_time) > 5
+        assert '2023-04-03T22_38_18Z' in cdir
+        assert version == '5.3.0-dev'
 
 
 @pytest.mark.parametrize('architecture', argvalues=typing.get_args(Architecture))

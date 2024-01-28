@@ -18,11 +18,13 @@ import logging
 import pathlib
 from itertools import zip_longest
 from typing import Callable, Optional, TextIO, Union, List
+from pathlib import Path
 
 import yaml
 from boto3.session import Session
 from botocore import UNSIGNED
 from botocore.client import Config
+
 
 BIN_DIR = "bin"
 CASSANDRA_CONF_DIR = "conf"
@@ -644,14 +646,15 @@ def scylla_extract_mode(path):
 
 
 def scylla_extract_install_dir_and_mode(install_dir):
+    from ccmlib.scylla_repository import CORE_PACKAGE_DIR_NAME, SOURCE_FILE_NAME  # to prevent failure due to a circular import
     scylla_mode = scylla_extract_mode(install_dir)
     if scylla_mode:
         install_dir = str(os.path.join(install_dir, os.pardir, os.pardir))
     else:
         scylla_mode = 'release'
-        if os.path.exists(os.path.join(install_dir, 'scylla-core-package')):
+        if os.path.exists(os.path.join(install_dir, CORE_PACKAGE_DIR_NAME)):
             try:
-                f = open(os.path.join(install_dir, 'scylla-core-package', 'source.txt'), 'r')
+                f = open(os.path.join(install_dir, CORE_PACKAGE_DIR_NAME, SOURCE_FILE_NAME), 'r')
                 for l in f.readlines():
                     if l.startswith('url='):
                         scylla_mode = scylla_extract_mode(l) or scylla_mode
@@ -683,8 +686,6 @@ def wait_for(func: Callable, timeout: int, first: float = 0.0, step: float = 1.0
         time.sleep(step)
 
     return False
-
-
 
 
 def validate_install_dir(install_dir):
@@ -973,3 +974,19 @@ def print_if_standalone(*args, debug_callback=None, end='\n', **kwargs):
         print(*args, *kwargs, end=end)
     else:
         debug_callback(*args, **kwargs)
+
+
+def get_installed_scylla_package_hash(source_file: Path):
+    current_hash = ""
+
+    # If source file does not exists - we can not to check the hash of the existing package
+    if not source_file.exists():
+        return current_hash
+
+    with open(source_file, 'r') as f:
+        lines = f.readlines()
+    # get hash from file
+    for line in lines:
+        if line.startswith("hash="):
+            current_hash = line.replace("hash=", "").strip()
+    return current_hash
