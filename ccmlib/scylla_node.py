@@ -579,8 +579,8 @@ class ScyllaNode(Node):
                         vals.append(opts[opts_i])
                         opts_i += 1
                     val = ' '.join(vals)
-                if key not in ext_args and not key.startswith("--scylla-manager"):
-                    ext_args[key] = val
+                if not key.startswith("--scylla-manager"):
+                    ext_args.setdefault(key, []).append(val)
             return ext_args
 
         # Lets search for default overrides in SCYLLA_EXT_OPTS
@@ -589,15 +589,15 @@ class ScyllaNode(Node):
         # precalculate self._mem_mb_per_cpu if --memory is given in SCYLLA_EXT_OPTS
         # and it wasn't set explicitly by the test
         if not self._mem_mb_set_during_test and '--memory' in env_args:
-            memory = self.parse_size(env_args['--memory'])
-            smp = int(env_args['--smp']) if '--smp' in env_args else self._smp
+            memory = self.parse_size(env_args['--memory'][0])
+            smp = int(env_args['--smp'][0]) if '--smp' in env_args else self._smp
             self._mem_mb_per_cpu = int((memory / smp) // MB)
 
         cmd_args = process_opts(jvm_args)
 
         # use '--memory' in jmv_args if mem_mb_per_cpu was not set by the test
         if not self._mem_mb_set_during_test and '--memory' in cmd_args:
-            self._memory = self.parse_size(cmd_args['--memory'])
+            self._memory = self.parse_size(cmd_args['--memory'][0])
 
         ext_args = env_args
         ext_args.update(cmd_args)
@@ -605,11 +605,13 @@ class ScyllaNode(Node):
             if k == '--smp':
                 # get smp from args if not set by the test
                 if not self._smp_set_during_test:
-                    self._smp = int(v)
+                    self._smp = int(v[0])
             elif k != '--memory':
-                args.append(k)
-                if v:
-                    args.append(v)
+                if v and all(v):
+                    for val in v:
+                        args += [k, val]
+                else:
+                    args.append(k)
 
         args.extend(translated_args)
 
