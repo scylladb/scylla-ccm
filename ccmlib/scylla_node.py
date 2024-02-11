@@ -757,12 +757,15 @@ class ScyllaNode(Node):
         else:
             self.jmx_pid = None
 
-    def nodetool(self, *args, **kwargs):
+    def nodetool(self, cmd, capture_output=True, wait=True, timeout=None, verbose=True):
         """
         Kill scylla-jmx in case of timeout, to supply enough debugging information
         """
+        # pass the api_port to nodetool. if it is the nodetool-wrapper. it should
+        # interpret the command line and use it for the -p option
+        cmd = f"{cmd} -Dcom.scylladb.apiPort=10000"
         try:
-            return super().nodetool(*args, **kwargs)
+            return super().nodetool(cmd, capture_output, wait, timeout, verbose)
         except subprocess.TimeoutExpired:
             self.error("nodetool timeout, going to kill scylla-jmx with SIGQUIT")
             self.kill_jmx(signal.SIGQUIT)
