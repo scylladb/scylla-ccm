@@ -763,7 +763,7 @@ class ScyllaNode(Node):
         """
         # pass the api_port to nodetool. if it is the nodetool-wrapper. it should
         # interpret the command line and use it for the -p option
-        cmd = f"{cmd} -Dcom.scylladb.apiPort=10000"
+        cmd = f"-Dcom.scylladb.apiPort=10000 {cmd}"
         try:
             return super().nodetool(cmd, capture_output, wait, timeout, verbose)
         except subprocess.TimeoutExpired:
