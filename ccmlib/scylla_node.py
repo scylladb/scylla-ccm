@@ -1127,13 +1127,17 @@ class ScyllaNode(Node):
                 self.get_base_cassandra_version() >= 1.2):
             _, data['native_transport_port'] = self.network_interfaces['binary']
 
+        # Use "workdir,W" instead of "workdir", because scylla defines this option this way
+        # and dtests compares names of used options with the names defined in scylla.
+        data['workdir,W'] = self.get_path()
+        # This option is set separately from the workdir to keep backward compatibility with scylla java tools
+        # such as sstablelevelreset which needs this option to get the path to the data directory.
         data['data_file_directories'] = [os.path.join(self.get_path(), 'data')]
+        # The default path of commitlog subdirectory is workdir/commitlog.
+        # This option is set separately from the workdir to keep backward compatibility,
+        # because some dtests use `commitlogs` value to get the commitlog directory.
         data['commitlog_directory'] = os.path.join(self.get_path(),
                                                    'commitlogs')
-        data['hints_directory'] = os.path.join(self.get_path(), 'hints')
-        data['saved_caches_directory'] = os.path.join(self.get_path(),
-                                                      'saved_caches')
-        data['view_hints_directory'] = os.path.join(self.get_path(), 'view_hints')
 
         if self.cluster.partitioner:
             data['partitioner'] = self.cluster.partitioner
