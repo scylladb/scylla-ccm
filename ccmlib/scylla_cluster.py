@@ -156,9 +156,10 @@ class ScyllaCluster(Cluster):
                                    verbose=verbose, from_mark=mark)
 
         if wait_other_notice:
-            for old_node, _ in marks:
+            for old_node, mark in marks:
                 for node, _, _ in started:
                     if old_node is not node:
+                        old_node.watch_log_for_alive(node, from_mark=mark, timeout=self.default_wait_other_notice_timeout)
                         old_node.watch_rest_for_alive(node, timeout=self.default_wait_other_notice_timeout,
                                                       wait_normal_token_owner=wait_normal_token_owner)
 
