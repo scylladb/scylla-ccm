@@ -332,8 +332,9 @@ class ScyllaNode(Node):
                 self.wait_for_binary_interface(from_mark=from_mark, process=self._process_scylla, timeout=t)
 
         if wait_other_notice:
-            for node, _ in marks:
+            for node, mark in marks:
                 t = self.cluster.default_wait_other_notice_timeout
+                node.watch_log_for_alive(self, from_mark=mark, timeout=t)
                 node.watch_rest_for_alive(self, timeout=t, wait_normal_token_owner=wait_normal_token_owner)
                 self.watch_rest_for_alive(node, timeout=t, wait_normal_token_owner=wait_normal_token_owner)
 
