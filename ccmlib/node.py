@@ -808,30 +808,12 @@ class Node(object):
             time.sleep(1)
         raise TimeoutError(f"Waiting for compactions timed out after {idle_timeout} seconds with pending tasks remaining: {output}.")
 
-    def nodetool(self, cmd, capture_output=True, wait=True, timeout=None, verbose=True):
-        """
-        Setting wait=False makes it impossible to detect errors,
-        if capture_output is also False. wait=False allows us to return
-        while nodetool is still running.
-        When wait=True, timeout may be set to a number, in seconds,
-        to limit how long the function will wait for nodetool to complete.
-        """
+    def _do_run_nodetool(self, nodetool, capture_output=True, wait=True, timeout=None, verbose=True):
         if capture_output and not wait:
             raise common.ArgumentError("Cannot set capture_output while wait is False.")
         env = self.get_env()
-        if self.is_scylla() and not self.is_docker():
-            host = self.address()
-        else:
-            host = 'localhost'
-        nodetool = self.get_tool('nodetool')
-
-        if not isinstance(nodetool, list):
-            nodetool = [nodetool]
-        # see https://www.oracle.com/java/technologies/javase/8u331-relnotes.html#JDK-8278972
-        nodetool.extend(['-h', host, '-p', str(self.jmx_port), '-Dcom.sun.jndi.rmiURLParsing=legacy'])
-        nodetool.extend(cmd.split())
         if verbose:
-            self.debug(f"nodetool cmd={cmd} wait={wait} timeout={timeout}")
+            self.debug(f"nodetool cmd={nodetool} wait={wait} timeout={timeout}")
         if capture_output:
             p = subprocess.Popen(nodetool, universal_newlines=True, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             stdout, stderr = p.communicate(timeout=timeout)
@@ -845,6 +827,28 @@ class Node(object):
                 raise NodetoolError(" ".join(nodetool), exit_status, stdout, stderr)
 
         return stdout, stderr
+
+    def nodetool(self, cmd, capture_output=True, wait=True, timeout=None, verbose=True):
+        """
+        Setting wait=False makes it impossible to detect errors,
+        if capture_output is also False. wait=False allows us to return
+        while nodetool is still running.
+        When wait=True, timeout may be set to a number, in seconds,
+        to limit how long the function will wait for nodetool to complete.
+        """
+        if self.is_scylla() and not self.is_docker():
+            host = self.address()
+        else:
+            host = 'localhost'
+        nodetool = self.get_tool('nodetool')
+
+        if not isinstance(nodetool, list):
+            nodetool = [nodetool]
+        # see https://www.oracle.com/java/technologies/javase/8u331-relnotes.html#JDK-8278972
+        nodetool.extend(['-h', host, '-p', str(self.jmx_port), '-Dcom.sun.jndi.rmiURLParsing=legacy'])
+        nodetool.extend(cmd.split())
+
+        return self._do_run_nodetool(nodetool, capture_output, wait, timeout, verbose)
 
     def dsetool(self, cmd):
         raise common.ArgumentError('Cassandra nodes do not support dsetool')
