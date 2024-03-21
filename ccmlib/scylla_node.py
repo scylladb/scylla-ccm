@@ -47,6 +47,7 @@ class ScyllaNode(Node):
         self._node_install_dir = None
         self._node_scylla_version = None
         self._relative_repos_root = None
+        self._has_native_nodetool = None
         super().__init__(name, cluster, auto_bootstrap,
                          thrift_interface, storage_interface,
                          jmx_port, remote_debug_port,
@@ -162,6 +163,16 @@ class ScyllaNode(Node):
     def get_cassandra_version(self):
         # TODO: Handle versioning
         return '3.0'
+
+    def has_native_nodetool(self):
+        if self._has_native_nodetool is None:
+            this_version = parse_version(self.node_install_dir_version())
+            if this_version >= parse_version("2018.1"):
+                self._has_native_nodetool = this_version >= parse_version("2024.2.0-dev")
+            else:
+                self._has_native_nodetool = this_version >= parse_version("5.5.0-dev")
+            self.debug(f"has_native_nodetool(): version={self.node_install_dir_version()} -> {self._has_native_nodetool}")
+        return self._has_native_nodetool
 
     def set_log_level(self, new_level, class_name=None):
         known_level = {'TRACE' : 'trace', 'DEBUG' : 'debug', 'INFO' : 'info', 'WARN' : 'warn', 'ERROR' : 'error', 'OFF' : 'info'}
@@ -761,12 +772,19 @@ class ScyllaNode(Node):
             self.jmx_pid = None
 
     def nodetool(self, cmd, capture_output=True, wait=True, timeout=None, verbose=True):
-        """
-        Kill scylla-jmx in case of timeout, to supply enough debugging information
-        """
-        # pass the api_port to nodetool. if it is the nodetool-wrapper. it should
-        # interpret the command line and use it for the -p option
-        cmd = f"-Dcom.scylladb.apiPort=10000 {cmd}"
+        if self.has_native_nodetool():
+            if self.is_docker():
+                host = 'localhost'
+            else:
+                host = self.address()
+            nodetool = [os.path.join(self.get_bin_dir(), "scylla"), "nodetool"]
+            nodetool.extend(['-h', host, '-p', '10000'])
+            nodetool.extend(cmd.split())
+            return self._do_run_nodetool(nodetool, capture_output, wait, timeout, verbose)
+
+        # Fall-back to the java nodetool for pre 5.5.0~dev versions, which don't yet have the native nodetool
+        # Kill scylla-jmx in case of timeout, to supply enough debugging information
+
         try:
             return super().nodetool(cmd, capture_output, wait, timeout, verbose)
         except subprocess.TimeoutExpired:
