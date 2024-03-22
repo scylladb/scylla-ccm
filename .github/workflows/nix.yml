@@ -32,7 +32,7 @@ jobs:
         path: |
           ~/.ccm/repository
           ~/.ccm/scylla-repository
-        key: ${{ runner.os }}-binaries
+        key: ${{ runner.os }}-${{ env.RELOC_VERSION }}-binaries
 
     - name: Download versions
       if: steps.cache-versions.outputs.cache-hit != 'true'
