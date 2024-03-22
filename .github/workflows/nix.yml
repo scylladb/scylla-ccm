@@ -37,7 +37,8 @@ jobs:
     - name: Download versions
       if: steps.cache-versions.outputs.cache-hit != 'true'
       run: |
-        if [ ! -f ~/.ccm/scylla-repository/unstable/master/2023-04-13T13_31_00Z ]; then
+        normalized=$(echo $RELOC_VERSION | tr ':' '_')
+        if [ ! -f ~/.ccm/scylla-repository/unstable/master/$normalized ]; then
           nix develop --command ./ccm create temp -n 1 --scylla --version $SCYLLA_VERSION
           nix develop --command ./ccm remove
         fi
