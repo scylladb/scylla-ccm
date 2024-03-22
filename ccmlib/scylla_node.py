@@ -699,14 +699,15 @@ class ScyllaNode(Node):
                                             wait_normal_token_owner=wait_normal_token_owner,
                                             wait_for_binary_proto=wait_for_binary_proto,
                                             ext_env=ext_env)
-        self._start_jmx(data)
+        if not self.has_native_nodetool():
+            self._start_jmx(data)
 
-        ip_addr, _ = self.network_interfaces['storage']
-        jmx_port = int(self.jmx_port)
-        if not self._wait_java_up(ip_addr, jmx_port):
-            e_msg = "Error starting node {}: unable to connect to scylla-jmx port {}:{}".format(
-                     self.name, ip_addr, jmx_port)
-            raise NodeError(e_msg, scylla_process)
+            ip_addr, _ = self.network_interfaces['storage']
+            jmx_port = int(self.jmx_port)
+            if not self._wait_java_up(ip_addr, jmx_port):
+                e_msg = "Error starting node {}: unable to connect to scylla-jmx port {}:{}".format(
+                         self.name, ip_addr, jmx_port)
+                raise NodeError(e_msg, scylla_process)
 
         self._update_pid(scylla_process)
         wait_for(func=lambda: self.is_running(), timeout=10, step=0.01)
@@ -827,7 +828,8 @@ class ScyllaNode(Node):
         """
 
         did_stop = False
-        self._update_jmx_pid(wait=False)
+        if not self.has_native_nodetool():
+            self._update_jmx_pid(wait=False)
         if self.scylla_manager and self.scylla_manager.is_agent_available:
             self._update_scylla_agent_pid()
         for proc in [self._process_jmx, self._process_scylla, self._process_agent]:
@@ -1079,34 +1081,35 @@ class ScyllaNode(Node):
                 if returncode != 0:
                     raise RuntimeError(f'{patchelf_cmd} exited with status {returncode}.\nstdout:{stdout}\nstderr:\n{stderr}')
 
-        if 'scylla-repository' in self.node_install_dir:
-            self.hard_link_or_copy(os.path.join(self.get_jmx_dir(), 'scylla-jmx-1.0.jar'),
-                                   os.path.join(self.get_bin_dir(), 'scylla-jmx-1.0.jar'), replace=replace)
-            self.hard_link_or_copy(os.path.join(self.get_jmx_dir(), 'scylla-jmx'),
-                                   os.path.join(self.get_bin_dir(), 'scylla-jmx'), replace=replace)
-            select_java = Path(self.get_jmx_dir()) / 'select-java'
-        else:
-            self.hard_link_or_copy(os.path.join(self.get_jmx_dir(), 'target', 'scylla-jmx-1.0.jar'),
-                                   os.path.join(self.get_bin_dir(), 'scylla-jmx-1.0.jar'), replace=replace)
-            self.hard_link_or_copy(os.path.join(self.get_jmx_dir(), 'scripts', 'scylla-jmx'),
-                                   os.path.join(self.get_bin_dir(), 'scylla-jmx'), replace=replace)
-            select_java = Path(self.get_jmx_dir()) / 'scripts' / 'select-java'
+        if not self.has_native_nodetool():
+            if 'scylla-repository' in self.node_install_dir:
+                self.hard_link_or_copy(os.path.join(self.get_jmx_dir(), 'scylla-jmx-1.0.jar'),
+                                       os.path.join(self.get_bin_dir(), 'scylla-jmx-1.0.jar'), replace=replace)
+                self.hard_link_or_copy(os.path.join(self.get_jmx_dir(), 'scylla-jmx'),
+                                       os.path.join(self.get_bin_dir(), 'scylla-jmx'), replace=replace)
+                select_java = Path(self.get_jmx_dir()) / 'select-java'
+            else:
+                self.hard_link_or_copy(os.path.join(self.get_jmx_dir(), 'target', 'scylla-jmx-1.0.jar'),
+                                       os.path.join(self.get_bin_dir(), 'scylla-jmx-1.0.jar'), replace=replace)
+                self.hard_link_or_copy(os.path.join(self.get_jmx_dir(), 'scripts', 'scylla-jmx'),
+                                       os.path.join(self.get_bin_dir(), 'scylla-jmx'), replace=replace)
+                select_java = Path(self.get_jmx_dir()) / 'scripts' / 'select-java'
 
-        os.makedirs(os.path.join(self.get_bin_dir(), 'symlinks'), exist_ok=exist_ok)
-        scylla_jmx_file = os.path.join(self.get_bin_dir(), 'symlinks', 'scylla-jmx')
-        if os.path.exists(scylla_jmx_file) and replace:
-            os.remove(scylla_jmx_file)
-        if java_home := os.environ.get('JAVA_HOME'):
-            # user selecting specific Java
-            java_exe = Path(java_home) / 'bin' / 'java'
-            os.symlink(java_exe, scylla_jmx_file)
-        elif select_java.exists():
-            # JMX lookup logic
-            os.symlink(select_java, scylla_jmx_file)
-        else:
-            # older scylla versions, just use default java
-            java_exe = Path('/usr') / 'bin' / 'java'
-            os.symlink(java_exe, scylla_jmx_file)
+            os.makedirs(os.path.join(self.get_bin_dir(), 'symlinks'), exist_ok=exist_ok)
+            scylla_jmx_file = os.path.join(self.get_bin_dir(), 'symlinks', 'scylla-jmx')
+            if os.path.exists(scylla_jmx_file) and replace:
+                os.remove(scylla_jmx_file)
+            if java_home := os.environ.get('JAVA_HOME'):
+                # user selecting specific Java
+                java_exe = Path(java_home) / 'bin' / 'java'
+                os.symlink(java_exe, scylla_jmx_file)
+            elif select_java.exists():
+                # JMX lookup logic
+                os.symlink(select_java, scylla_jmx_file)
+            else:
+                # older scylla versions, just use default java
+                java_exe = Path('/usr') / 'bin' / 'java'
+                os.symlink(java_exe, scylla_jmx_file)
 
         parent_dir = os.path.dirname(os.path.realpath(__file__))
         resources_bin_dir = os.path.join(parent_dir, 'resources', BIN_DIR)
