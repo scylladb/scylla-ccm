@@ -11,7 +11,8 @@ on:
      - next*
 
 env:
-  RELOC_VERSION: "2023-04-13T13:31:00Z"
+  RELOC_VERSION: "2024-03-22T09:51:51Z"
+
 
 jobs:
   build:
