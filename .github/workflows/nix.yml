@@ -17,8 +17,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
     continue-on-error: true
-    env:
-      SCYLLA_VERSION: "unstable/master:${{ env.RELOC_VERSION }}"
     steps:
     - uses: actions/checkout@v3
     - uses: cachix/install-nix-action@v20
@@ -33,6 +31,10 @@ jobs:
           ~/.ccm/repository
           ~/.ccm/scylla-repository
         key: ${{ runner.os }}-${{ env.RELOC_VERSION }}-binaries
+
+    - name: Set environmental variables
+      run: |
+        echo "SCYLLA_VERSION=unstable/master:$RELOC_VERSION" >> "$GITHUB_ENV"
 
     - name: Download versions
       if: steps.cache-versions.outputs.cache-hit != 'true'
