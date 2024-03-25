@@ -60,7 +60,7 @@ jobs:
         path: |
           ~/.ccm/repository
           ~/.ccm/scylla-repository
-        key: ${{ runner.os }}-binaries
+        key: ${{ runner.os }}-${{ env.RELOC_VERSION }}-binaries
 
     - name: Set environmental variables
       run: |
