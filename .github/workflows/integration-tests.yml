@@ -10,6 +10,9 @@ on:
     branches:
      - next*
 
+env:
+  RELOC_VERSION: "2023-04-13T13:31:00Z"
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -59,12 +62,15 @@ jobs:
           ~/.ccm/scylla-repository
         key: ${{ runner.os }}-binaries
 
+    - name: Set environmental variables
+      run: |
+        echo "SCYLLA_VERSION=unstable/master:$RELOC_VERSION" >> "$GITHUB_ENV"
+
     - name: Download versions
       if: steps.cache-versions.outputs.cache-hit != 'true'
       run: |
-        if [ ! -f ~/.ccm/scylla-repository/unstable/master/2023-04-13T13_31_00Z ]; then
-          RELOC_VERSION="2023-04-13T13:31:00Z"
-        
+        normalized=$(echo $RELOC_VERSION | tr ':' '_')
+        if [ ! -f ~/.ccm/scylla-repository/unstable/master/$normalized ]; then
           ./ccm create temp -n 1 --scylla --version unstable/master:${RELOC_VERSION}
           ./ccm remove
         fi
