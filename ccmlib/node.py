@@ -826,7 +826,22 @@ class Node(object):
             if exit_status != 0:
                 raise NodetoolError(" ".join(nodetool), exit_status, stdout, stderr)
 
-        return stdout, stderr
+        ignored_patterns = (re.compile("WARNING: debug mode. Not for benchmarking or production"),
+                            re.compile("==[0-9]+==WARNING: ASan doesn't fully support makecontext/swapcontext functions and may produce false positives in some cases!"))
+
+        def keep(line):
+            self.debug(f"checking {line}")
+            for ignored_pattern in ignored_patterns:
+                if ignored_pattern.fullmatch(line):
+                    return False
+            return True
+
+        def filter_debug_errors(stderr):
+            if stderr is None:
+                return stderr
+            return '\n'.join([line for line in stderr.split('\n') if keep(line)])
+
+        return stdout, filter_debug_errors(stderr)
 
     def nodetool(self, cmd, capture_output=True, wait=True, timeout=None, verbose=True):
         """
