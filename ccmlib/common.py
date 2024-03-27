@@ -661,6 +661,12 @@ def scylla_extract_install_dir_and_mode(install_dir):
                 f.close()
             except:
                 pass
+
+    is_gcov = subprocess.run(['bash', '-c', f'strings {install_dir}/libexec/scylla | grep -i GCOV_'], stderr=subprocess.DEVNULL,
+                  stdout=subprocess.DEVNULL, check=False)
+    if is_gcov.returncode == 0:
+        scylla_mode = "debug"
+
     return install_dir, scylla_mode
 
 
