@@ -1,17 +1,11 @@
 name: CCM Integration tests (using Nix)
 
 on:
-  push:
-    branches:
-     - master
-     - next*
-
-  pull_request:
-    branches:
-     - next*
-
-env:
-  RELOC_VERSION: "2023-04-13T13:31:00Z"
+  workflow_call:
+    inputs:
+      reloc_version:
+        required: true
+        type: string
 
 jobs:
   build:
@@ -30,16 +24,16 @@ jobs:
         path: |
           ~/.ccm/repository
           ~/.ccm/scylla-repository
-        key: ${{ runner.os }}-${{ env.RELOC_VERSION }}-binaries
+        key: ${{ runner.os }}-${{ inputs.reloc_version }}-binaries
 
     - name: Set environmental variables
       run: |
-        echo "SCYLLA_VERSION=unstable/master:$RELOC_VERSION" >> "$GITHUB_ENV"
+        echo "SCYLLA_VERSION=unstable/master:${{ inputs.reloc_version }}" >> "$GITHUB_ENV"
 
     - name: Download versions
       if: steps.cache-versions.outputs.cache-hit != 'true'
       run: |
-        normalized=$(echo $RELOC_VERSION | tr ':' '_')
+        normalized=$(echo ${{ inputs.reloc_version }} | tr ':' '_')
         if [ ! -f ~/.ccm/scylla-repository/unstable/master/$normalized ]; then
           nix develop --command ./ccm create temp -n 1 --scylla --version $SCYLLA_VERSION
           nix develop --command ./ccm remove
