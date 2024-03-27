@@ -1,0 +1,23 @@
+name: ci
+
+on:
+  push:
+    branches:
+     - master
+     - next*
+
+  pull_request:
+    branches:
+     - next*
+
+jobs:
+  ci-without-nix:
+    name: CCM Integration tests
+    uses: ./.github/workflows/integration-tests.yml
+    with:
+      reloc_version: "2023-04-13T13:31:00Z"
+  ci-with-nix:
+    name: CCM Integration tests (using Nix)
+    uses: ./.github/workflows/nix.yml
+    with:
+      reloc_version: "2023-04-13T13:31:00Z"
