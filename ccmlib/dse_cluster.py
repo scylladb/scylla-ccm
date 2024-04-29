@@ -29,7 +29,7 @@ class DseCluster(Cluster):
         return os.path.exists(os.path.join(self.get_path(), 'opscenter'))
 
     def create_node(self, name, auto_bootstrap, thrift_interface, storage_interface, jmx_port, remote_debug_port, initial_token, save=True, binary_interface=None):
-        return DseNode(name, self, auto_bootstrap, thrift_interface, storage_interface, jmx_port, remote_debug_port, initial_token, save, binary_interface)
+        return DseNode(name, self, auto_bootstrap, None, storage_interface, jmx_port, remote_debug_port, initial_token, save, binary_interface)
 
     def start(self, no_wait=False, verbose=False, wait_for_binary_proto=False, wait_other_notice=False, jvm_args=None, profile_options=None, quiet_start=False):
         if jvm_args is None:
@@ -80,7 +80,9 @@ class DseCluster(Cluster):
             os.makedirs(cluster_conf)
             if len(self.seeds) > 0:
                 seed = self.seeds[0]
-                (seed_ip, seed_port) = seed.network_interfaces['thrift']
+                # NOTE: should be use api_port, not storage_port. but we don't
+                #       test DSE.
+                (seed_ip, seed_port) = seed.network_interfaces['storage']
                 seed_jmx = seed.jmx_port
                 with open(os.path.join(cluster_conf, self.name + '.conf'), 'w+') as f:
                     f.write('[jmx]\n')

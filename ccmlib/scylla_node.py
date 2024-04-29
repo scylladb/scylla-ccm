@@ -49,7 +49,7 @@ class ScyllaNode(Node):
         self._relative_repos_root = None
         self._has_jmx = None
         super().__init__(name, cluster, auto_bootstrap,
-                         thrift_interface, storage_interface,
+                         None, storage_interface,
                          jmx_port, remote_debug_port,
                          initial_token, save, binary_interface)
         self.__global_log_level = 'info'
@@ -1151,11 +1151,8 @@ class ScyllaNode(Node):
                 ','.join(self.cluster.get_seeds(node=self)))
         data['listen_address'], data['storage_port'] = (
             self.network_interfaces['storage'])
-        data['rpc_address'], data['rpc_port'] = (
-            self.network_interfaces['thrift'])
-        if (self.network_interfaces['binary'] is not None and
-                self.get_base_cassandra_version() >= 1.2):
-            _, data['native_transport_port'] = self.network_interfaces['binary']
+        assert self.network_interfaces['binary'] is not None
+        data['rpc_address'], data['native_transport_port'] = self.network_interfaces['binary']
 
         # Use "workdir,W" instead of "workdir", because scylla defines this option this way
         # and dtests compares names of used options with the names defined in scylla.
@@ -1286,12 +1283,6 @@ class ScyllaNode(Node):
                                 'rpc_interface': 0,
                                 'rpc_interface_prefer_ipv6': 0,
                                 'rpc_keepalive': 0,
-                                'rpc_max_threads': 0,
-                                'rpc_min_threads': 0,
-                                'rpc_port': 0,
-                                'rpc_recv_buff_size_in_bytes': 0,
-                                'rpc_send_buff_size_in_bytes': 0,
-                                'rpc_server_type': 0,
                                 'seed_provider': 0,
                                 'server_encryption_options': 0,
                                 'snapshot_before_compaction': 0,
@@ -1302,7 +1293,6 @@ class ScyllaNode(Node):
                                 'storage_port': 0,
                                 'stream_throughput_outbound_megabits_per_sec': 0,
                                 'streaming_socket_timeout_in_ms': 0,
-                                'thrift_framed_transport_size_in_mb': 0,
                                 'tombstone_failure_threshold': 0,
                                 'tombstone_warn_threshold': 0,
                                 'trickle_fsync': 0,

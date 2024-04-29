@@ -21,8 +21,8 @@ class DseNode(Node):
     Provides interactions to a DSE node.
     """
 
-    def __init__(self, name, cluster, auto_bootstrap, thrift_interface, storage_interface, jmx_port, remote_debug_port, initial_token, save=True, binary_interface=None):
-        super(DseNode, self).__init__(name, cluster, auto_bootstrap, thrift_interface, storage_interface, jmx_port, remote_debug_port, initial_token, save, binary_interface)
+    def __init__(self, name, cluster, auto_bootstrap, _, storage_interface, jmx_port, remote_debug_port, initial_token, save=True, binary_interface=None):
+        super(DseNode, self).__init__(name, cluster, auto_bootstrap, None, storage_interface, jmx_port, remote_debug_port, initial_token, save, binary_interface)
         self.get_cassandra_version()
         if self.cluster.hasOpscenter():
             self._copy_agent()
@@ -341,7 +341,7 @@ class DseNode(Node):
         with open(server_xml, 'w+') as f:
             f.write('<Server port="8005" shutdown="SHUTDOWN">\n')
             f.write('  <Service name="Solr">\n')
-            f.write(f"    <Connector port=\"8983\" address=\"{self.network_interfaces['thrift'][0]}\" protocol=\"HTTP/1.1\" connectionTimeout=\"20000\" maxThreads = \"200\" URIEncoding=\"UTF-8\"/>\n")
+            f.write(f"    <Connector port=\"8983\" address=\"{self.network_interfaces['binary'][0]}\" protocol=\"HTTP/1.1\" connectionTimeout=\"20000\" maxThreads = \"200\" URIEncoding=\"UTF-8\"/>\n")
             f.write('    <Engine name="Solr" defaultHost="localhost">\n')
             f.write('      <Host name="localhost"  appBase="../solr/web"\n')
             f.write('            unpackWARs="true" autoDeploy="true"\n')
@@ -391,7 +391,7 @@ class DseNode(Node):
         address_yaml = os.path.join(agent_dir, 'conf', 'address.yaml')
         if not os.path.exists(address_yaml):
             with open(address_yaml, 'w+') as f:
-                (ip, port) = self.network_interfaces['thrift']
+                (ip, port) = self.network_interfaces['binary']
                 jmx = self.jmx_port
                 f.write('stomp_interface: 127.0.0.1\n')
                 f.write(f'local_interface: {ip}\n')

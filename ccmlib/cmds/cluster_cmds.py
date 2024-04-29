@@ -321,29 +321,21 @@ class ClusterAddCmd(Cmd):
     def validate(self, parser, options, args):
         Cmd.validate(self, parser, options, args, node_name=True, load_cluster=True, load_node=False)
 
-        if options.itfs is None and (options.thrift_itf is None or options.storage_itf is None or options.binary_itf is None):
+        if options.itfs is None and (options.storage_itf is None or options.binary_itf is None):
             options.itfs = self.cluster.get_node_ip(len(self.cluster.nodelist())+1)
 
-        if options.thrift_itf is None:
-            options.thrift_itf = options.itfs
         if options.storage_itf is None:
             options.storage_itf = options.itfs
         if options.binary_itf is None:
             options.binary_itf = options.itfs
 
-        self.thrift = common.parse_interface(options.thrift_itf, 9160)
         self.storage = common.parse_interface(options.storage_itf, 7000)
         self.binary = common.parse_interface(options.binary_itf, 9042)
 
-        if self.binary[0] != self.thrift[0]:
-            print('Cannot set a binary address different from the thrift one', file=sys.stderr)
-            sys.exit(1)
-
         used_binary_ips = [node.network_interfaces['binary'][0] for node in self.cluster.nodelist()]
-        used_thrift_ips = [node.network_interfaces['thrift'][0] for node in self.cluster.nodelist()]
         used_storage_ips = [node.network_interfaces['storage'][0] for node in self.cluster.nodelist()]
 
-        if self.binary[0] in used_binary_ips or self.thrift[0] in used_thrift_ips or self.storage[0] in used_storage_ips:
+        if self.binary[0] in used_binary_ips or self.storage[0] in used_storage_ips:
             print("One of the ips is already in use choose another.", file=sys.stderr)
             parser.print_help()
             sys.exit(1)
@@ -368,11 +360,11 @@ class ClusterAddCmd(Cmd):
                     node_class = ScyllaDockerNode
                 else:
                     node_class = ScyllaNode
-                node = node_class(self.name, self.cluster, self.options.bootstrap, self.thrift, self.storage, self.jmx_port, self.remote_debug_port, self.initial_token, binary_interface=self.binary)
+                node = node_class(self.name, self.cluster, self.options.bootstrap, None, self.storage, self.jmx_port, self.remote_debug_port, self.initial_token, binary_interface=self.binary)
             elif self.options.dse_node:
-                node = DseNode(self.name, self.cluster, self.options.bootstrap, self.thrift, self.storage, self.jmx_port, self.remote_debug_port, self.initial_token, binary_interface=self.binary)
+                node = DseNode(self.name, self.cluster, self.options.bootstrap, None, self.storage, self.jmx_port, self.remote_debug_port, self.initial_token, binary_interface=self.binary)
             else:
-                node = Node(self.name, self.cluster, self.options.bootstrap, self.thrift, self.storage, self.jmx_port, self.remote_debug_port, self.initial_token, binary_interface=self.binary)
+                node = Node(self.name, self.cluster, self.options.bootstrap, None, self.storage, self.jmx_port, self.remote_debug_port, self.initial_token, binary_interface=self.binary)
             self.cluster.add(node, self.options.is_seed, self.options.data_center)
         except common.ArgumentError as e:
             print(str(e), file=sys.stderr)

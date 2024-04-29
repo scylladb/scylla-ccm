@@ -330,12 +330,10 @@ class Cluster(object):
 
     def new_node(self, i, auto_bootstrap=False, debug=False, initial_token=None, add_node=True, is_seed=True, data_center=None, rack=None):
         ipformat = self.get_ipformat()
-        binary = None
-        if parse_version(self.version()) >= parse_version('1.2'):
-            binary = self.get_binary_interface(i)
+        binary = self.get_binary_interface(i)
         node = self.create_node(name=f'node{i}',
                                 auto_bootstrap=auto_bootstrap,
-                                thrift_interface=self.get_thrift_interface(i),
+                                thrift_interface=None,
                                 storage_interface=self.get_storage_interface(i),
                                 jmx_port=str(self.get_node_jmx_port(i)),
                                 remote_debug_port=str(self.get_debug_port(i) if debug else 0),
@@ -346,7 +344,7 @@ class Cluster(object):
         return node
 
     def create_node(self, name, auto_bootstrap, thrift_interface, storage_interface, jmx_port, remote_debug_port, initial_token, save=True, binary_interface=None):
-        return Node(name, self, auto_bootstrap, thrift_interface, storage_interface, jmx_port, remote_debug_port, initial_token, save, binary_interface)
+        return Node(name, self, auto_bootstrap, None, storage_interface, jmx_port, remote_debug_port, initial_token, save, binary_interface)
 
     def get_ipprefix(self):
         return self.ipprefix if self.ipprefix is not None else '127.0.0.'
@@ -361,7 +359,7 @@ class Cluster(object):
         return (self.get_node_ip(nodeid), 9042)
 
     def get_thrift_interface(self, nodeid):
-        return (self.get_node_ip(nodeid), 9160)
+        raise NotImplementedError('thrift not supported')
 
     def get_storage_interface(self, nodeid):
         return (self.get_node_ip(nodeid), 7000)
@@ -491,9 +489,10 @@ class Cluster(object):
         if no_wait and not verbose:
             time.sleep(2)  # waiting 2 seconds to check for early errors and for the pid to be set
         else:
+            assert parse_version(self.version()) >= parse_version("2.2")
             for node, p, mark in started:
                 try:
-                    start_message = "Listening for thrift clients..." if parse_version(self.version()) < parse_version("2.2") else "Starting listening for CQL clients"
+                    start_message = "Starting listening for CQL clients"
                     node.watch_log_for(start_message, timeout=60, process=p, verbose=verbose, from_mark=mark)
                 except RuntimeError:
                     return None
