@@ -103,8 +103,7 @@ class Node(object):
         self.cluster = cluster
         self.status = Status.UNINITIALIZED
         self.auto_bootstrap = auto_bootstrap
-        self.network_interfaces = {'thrift': common.normalize_interface(thrift_interface),
-                                   'storage': common.normalize_interface(storage_interface),
+        self.network_interfaces = {'storage': common.normalize_interface(storage_interface),
                                    'binary': common.normalize_interface(binary_interface)}
         self.jmx_port = jmx_port
         self.remote_debug_port = remote_debug_port
@@ -148,7 +147,7 @@ class Node(object):
             binary_interface = None
             if 'binary' in itf and itf['binary'] is not None:
                 binary_interface = tuple(itf['binary'])
-            node = cluster.create_node(data['name'], data['auto_bootstrap'], tuple(itf['thrift']), tuple(itf['storage']), data[
+            node = cluster.create_node(data['name'], data['auto_bootstrap'], None, tuple(itf['storage']), data[
                                        'jmx_port'], remote_debug_port, initial_token, save=False, binary_interface=binary_interface)
             node.status = data['status']
             if 'pid' in data:
@@ -300,7 +299,6 @@ class Node(object):
             if show_cluster:
                 print(f"{indent}{'cluster'}={self.cluster.name}")
             print(f"{indent}{'auto_bootstrap'}={self.auto_bootstrap}")
-            print(f"{indent}{'thrift'}={self.network_interfaces['thrift']}")
             if self.network_interfaces['binary'] is not None:
                 print(f"{indent}{'binary'}={self.network_interfaces['binary']}")
             print(f"{indent}{'storage'}={self.network_interfaces['storage']}")
@@ -886,7 +884,7 @@ class Node(object):
     def bulkload(self, options):
         loader_bin = common.join_bin(self.get_path(), 'bin', 'sstableloader')
         env = self.get_env()
-        host, port = self.network_interfaces['thrift']
+        host, port = self.network_interfaces['binary']
         args = ['-d', host, '-p', str(port)]
         os.execve(loader_bin, [common.platform_binary('sstableloader')] + args + options, env)
 
@@ -910,11 +908,8 @@ class Node(object):
         if extra_env:
             env.update(extra_env)
 
-        host = self.network_interfaces['thrift'][0]
-        if self.get_base_cassandra_version() >= 2.1:
-            port = self.network_interfaces['binary'][1]
-        else:
-            port = self.network_interfaces['thrift'][1]
+        assert self.get_base_cassandra_version() >= 2.1
+        host, port = self.network_interfaces['binary']
         args = cqlsh_options + [host, str(port)] if '--cloudconf' not in cqlsh_options else cqlsh_options
         sys.stdout.flush()
         if cmds is None:
@@ -1516,10 +1511,9 @@ class Node(object):
 
         # escape the double quotes in name of the class directories
         class_dir_pattern = "set CASSANDRA_CLASSPATH="
-        main_classes = "\\\"%CASSANDRA_HOME%\\build\\classes\\main\\\";"
-        thrift_classes = "\\\"%CASSANDRA_HOME%\\build\\classes\\thrift\\\""
+        main_classes = "\\\"%CASSANDRA_HOME%\\build\\classes\\main\\\""
         common.replace_in_file(bat_file, class_dir_pattern, "set CASSANDRA_CLASSPATH=%CLASSPATH%;" +
-                               main_classes + thrift_classes)
+                               main_classes)
 
         # background the server process and grab the pid
         run_text = "\\\"%JAVA_HOME%\\bin\\java\\\" %JAVA_OPTS% %CASSANDRA_PARAMS% -cp %CASSANDRA_CLASSPATH% \\\"%CASSANDRA_MAIN%\\\""
@@ -1600,10 +1594,7 @@ class Node(object):
             # cassandra 0.8
             data['seed_provider'][0]['parameters'][0]['seeds'] = ','.join(self.cluster.get_seeds())
         data['listen_address'], data['storage_port'] = self.network_interfaces['storage']
-        if self.get_base_cassandra_version() >= 4.0:
-            data['rpc_address'], data['native_transport_port'] = self.network_interfaces['thrift']
-        else:
-            data['rpc_address'], data['rpc_port'] = self.network_interfaces['thrift']
+        data['rpc_address'], data['native_transport_port'] = self.network_interfaces['binary']
         if self.network_interfaces['binary'] is not None and self.get_base_cassandra_version() >= 1.2:
             _, data['native_transport_port'] = self.network_interfaces['binary']
 

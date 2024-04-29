@@ -39,7 +39,7 @@ class ScyllaDockerCluster(ScyllaCluster):
                     storage_interface, jmx_port, remote_debug_port,
                     initial_token, save=True, binary_interface=None):
 
-        return ScyllaDockerNode(name, self, auto_bootstrap, thrift_interface,
+        return ScyllaDockerNode(name, self, auto_bootstrap, None,
                                 storage_interface, jmx_port, remote_debug_port,
                                 initial_token, save=save, binary_interface=binary_interface,
                                 scylla_manager=self._scylla_manager)
@@ -150,7 +150,7 @@ class ScyllaDockerNode(ScyllaNode):
         if not self.pid:
             node1 = self.cluster.nodelist()[0]
             if not self.name == node1.name:
-                seeds = f"--seeds {node1.network_interfaces['thrift'][0]}"
+                seeds = f"--seeds {node1.network_interfaces['storage'][0]}"
             else:
                 seeds = ''
             scylla_yaml = self.read_scylla_yaml()
@@ -243,7 +243,6 @@ class ScyllaDockerNode(ScyllaNode):
             if show_cluster:
                 print(f"{indent}{'cluster'}={self.cluster.name}")
             print(f"{indent}{'auto_bootstrap'}={self.auto_bootstrap}")
-            print(f"{indent}{'thrift'}={self.network_interfaces['thrift']}")
             if self.network_interfaces['binary'] is not None:
                 print(f"{indent}{'binary'}={self.network_interfaces['binary']}")
             print(f"{indent}{'storage'}={self.network_interfaces['storage']}")

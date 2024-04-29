@@ -193,7 +193,7 @@ After that execute:
 
     ccm start
 
-That will start 3 nodes on IP 127.0.0.[1, 2, 3] on port 9160 for thrift, port
+That will start 3 nodes on IP 127.0.0.[1, 2, 3] on port 9042 for native transport, port
 7000 for the internal cluster communication and ports 7100, 7200 and 7300 for JMX.
 You can check that the cluster is correctly set up with
 
@@ -297,9 +297,9 @@ how to use ccmlib follows:
     cluster.populate(3).start()
     [node1, node2, node3] = cluster.nodelist()
 
-    # do some tests on the cluster/nodes. To connect to a node through thrift,
+    # do some tests on the cluster/nodes. To connect to a node through native protocol,
     # the host and port to a node is available through
-    #   node.network_interfaces['thrift']
+    #   node.network_interfaces['binary]
 
     cluster.flush()
     node2.compact()

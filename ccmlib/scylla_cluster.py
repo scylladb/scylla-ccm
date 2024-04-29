@@ -90,7 +90,7 @@ class ScyllaCluster(Cluster):
     def create_node(self, name, auto_bootstrap, thrift_interface,
                     storage_interface, jmx_port, remote_debug_port,
                     initial_token, save=True, binary_interface=None):
-        return ScyllaNode(name, self, auto_bootstrap, thrift_interface,
+        return ScyllaNode(name, self, auto_bootstrap, None,
                           storage_interface, jmx_port, remote_debug_port,
                           initial_token, save, binary_interface, scylla_manager=self._scylla_manager)
 
