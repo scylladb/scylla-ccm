@@ -578,13 +578,6 @@ class Cluster(object):
         self.nodelist()[0].stress(stress_options=stress_options + ['-node', ','.join(livenodes)] )
         return self
 
-    def run_cli(self, cmds=None, show_output=False, cli_options=None):
-        cli_options = cli_options or []
-        livenodes = [node for node in list(self.nodes.values()) if node.is_live()]
-        if len(livenodes) == 0:
-            raise common.ArgumentError("No live node")
-        livenodes[0].run_cli(cmds, show_output, cli_options)
-
     def set_configuration_options(self, values=None, batch_commitlog=None):
         if values is not None:
             for k, v in values.items():

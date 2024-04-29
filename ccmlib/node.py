@@ -900,31 +900,6 @@ class Node(object):
         env = self.get_env()
         os.execve(verify_bin, [common.platform_binary('sstableverify')] + options, env)
 
-    def run_cli(self, cmds=None, show_output=False, cli_options=[]):
-        cli = self.get_tool('cassandra-cli')
-        env = self.get_env()
-        host = self.network_interfaces['thrift'][0]
-        port = self.network_interfaces['thrift'][1]
-        args = ['-h', host, '-p', str(port), '--jmxport', str(self.jmx_port)] + cli_options
-        sys.stdout.flush()
-        if cmds is None:
-            os.execve(cli, [common.platform_binary('cassandra-cli')] + args, env)
-        else:
-            p = subprocess.Popen([cli] + args, env=env, stdin=subprocess.PIPE, stderr=subprocess.PIPE, stdout=subprocess.PIPE, universal_newlines=True)
-            for cmd in cmds.split(';'):
-                p.stdin.write(cmd + ';\n')
-            p.stdin.write("quit;\n")
-            p.wait()
-            for err in p.stderr.readlines():
-                print("(EE) ", err, end='')
-            if show_output:
-                i = 0
-                for log in p.stdout.readlines():
-                    # first four lines are not interesting
-                    if i >= 4:
-                        print(log, end='')
-                    i = i + 1
-
     def run_cqlsh(self, cmds=None, show_output=False, cqlsh_options=None, return_output=False, timeout=600, extra_env=None):
         cqlsh_options = cqlsh_options or []
         cqlsh = self.get_tool('cqlsh')
@@ -977,15 +952,6 @@ class Node(object):
 
             if return_output:
                 return output
-
-    def cli(self):
-        cdir = self.get_install_dir()
-        cli = common.join_bin(cdir, 'bin', 'cassandra-cli')
-        env = self.get_env()
-        host = self.network_interfaces['thrift'][0]
-        port = self.network_interfaces['thrift'][1]
-        args = ['-h', host, '-p', str(port), '--jmxport', str(self.jmx_port)]
-        return CliSession(subprocess.Popen([cli] + args, env=env, stdin=subprocess.PIPE, stderr=subprocess.PIPE, stdout=subprocess.PIPE, universal_newlines=True))
 
     def set_log_level(self, new_level, class_name=None):
         known_level = ['TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'OFF']
