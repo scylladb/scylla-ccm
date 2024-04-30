@@ -858,8 +858,17 @@ class Node(object):
         if not isinstance(nodetool, list):
             nodetool = [nodetool]
         # see https://www.oracle.com/java/technologies/javase/8u331-relnotes.html#JDK-8278972
-        nodetool.extend(['-h', host, '-p', str(self.jmx_port), '-Dcom.sun.jndi.rmiURLParsing=legacy'])
-        nodetool.extend(cmd.split())
+        args = ['-h', host, '-p', str(self.jmx_port), '-Dcom.sun.jndi.rmiURLParsing=legacy']
+        if len(nodetool) > 1:
+            nodetool.extend(cmd.split())
+            # put args at the end of command line options, as "scylla nodetool"
+            # expects them as options of the subcommand
+            nodetool.extend(args)
+        else:
+            # while java-based tool considers them as options of the nodetool
+            # itself
+            nodetool.extend(args)
+            nodetool.extend(cmd.split())
 
         return self._do_run_nodetool(nodetool, capture_output, wait, timeout, verbose)
 
