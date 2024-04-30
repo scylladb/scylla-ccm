@@ -776,16 +776,24 @@ class ScyllaNode(Node):
             self.jmx_pid = None
 
     def nodetool(self, cmd, capture_output=True, wait=True, timeout=None, verbose=True):
-        if not self.has_jmx:
+        try:
+            nodetool = [os.path.join(self.get_bin_dir(), "scylla"), "nodetool"]
+            # some nodetool commands were added in 5.5, but we could test 5.4 in upgrade
+            # tests, so check if this command is available before using it.
+            command = next(arg for arg in cmd.split() if not arg.startswith('-'))
+            subprocess.check_call(nodetool + [command, '--help'], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
             if self.is_docker():
                 host = 'localhost'
             else:
                 host = self.address()
-            nodetool = [os.path.join(self.get_bin_dir(), "scylla"), "nodetool"]
             nodetool.extend(['-h', host, '-p', '10000'])
             nodetool.extend(cmd.split())
             return self._do_run_nodetool(nodetool, capture_output, wait, timeout, verbose)
+        except subprocess.CalledProcessError:
+            pass
 
+        # the java nodetool depends on JMX
+        assert self.has_jmx
         # Fall-back to the java nodetool for pre 5.5.0~dev versions, which don't yet have the native nodetool
         # Kill scylla-jmx in case of timeout, to supply enough debugging information
 
