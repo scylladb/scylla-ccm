@@ -1667,10 +1667,12 @@ class ScyllaNode(Node):
                                                 keyspace=keyspace,
                                                 column_families=[column_family],
                                                 datafiles=datafiles,
-                                                batch=True)
+                                                batch=True,
+                                                text=False,
+                                                )
         assert '' in sstable_stats
         stdout, _ = sstable_stats['']
-        return json.loads(stdout)['sstables']
+        return json.loads(stdout.decode('utf-8', 'ignore'))['sstables']
 
     def dump_sstable_scylla_metadata(self,
                            keyspace: str,
