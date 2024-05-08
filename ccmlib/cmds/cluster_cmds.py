@@ -39,7 +39,6 @@ def cluster_cmds():
         "updateconf",
         "updatedseconf",
         "updatelog4j",
-        "cli",
         "setdir",
         "bulkload",
         "setlog",
