@@ -427,12 +427,14 @@ class Node(object):
             print(f"[{name} ERROR] {stderr.strip()}")
 
     # This will return when exprs are found or it timeouts
-    def watch_log_for(self, exprs, from_mark=None, timeout=600, process=None, verbose=False, filename='system.log'):
+    def watch_log_for(self, exprs, from_mark=None, timeout=600, process=None, verbose=False, filename='system.log', polling_interval=0.01):
         """
-        Watch the log until one or more (regular) expression are found.
-        This methods when all the expressions have been found or the method
-        timeouts (a TimeoutError is then raised). On successful completion,
-        a list of pair (line matched, match object) is returned.
+        Watch the log until all (regular) expression are found or the timeout is reached.
+        On successful completion, a list of pairs (line matched, match object) is returned.
+        If the timeout expired before matching all expressions in `exprs`,
+        a TimeoutError is raised.
+        The `polling_interval` determines how long we sleep when
+        reaching the end of file before attempting to read the next line.
         """
         deadline = time.time() + timeout
         tofind = [exprs] if isinstance(exprs, str) else exprs
@@ -486,7 +488,7 @@ class Node(object):
                 else:
                     # yep, it's ugly
                     # FIXME: consider using inotify with IN_MODIFY to monitor the file
-                    time.sleep(0.001)
+                    time.sleep(polling_interval)
                     if time.time() > deadline:
                         raise TimeoutError(time.strftime("%d %b %Y %H:%M:%S", time.gmtime()) + " [" + self.name + "] Missing: " + str(
                             [e.pattern for e in tofind]) + ":\n" + reads[:50] + f".....\nSee {filename} for remainder")
