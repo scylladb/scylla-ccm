@@ -434,7 +434,7 @@ class Node(object):
         timeouts (a TimeoutError is then raised). On successful completion,
         a list of pair (line matched, match object) is returned.
         """
-        elapsed = 0
+        deadline = time.time() + timeout
         tofind = [exprs] if isinstance(exprs, str) else exprs
         tofind = [re.compile(e) for e in tofind]
         matchings = []
@@ -485,9 +485,9 @@ class Node(object):
                             break
                 else:
                     # yep, it's ugly
-                    time.sleep(0.01)
-                    elapsed = elapsed + 1
-                    if elapsed > 100 * timeout:
+                    # FIXME: consider using inotify with IN_MODIFY to monitor the file
+                    time.sleep(0.001)
+                    if time.time() > deadline:
                         raise TimeoutError(time.strftime("%d %b %Y %H:%M:%S", time.gmtime()) + " [" + self.name + "] Missing: " + str(
                             [e.pattern for e in tofind]) + ":\n" + reads[:50] + f".....\nSee {filename} for remainder")
 
