@@ -702,6 +702,8 @@ class ScyllaNode(Node):
                                             wait_normal_token_owner=wait_normal_token_owner,
                                             wait_for_binary_proto=wait_for_binary_proto,
                                             ext_env=ext_env)
+        self.info(f"Started scylla: pid: {scylla_process.pid}")
+
         if self.has_jmx:
             self._start_jmx(data)
 
