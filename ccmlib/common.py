@@ -16,11 +16,13 @@ import time
 import tempfile
 import logging
 import pathlib
+from datetime import datetime
 from itertools import zip_longest
 from typing import Callable, Optional, TextIO, Union, List
 from pathlib import Path
 
 import yaml
+import psutil
 from boto3.session import Session
 from botocore import UNSIGNED
 from botocore.client import Config
@@ -721,6 +723,32 @@ def validate_install_dir(install_dir):
             raise ArgumentError(f'{install_dir} does not appear to be a cassandra or dse installation directory')
 
 
+def pid_listening_on(addr: str, port: int):
+    '''get pid of the process listening on the given port'''
+    pid = -1
+    if lsof := shutil.which('lsof'):
+        result = subprocess.run([lsof, '-t', '-i', f'tcp@{addr}:{port}'],
+                                stdout=subprocess.PIPE,
+                                check=True)
+        if result.stdout:
+            pid = int(result.stdout)
+    elif ss := shutil.which('ss'):
+        result = subprocess.run([ss,
+                                 '--no-header',
+                                 '--listening',
+                                 '--processes',
+                                 '--tcp',
+                                 f'src = inet:{addr}:{port}'],
+                                stdout=subprocess.PIPE,
+                                check=True)
+        matched = re.search(r'pid=(\d+)', result.stdout)
+        if matched is not None:
+            pid = int(matched.group(1))
+    else:
+        logger.info("neither lsof nor ss was found")
+    return pid
+
+
 def check_socket_available(itf):
     info = socket.getaddrinfo(itf[0], itf[1], socket.AF_UNSPEC, socket.SOCK_STREAM)
     if not info:
@@ -736,7 +764,19 @@ def check_socket_available(itf):
     except socket.error as msg:
         s.close()
         addr, port = itf
-        raise UnavailableSocketError(f"Inet address {addr}:{port} is not available: {msg}")
+        pid = pid_listening_on(addr, port)
+        if pid == -1:
+            logger.error('Address %s:%d used unknown process')
+        else:
+            p = psutil.Process(pid)
+            secs_ago = p.create_time()
+            fmt = '%H:%M:%S' if secs_ago < 60 * 60 * 24 else '%Y-%m-%d %H:%M:%S'
+            since = datetime.fromtimestamp(secs_ago).strftime(fmt)
+            logger.error('Address %s:%d used by: "%s" '
+                         '(pid: %d, since: %s, parent: "%s")',
+                         addr, port, ' '.join(p.cmdline()),
+                         p.pid, since, ' '.join(p.parent().cmdline()))
+        raise UnavailableSocketError(f'Inet address {addr}:{port} is not available: {msg}')
 
 
 def check_socket_listening(itf, timeout=60):
