@@ -1859,9 +1859,8 @@ class NodeUpgrader:
     def upgrade(self, upgrade_version: str, recover_system_tables: bool = False):
         """
         :param upgrade_version: relocatables folder. Example: unstable/master:2020-11-18T08:57:53Z
-        :param recover_system_tables: restore system tables during rollback (https://docs.scylladb.com/upgrade/
-                                     upgrade-enterprise/upgrade-guide-from-2018.1-to-2019.1/
-                                     upgrade-guide-from-2018.1-to-2019.1-rpm/#restore-system-tables)
+        :param recover_system_tables: restore system tables during rollback (
+               https://github.com/scylladb/scylla-enterprise/issues/1950 )
         """
         # Part of the rollback procedure is to restore system tables.
         # For this goal a snapshot will be taken before downgrade and restore the system tables after downgrade
