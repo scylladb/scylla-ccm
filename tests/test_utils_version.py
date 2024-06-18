@@ -30,7 +30,7 @@ def test_comparable_scylla_version_init_positive(version_string, expected):
     assert comparable_scylla_version.v_build == expected[4]
 
 
-@pytest.mark.parametrize("version_string", (None, "", "5", "2023", "2023.dev"))
+@pytest.mark.parametrize("version_string", (None, "", "2023.dev"))
 def test_comparable_scylla_versions_init_negative(version_string):
     try:
         ComparableScyllaVersion(version_string)
@@ -89,6 +89,7 @@ def test_comparable_scylla_versions_compare(version_string_left, version_string_
 
 
 @pytest.mark.parametrize("version_string_input, version_string_output", (
+    ("5", "5.0.0"),
     ("5.2.2", "5.2.2"),
     ("2023.1.13", "2023.1.13"),
     ("5.2.0~rc0-0.20230207", "5.2.0-rc0-0.20230207"),

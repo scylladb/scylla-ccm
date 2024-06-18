@@ -55,7 +55,9 @@ class ComparableScyllaVersion:
 
         # NOTE: make short scylla version like '5.2' be correct semver string
         _scylla_version_parts = re.split(r'\.|-', _scylla_version)
-        if len(_scylla_version_parts) == 2:
+        if len(_scylla_version_parts) == 1:
+            _scylla_version = f"{_scylla_version}.0.0"
+        elif len(_scylla_version_parts) == 2:
             _scylla_version = f"{_scylla_version}.0"
         elif len(_scylla_version_parts) > 2 and re.search(
                 r"\D+", _scylla_version_parts[2].split("-")[0]):
