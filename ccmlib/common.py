@@ -843,6 +843,10 @@ def get_version_from_build(install_dir=None, node_path=None):
                     return match.group(1)
     raise CCMError("Cannot find version")
 
+def get_default_scylla_yaml(install_dir):
+    scylla_yaml_path = Path(install_dir) / SCYLLA_CONF_DIR / SCYLLA_CONF
+    with scylla_yaml_path.open() as f:
+        return yaml.safe_load(f)
 
 def _get_scylla_version(install_dir):
     scylla_version_files = [
