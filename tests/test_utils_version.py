@@ -98,3 +98,10 @@ def test_comparable_scylla_versions_compare(version_string_left, version_string_
 ))
 def test_comparable_scylla_versions_to_str(version_string_input, version_string_output):
     assert str(ComparableScyllaVersion(version_string_input)) == version_string_output
+
+
+def test_major_minor_patch():
+    v = ComparableScyllaVersion('1.2.3~dev')
+    assert v.major() == '1'
+    assert v.minor() == '1.2'
+    assert v.patch() == '1.2.3'

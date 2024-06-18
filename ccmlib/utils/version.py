@@ -81,6 +81,15 @@ class ComparableScyllaVersion:
             f"Cannot parse provided '{version_string}' scylla_version for the comparison. "
             f"Transformed scylla_version: {_scylla_version}")
 
+    def major(self) -> 'ComparableScyllaVersion':
+        return ComparableScyllaVersion(f"{self.v_major}")
+
+    def minor(self) -> 'ComparableScyllaVersion':
+        return ComparableScyllaVersion(f"{self.v_major}.{self.v_minor}")
+
+    def patch(self) -> 'ComparableScyllaVersion':
+        return ComparableScyllaVersion(f"{self.v_major}.{self.v_minor}.{self.v_patch}")
+
     def __str__(self):
         result = f"{self.v_major}.{self.v_minor}.{self.v_patch}"
         if self.v_pre_release:
