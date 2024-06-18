@@ -3,7 +3,7 @@ import subprocess
 
 import pytest
 
-from ccmlib.common import get_scylla_full_version, get_scylla_version
+from ccmlib.common import get_scylla_full_version, get_scylla_version, get_default_scylla_yaml
 from ccmlib.node import Node, ToolError
 
 
@@ -65,3 +65,12 @@ class TestScyllaRelocatableCluster:
         for s in ['(1 rows)', 'key', '1']:
             assert s in rv[0]
         assert rv[1] == ''
+
+
+    def test_get_default_scylla_yaml(self, relocatable_cluster):
+        install_dir = relocatable_cluster.get_install_dir()
+        scylla_yaml = get_default_scylla_yaml(install_dir)
+        assert scylla_yaml.get('native_transport_port') == 9042
+        assert scylla_yaml.get('consistent_cluster_management') == True
+        assert scylla_yaml.get('listen_address') == 'localhost'
+
