@@ -28,16 +28,16 @@ SEMVER_REGEX = re.compile(
 class ComparableScyllaVersion:
     """Accepts and compares known 'non-semver' and 'semver'-like Scylla versions."""
 
-    def __init__(self, version_string: str):
+    def __init__(self, version_string: str) -> None:
         parsed_version = self.parse(version_string)
-        self.v_major = int(parsed_version[0])
-        self.v_minor = int(parsed_version[1])
-        self.v_patch = int(parsed_version[2])
-        self.v_pre_release = parsed_version[3] or ''
-        self.v_build = parsed_version[4] or ''
+        self.v_major = int(parsed_version["major"])
+        self.v_minor = int(parsed_version["minor"])
+        self.v_patch = int(parsed_version["patch"])
+        self.v_pre_release = parsed_version["prerelease"] or ''
+        self.v_build = parsed_version["build"] or ''
 
     @staticmethod
-    def parse(version_string: str):
+    def parse(version_string: str) -> re.Match:
         """Parse scylla-binary and scylla-docker-tag versions into a proper semver structure."""
         # NOTE: remove 'with build-id' part if exists and other possible non-semver parts
         _scylla_version = (version_string or '').split(" ")[0]
@@ -74,7 +74,7 @@ class ComparableScyllaVersion:
             _scylla_version = f"{dotted_build_id_match[1]}+{dotted_build_id_match[3]}"
 
         if match := SEMVER_REGEX.match(_scylla_version):
-            return match.groups()
+            return match
         raise ValueError(
             f"Cannot parse provided '{version_string}' scylla_version for the comparison. "
             f"Transformed scylla_version: {_scylla_version}")
