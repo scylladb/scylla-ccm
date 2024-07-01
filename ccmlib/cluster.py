@@ -283,7 +283,7 @@ class Cluster(object):
                 if isinstance(x, int):
                     topology[dc] = OrderedDict([(None, x)])
                 elif isinstance(x, list):
-                    topology[dc] = OrderedDict([(None, n) for n in x])
+                    topology[dc] = OrderedDict([(f"RAC{i}", n) for i, n in enumerate(x, start=1)])
                 elif isinstance(x, dict):
                     topology[dc] = OrderedDict([(rack, n) for rack, n in x.items()])
                 else:
