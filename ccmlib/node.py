@@ -1311,7 +1311,41 @@ class Node(object):
                 if not [opt for opt in stress_options if opt.startswith('jmx=')]:
                     stress_options.extend(['-port', 'jmx=' + self.jmx_port])
 
+        replication_re = re.compile(r"(?P<key>replication\s*)\((?P<opt>[^)]*)\)")
+        profile_re = re.compile(r"(?P<key>profile\s*=\s*)(?P<opt>[^ ]+)")
+        profile_match = None
+        replication_match = None
+        schema_idx = None
+        for i, arg in enumerate(stress_options):
+            profile_match = profile_re.search(arg)
+            if profile_match:
+                self.warning(f"No support for adjusting replication strategy in user profiles yet: {arg}")
+                break
+            if schema_idx is None and "-schema" in arg:
+                schema_idx = i
+            replication_match = replication_re.search(arg)
+            if replication_match:
+                opt = replication_match.group("opt")
+                if "strategy" in opt:
+                    if not "NetworkTopologyStrategy" in opt:
+                        self.warning(f"{arg} does not use NetworkTopologyStrategy for stress")
+                else:
+                    try:
+                        stress_options[i] = replication_re.sub(r"\g<key>(strategy=NetworkTopologyStrategy,\g<opt>)", arg)
+                    except Exception as e:
+                        self.warning(f"Error while trying to add 'strategy=NetworkTopologyStrategy' to stress replication option: {e}")
+                        pass
+                break
+        if not profile_match:
+            if not replication_match:
+                opt = "replication(strategy=NetworkTopologyStrategy,factor=1)"
+                if schema_idx is not None:
+                    stress_options.insert(schema_idx + 1, opt)
+                else:
+                    stress_options.extend(["-schema", opt])
+
         args = stress + stress_options
+        self.debug(f"Executing {args}")
         stdout_handle = kwargs.pop("stdout", subprocess.PIPE)
         stderr_handle = kwargs.pop("stderr", subprocess.PIPE)
         p = subprocess.Popen(args,
