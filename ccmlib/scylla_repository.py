@@ -71,15 +71,21 @@ def release_packages(s3_url, version, arch='x86_64', scylla_product='scylla'):
     major_version = extract_major_version(version)
     files_in_bucket = aws_bucket_ls(s3_url)
 
+    known_archs = ['x86_64', 'aarch64']
     if not files_in_bucket:
         raise RuntimeError(
             f"Failed to get release packages list for version {major_version}. URL: {s3_url}.")
     # examples of unified packages file names:
     # 'scylla-x86_64-unified-package-5.1.2-0.20221225.4c0f7ea09893-5.1.2.0.20221225.4c0f7ea09893.tar.gz'
     # 'scylla-x86_64-unified-package-5.1.3-0.20230112.addc4666d502-5.1.3.0.20230112.addc4666d502.tar.gz'
+    # older versions unified packages might look like
+    # 'scylla-unified-package-4.3.0~rc0-0.20220810.86a6c1fb2b79.tar.gz'
+    # and newer versions (6.0/2024.2 and up) might look like:
+    # 'scylla-unified-package-6.0.0~rc0-0.20231219.c7cdb16538f2.x86_64.tar.gz'
     all_unified_packages = [name for name in files_in_bucket if f'{scylla_product}-{arch}-unified-package' in name or
                             (f'{scylla_product}-unified' in name and arch in name) or
-                            f'{scylla_product}-unified' in name]
+                            (f'{scylla_product}-unified' in name and all([known_arch not in name for known_arch in known_archs]))
+                            ]
     release_unified_packages = [package for package in all_unified_packages if version in package]
 
     def extract_version(filename):
