@@ -1006,11 +1006,11 @@ class Node(object):
             if only_data:
                 for dir in os.listdir(full_dir):
                     keyspace_dir = os.path.join(full_dir, dir)
-                    if os.path.isdir(keyspace_dir) and dir != "system":
-                        for f in os.listdir(keyspace_dir):
-                            full_path = os.path.join(keyspace_dir, f)
-                            if os.path.isfile(full_path):
-                                os.remove(full_path)
+                    if os.path.isdir(keyspace_dir) and not dir.startswith("system"):
+                        for table in os.listdir(keyspace_dir):
+                            table_dir = os.path.join(keyspace_dir, table)
+                            shutil.rmtree(table_dir)
+                            os.mkdir(table_dir)
             else:
                 for root, dirs, files in os.walk(full_dir):
                     for f in files:
