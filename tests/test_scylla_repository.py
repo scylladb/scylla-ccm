@@ -127,6 +127,7 @@ class TestReinstallPackages:
         file_text = file_text.replace("hash=", "hash=123")
         source_file.write_text(file_text)
 
+    @pytest.mark.skip("no more version with no unified package, TODO: remove when rest of related code is removed")
     def test_setup_no_unified_packages_reinstall(self):
         """
         Validate that if package hash is changed, new package will be downloaded.
