@@ -284,6 +284,8 @@ def setup(version, verbose=True, skip_downloads=False):
             try:
                 build_manifest = read_build_manifest(s3_url)
                 url = build_manifest.get(f'unified-pack-url-{scylla_arch}')
+                if not url:
+                    url = build_manifest.get("unified-pack-url")
                 assert url, f"didn't found the url for unified package: build_manifest={build_manifest}"
                 if scylla_debug:
                     url = re.sub("-unified", "-debug-unified", url)
