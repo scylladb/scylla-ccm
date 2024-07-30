@@ -244,6 +244,7 @@ def setup(version, verbose=True, skip_downloads=False):
     type_n_version = version.split(':', 1)
     scylla_product = os.environ.get('SCYLLA_PRODUCT', 'scylla')
     scylla_arch = os.environ.get('SCYLLA_ARCH', uname().machine)
+    scylla_debug = os.environ.get('SCYLLA_DEBUG', '')
 
     packages = None
 
@@ -252,6 +253,8 @@ def setup(version, verbose=True, skip_downloads=False):
     if type_n_version[0] == 'release':
         version = normalize_scylla_version(version)
         type_n_version = version.split(os.path.sep, 1)
+    if scylla_debug:
+        version = f"{version}-debug"
     version_dir = version_directory(version) if not skip_downloads else None
 
     # If the test version is unstable (not release, maybe private branch) and installation folder exists,
@@ -270,7 +273,10 @@ def setup(version, verbose=True, skip_downloads=False):
 
             s3_url = get_relocatable_s3_url('', major_version, RELEASE_RELOCATABLE_URLS_BASE)
 
-            packages, type_n_version[1] = release_packages(s3_url=s3_url, version=s3_version, arch=scylla_arch, scylla_product=scylla_product)
+            scylla_product_mode = scylla_product
+            if scylla_debug:
+                scylla_product_mode = f"{scylla_product_mode}-debug"
+            packages, type_n_version[1] = release_packages(s3_url=s3_url, version=s3_version, arch=scylla_arch, scylla_product=scylla_product_mode)
         else:
             _, branch = type_n_version[0].split("/")
             s3_url = get_relocatable_s3_url(branch, s3_version, RELOCATABLE_URLS_BASE)
@@ -278,7 +284,9 @@ def setup(version, verbose=True, skip_downloads=False):
             try:
                 build_manifest = read_build_manifest(s3_url)
                 url = build_manifest.get(f'unified-pack-url-{scylla_arch}')
-                assert url, "didn't found the url for unified package"
+                assert url, f"didn't found the url for unified package: build_manifest={build_manifest}"
+                if scylla_debug:
+                    url = re.sub("-unified", "-debug-unified", url)
                 if not url.startswith('s3'):
                     url = f's3.amazonaws.com/{url}'
                 url = f'http://{url}'
@@ -316,6 +324,8 @@ def setup(version, verbose=True, skip_downloads=False):
                 )
 
         version = os.path.join(*type_n_version)
+        if scylla_debug:
+            version = f"{version}-debug"
 
     if skip_downloads:
         return directory_name(version), packages
