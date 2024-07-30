@@ -235,16 +235,40 @@ def setup(version, verbose=True, skip_downloads=False):
               - release:4.2.1
               - release:2020.1
               - release:2020.1.5
+            flags can be added to the version using [(flag(=value)?)+]
+              - supported flags are:
+                - product=(scylla|scylla-enterprise)
+                - arch=(x86_64|aarch64)
+                - debug
 
     :param verbose: if True, print progress during download
     :param skip_downloads: if True, skips the actual download of files for testing purposes
 
     """
     s3_url = ''
-    type_n_version = version.split(':', 1)
-    scylla_product = os.environ.get('SCYLLA_PRODUCT', 'scylla')
-    scylla_arch = os.environ.get('SCYLLA_ARCH', uname().machine)
-    scylla_debug = os.environ.get('SCYLLA_DEBUG', '')
+    version_re = re.compile(r"""
+                            (?P<type>
+                                \w+(?:/(?:[\w\d.~-]+))?
+                            )
+                            :(?P<version>[\w\d:.~-]+)
+                            (?:
+                                \[
+                                    (?P<flags>[^\]]*)
+                                \]
+                            )?""", re.VERBOSE)
+    m = version_re.match(version)
+    assert m, f"Invalid version {version}: use (release:version|unstable/branch:(latest|timestamp))([(flag(=value)?)*])? where flags can be any of: (product|arch|debug)"
+    type_n_version = [m.group("type"), m.group("version")]
+    flags = dict()
+    if m.group("flags"):
+        for kv in m.group("flags").split(","):
+            t = kv.split("=", 1)
+            key = t[0].strip().lower()
+            value = t[1].strip() if len(t) > 1 else True
+            flags[key] = value
+    scylla_product = flags.get("product", os.environ.get('SCYLLA_PRODUCT', 'scylla'))
+    scylla_arch = flags.get("arch", os.environ.get('SCYLLA_ARCH', uname().machine))
+    scylla_debug = flags.get("debug", os.environ.get('SCYLLA_DEBUG', False))
 
     packages = None
 
