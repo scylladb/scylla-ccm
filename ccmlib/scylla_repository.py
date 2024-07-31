@@ -8,6 +8,7 @@ import sys
 import glob
 import urllib
 import logging
+from platform import uname
 import random
 import time
 from pathlib import Path
@@ -242,7 +243,7 @@ def setup(version, verbose=True, skip_downloads=False):
     s3_url = ''
     type_n_version = version.split(':', 1)
     scylla_product = os.environ.get('SCYLLA_PRODUCT', 'scylla')
-    scylla_arch = os.environ.get('SCYLLA_ARCH', 'x86_64')
+    scylla_arch = os.environ.get('SCYLLA_ARCH', uname().machine)
 
     packages = None
 
