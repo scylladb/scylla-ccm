@@ -35,7 +35,7 @@ from ccmlib.scylla_repository import setup, get_scylla_version
 from ccmlib.utils.version import parse_version
 
 
-yaml = YAML()
+yaml = YAML(typ='safe')
 yaml.default_flow_style = False
 
 class ScyllaNode(Node):
@@ -114,6 +114,14 @@ class ScyllaNode(Node):
                 self._has_jmx = os.path.isdir(os.path.join(install_dir, "tools", "jmx"))
 
         return self._has_jmx
+
+    @property
+    def scylla_yaml(self) -> Dict[str, Any]:
+        return yaml.load(Path(self.get_conf_dir()) / common.SCYLLA_CONF)
+
+    @property
+    def api_port(self) -> int:
+        return self.scylla_yaml.get('api_port', 10000)
 
     def scylla_mode(self):
         return self.cluster.get_scylla_mode()
@@ -370,7 +378,7 @@ class ScyllaNode(Node):
         data['logger'] = dict(level='debug')
         data['debug'] = f"{self.address()}:56112"
         data['scylla'] = {'api_address': f"{self.address()}",
-                          'api_port': 10000}
+                          'api_port': self.api_port}
         data['prometheus'] = f"{self.address()}:56090"
         data['s3'] = {"endpoint": os.getenv("AWS_S3_ENDPOINT"), "provider": "Minio"}
 
@@ -791,7 +799,7 @@ class ScyllaNode(Node):
                 host = 'localhost'
             else:
                 host = self.address()
-            nodetool.extend(['-h', host, '-p', '10000'])
+            nodetool.extend(['-h', host, '-p', str(self.api_port)])
             nodetool.extend(cmd.split())
             return self._do_run_nodetool(nodetool, capture_output, wait, timeout, verbose)
         except subprocess.CalledProcessError:
@@ -804,7 +812,7 @@ class ScyllaNode(Node):
 
         # pass the api_port to nodetool. if it is the nodetool-wrapper. it should
         # interpret the command line and use it for the -p option
-        cmd = f"-Dcom.scylladb.apiPort=10000 {cmd}"
+        cmd = f"-Dcom.scylladb.apiPort={self.api_port} {cmd}"
         try:
             return super().nodetool(cmd, capture_output, wait, timeout, verbose)
         except subprocess.TimeoutExpired:
@@ -1382,7 +1390,7 @@ class ScyllaNode(Node):
             return self.node_hostid
         try:
             node_address = self.address()
-            url = f"http://{node_address}:10000/storage_service/hostid/local"
+            url = f"http://{node_address}:{self.api_port}/storage_service/hostid/local"
             response = requests.get(url=url, timeout=timeout)
             if response.status_code == requests.codes.ok:
                 self.node_hostid = response.json()
@@ -1409,10 +1417,10 @@ class ScyllaNode(Node):
             tofind_host_id_map = dict([(node.address(), node.hostid()) for node in nodes_tofind])
             found = set()
             found_host_id_map = dict()
-            url_live = f"http://{self.address()}:10000/gossiper/endpoint/live"
-            url_joining = f"http://{self.address()}:10000/storage_service/nodes/joining"
-            url_tokens = f"http://{self.address()}:10000/storage_service/tokens/"
-            url_host_ids = f"http://{self.address()}:10000/storage_service/host_id"
+            url_live = f"http://{self.address()}:{self.api_port}/gossiper/endpoint/live"
+            url_joining = f"http://{self.address()}:{self.api_port}/storage_service/nodes/joining"
+            url_tokens = f"http://{self.address()}:{self.api_port}/storage_service/tokens/"
+            url_host_ids = f"http://{self.address()}:{self.api_port}/storage_service/host_id"
             endtime = time.time() + timeout
             while time.time() < endtime:
                 live = set()
