@@ -76,6 +76,7 @@ class ScyllaNode(Node):
         self.upgraded = False
         self.upgrader = NodeUpgrader(node=self)
         self.node_hostid = None
+        self.highest_supported_sstable_version = None
         self._create_directory()
 
     @property
@@ -1397,6 +1398,18 @@ class ScyllaNode(Node):
                 return self.node_hostid
         except Exception as e:
             self.error(f"Failed to get hostid using {url}: {e}")
+        return None
+
+    def get_highest_supported_sstable_version(self, timeout=60):
+        try:
+            node_address = self.address()
+            url = f"http://{node_address}:{self.api_port}/system/highest_supported_sstable_version"
+            response = requests.get(url=url, timeout=timeout)
+            if response.status_code == requests.codes.ok:
+                self.highest_supported_sstable_version = response.json()
+                return self.highest_supported_sstable_version
+        except Exception as e:
+            self.warning(f"Failed to get highest_supported_sstable_version using {url}: {e}")
         return None
 
     def watch_rest_for_alive(self, nodes, timeout=120, wait_normal_token_owner=True):
