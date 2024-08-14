@@ -12,8 +12,6 @@ from ccmlib import common
 
 LOGGER = logging.getLogger("ccm")
 
-yaml = YAML()
-yaml.default_flow_style = False
 
 class ScyllaDockerCluster(ScyllaCluster):
     def __init__(self, *args, **kwargs):
@@ -139,7 +137,7 @@ class ScyllaDockerNode(ScyllaNode):
                     copyfile(src=file_path, dst=os.path.join(keys_dir_path, file_name))
                     server_encryption_options[key] = os.path.join(self.base_data_path, "keys", file_name)
         with open(conf_file, 'w') as f:
-            yaml.safe_dump(data, f, default_flow_style=False)
+            YAML().dump(data, f)
 
     def create_docker(self, args):
         # TODO: handle smp correctly via the correct param/api (or only via commandline params)
