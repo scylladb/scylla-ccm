@@ -19,8 +19,6 @@ from ccmlib.utils.version import ComparableScyllaVersion
 
 SNITCH = 'org.apache.cassandra.locator.GossipingPropertyFileSnitch'
 
-yaml = YAML()
-yaml.default_flow_style = False
 
 class ScyllaCluster(Cluster):
 
@@ -246,7 +244,7 @@ class ScyllaCluster(Cluster):
         filename = os.path.join(self.get_path(), 'cluster.conf')
 
         with open(filename, 'r') as f:
-            data = yaml.load(f)
+            data = YAML().load(f)
 
         if self.is_scylla_reloc():
             data['scylla_version'] = self.scylla_version
@@ -255,7 +253,7 @@ class ScyllaCluster(Cluster):
             data['scylla_manager_install_path'] = self._scylla_manager.install_dir
 
         with open(filename, 'w') as f:
-            yaml.dump(data, f)
+            YAML().dump(data, f)
 
     def sctool(self, cmd):
         if self._scylla_manager == None:
@@ -315,7 +313,7 @@ class ScyllaManager:
     def _update_config(self, install_dir=None):
         conf_file = os.path.join(self._get_path(), common.SCYLLAMANAGER_CONF)
         with open(conf_file, 'r') as f:
-            data = yaml.load(f)
+            data = YAML().load(f)
         data['http'] = self._get_api_address()
         if not 'database' in data:
             data['database'] = {}
@@ -351,7 +349,7 @@ class ScyllaManager:
         for key in keys_to_delete:
             del data[key]
         with open(conf_file, 'w') as f:
-            yaml.dump(data, f)
+            YAML().dump(data, f)
 
     def _copy_config_files(self, install_dir):
         conf_dir = os.path.join(install_dir, 'etc')
