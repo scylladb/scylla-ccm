@@ -20,18 +20,12 @@ from itertools import zip_longest
 from typing import Callable, Optional, TextIO, Union, List
 from pathlib import Path
 
-<<<<<<< HEAD
-import yaml
-=======
 import psutil
 from ruamel.yaml import YAML
->>>>>>> 2747515 (switch to use ruamel.yaml)
 from boto3.session import Session
 from botocore import UNSIGNED
 from botocore.client import Config
 
-yaml = YAML()
-yaml.default_flow_style = False
 
 BIN_DIR = "bin"
 CASSANDRA_CONF_DIR = "conf"
@@ -782,6 +776,7 @@ def normalize_interface(itf):
 
 def parse_settings(args):
     settings = {}
+    yaml = YAML()
     for s in args:
         splitted = s.split(':', 1)
         if len(splitted) != 2:
@@ -931,7 +926,7 @@ def is_dse_cluster(path):
             cluster_path = os.path.join(path, name)
             filename = os.path.join(cluster_path, 'cluster.conf')
             with open(filename, 'r') as f:
-                data = yaml.load(f)
+                data = YAML().load(f)
             if 'dse_dir' in data:
                 return True
     except IOError:
