@@ -18,8 +18,6 @@ from ccmlib.common import wait_for
 
 logger = logging.getLogger(__name__)
 
-yaml = YAML()
-yaml.default_flow_style = False
 
 @contextmanager
 def file_or_memory(path=None, data=None):
@@ -67,7 +65,7 @@ def create_cloud_config(ssl_dir, port, address, nodes_info, username='cassandra'
                   currentContext='default')
 
     with open(os.path.join(ssl_dir, 'config_data.yaml'), 'w') as config_file:
-        yaml.dump(config, config_file)
+        YAML().dump(config, config_file)
 
     datacenters = {}
 
@@ -86,7 +84,7 @@ def create_cloud_config(ssl_dir, port, address, nodes_info, username='cassandra'
                   currentContext='default')
 
     with open(os.path.join(ssl_dir, 'config_path.yaml'), 'w') as config_file:
-        yaml.dump(config, config_file)
+        YAML().dump(config, config_file)
 
     return os.path.join(ssl_dir, 'config_data.yaml'), os.path.join(ssl_dir, 'config_path.yaml')
 

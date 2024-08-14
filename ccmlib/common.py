@@ -27,8 +27,6 @@ from boto3.session import Session
 from botocore import UNSIGNED
 from botocore.client import Config
 
-yaml = YAML()
-yaml.default_flow_style = False
 
 BIN_DIR = "bin"
 CASSANDRA_CONF_DIR = "conf"
@@ -817,6 +815,7 @@ def normalize_interface(itf):
 
 def parse_settings(args):
     settings = {}
+    yaml = YAML()
     for s in args:
         splitted = s.split(':', 1)
         if len(splitted) != 2:
@@ -888,7 +887,7 @@ def get_version_from_build(install_dir=None, node_path=None):
 def get_default_scylla_yaml(install_dir):
     scylla_yaml_path = Path(install_dir) / SCYLLA_CONF_DIR / SCYLLA_CONF
     with scylla_yaml_path.open() as f:
-        return yaml.load(f)
+        return YAML().load(f)
 
 def _get_scylla_version(install_dir):
     scylla_version_files = [
@@ -970,7 +969,7 @@ def is_dse_cluster(path):
             cluster_path = os.path.join(path, name)
             filename = os.path.join(cluster_path, 'cluster.conf')
             with open(filename, 'r') as f:
-                data = yaml.load(f)
+                data = YAML().load(f)
             if 'dse_dir' in data:
                 return True
     except IOError:
