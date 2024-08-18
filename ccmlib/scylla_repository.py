@@ -235,12 +235,21 @@ def setup(version, verbose=True, skip_downloads=False):
               - release:4.2.1
               - release:2020.1
               - release:2020.1.5
+            3. Debug versions of the above
+              - unstable/master:latest:debug
+              - unstable/enterprise:2020-08-18T14:49:18Z:debug
+              - release:4.3:debug
+              - release:4.2.1:debug
 
     :param verbose: if True, print progress during download
     :param skip_downloads: if True, skips the actual download of files for testing purposes
 
     """
     s3_url = ''
+    scylla_debug = version.endswith(":debug")
+    if scylla_debug:
+        version = version[:-6]
+    scylla_mode_suffix = '-debug' if scylla_debug else ''
     type_n_version = version.split(':', 1)
     scylla_product = os.environ.get('SCYLLA_PRODUCT', 'scylla')
     scylla_arch = os.environ.get('SCYLLA_ARCH', 'x86_64')
@@ -252,7 +261,7 @@ def setup(version, verbose=True, skip_downloads=False):
     if type_n_version[0] == 'release':
         version = normalize_scylla_version(version)
         type_n_version = version.split(os.path.sep, 1)
-    version_dir = version_directory(version) if not skip_downloads else None
+    version_dir = version_directory(version + scylla_mode_suffix) if not skip_downloads else None
 
     # If the test version is unstable (not release, maybe private branch) and installation folder exists,
     # we want to check if this version was downloaded nd installed already in the past and was changed.
@@ -270,21 +279,23 @@ def setup(version, verbose=True, skip_downloads=False):
 
             s3_url = get_relocatable_s3_url('', major_version, RELEASE_RELOCATABLE_URLS_BASE)
 
-            packages, type_n_version[1] = release_packages(s3_url=s3_url, version=s3_version, arch=scylla_arch, scylla_product=scylla_product)
+            packages, type_n_version[1] = release_packages(s3_url=s3_url, version=s3_version, arch=scylla_arch, scylla_product=scylla_product + scylla_mode_suffix)
         else:
             _, branch = type_n_version[0].split("/")
             s3_url = get_relocatable_s3_url(branch, s3_version, RELOCATABLE_URLS_BASE)
 
             try:
                 build_manifest = read_build_manifest(s3_url)
-                url = build_manifest.get(f'unified-pack-url-{scylla_arch}')
-                assert url, "didn't found the url for unified package"
+                url = build_manifest.get(f'unified-pack-url-{scylla_arch}') or build_manifest.get('unified-pack-url')
+                assert url, f"didn't find the url for unified package, {build_manifest=}"
+                if scylla_debug:
+                    url = re.sub("-unified", "-debug-unified", url)
                 if not url.startswith('s3'):
                     url = f's3.amazonaws.com/{url}'
                 url = f'http://{url}'
                 packages = RelocatablePackages(scylla_unified_package=url)
             except Exception as ex:
-                logging.exception("could download relocatable")
+                logging.exception(f"could not download relocatable, {ex=}")
 
                 scylla_package_path = f'{scylla_product}-package.tar.gz'
                 scylla_arch_package_path = f'{scylla_product}-{scylla_arch}-package.tar.gz'
@@ -315,7 +326,7 @@ def setup(version, verbose=True, skip_downloads=False):
                     scylla_package=os.path.join(s3_url, scylla_package_path)
                 )
 
-        version = os.path.join(*type_n_version)
+        version = os.path.join(*type_n_version) + scylla_mode_suffix
 
     if skip_downloads:
         return directory_name(version), packages

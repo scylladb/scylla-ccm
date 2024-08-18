@@ -2,6 +2,7 @@ import time
 import typing
 from pathlib import Path
 import random
+import re
 
 import pytest
 
@@ -23,6 +24,7 @@ class TestScyllaRepository:
         ("release:2022.2", '2022.2'),
         ("release:2023.1", '2023.1'),
         ("release:2024.2", '2024.2'),
+        ("release:2024.2:debug", '2024.2'),
         ("release:5.1", '5.1'),
         ("release:5.0", '5.0'),
         ("release:4.6", '4.6'),
@@ -32,18 +34,28 @@ class TestScyllaRepository:
         ("release:4.2", '4.2'),
         ("release:4.1", '4.1'),
         ("release:4.0", '4.0'),
+        ("release:6.1", '6.1'),
+        ("release:6.1:debug", '6.1'),
     ])
     def test_setup_release_oss(self, version, expected_version_string):
         cdir, version = scylla_setup(version=version, verbose=True)
         assert expected_version_string in version
 
-    def test_setup_unstable_master_new_url(self):
-        cdir, version = scylla_setup(version="unstable/master:2023-09-05T13:59:07Z", verbose=True)
-        assert version == '5.4.0-dev'
+    @pytest.mark.parametrize(argnames=['version', 'expected_version_string'], argvalues=[
+        ("unstable/master:2023-09-05T13:59:07Z", '5.4.0-dev'),
+        ("unstable/master:2023-09-05T13:59:07Z:debug", '5.4.0-dev'),
+    ])
+    def test_setup_unstable_master_new_url(self, version, expected_version_string):
+        cdir, version = scylla_setup(version=version, verbose=True)
+        assert version == expected_version_string
 
-    def test_setup_unstable_enterprise_new_url(self):
-        cdir, version = scylla_setup(version="unstable/enterprise:2023-06-15T06:53:32Z", verbose=True)
-        assert version == '2023.3.0-dev'
+    @pytest.mark.parametrize(argnames=['version', 'expected_version_string'], argvalues=[
+        ("unstable/enterprise:2023-06-15T06:53:32Z", '2023.3.0-dev'),
+        ("unstable/enterprise:2023-06-15T06:53:32Z:debug", '2023.3.0-dev'),
+    ])
+    def test_setup_unstable_enterprise_new_url(self, version, expected_version_string):
+        cdir, version = scylla_setup(version=version, verbose=True)
+        assert version == expected_version_string
 
 
 class TestScyllaRepositoryRelease:
@@ -61,6 +73,8 @@ class TestScyllaRepositoryRelease:
         ("release:4.5", '4.5'),
         ("release:4.4", '4.4'),
         ("release:4.3", '4.3'),
+        ("release:6.1", '6.1'),
+        ("release:6.1:debug", '6.1'),
     ])
     def test_setup_release_oss(self, version, expected_cdir):
         cdir, packages = scylla_setup(version=version, verbose=True, skip_downloads=True)
@@ -93,6 +107,8 @@ class TestScyllaRepositoryRelease:
         ("release:2021.1", '2021.1'),
         ("release:2021.1.10", '2021.1.10'),
         ("release:2024.2~rc0", '2024.2.0~rc0'),
+        ("release:2024.2", '2024.2.0'),
+        ("release:2024.2:debug", '2024.2.0'),
     ])
     def test_setup_release_enterprise(self, version, expected_cdir):
         cdir, packages = scylla_setup(version=version, verbose=True, skip_downloads=True)
@@ -111,14 +127,23 @@ class TestScyllaRepositoryRelease:
         assert packages.scylla_tools_package
         assert packages.scylla_jmx_package
 
-    def test_setup_unstable_master_new_url(self):
-        cdir, packages = scylla_setup(version="unstable/master:2021-01-18T15:48:13Z", verbose=True, skip_downloads=True)
-        assert '2021-01-18T15_48_13Z' in cdir
-        assert packages.scylla_unified_package is None
-        assert packages.scylla_package == 'https://s3.amazonaws.com/downloads.scylladb.com/unstable/scylla/master/relocatable/2021-01-18T15:48:13Z/scylla-package.tar.gz'
-        assert packages.scylla_tools_package == 'https://s3.amazonaws.com/downloads.scylladb.com/unstable/scylla/master/relocatable/2021-01-18T15:48:13Z/scylla-tools-package.tar.gz'
-        assert packages.scylla_jmx_package == 'https://s3.amazonaws.com/downloads.scylladb.com/unstable/scylla/master/relocatable/2021-01-18T15:48:13Z/scylla-jmx-package.tar.gz'
+    @pytest.mark.parametrize(argnames=['version', 'expected_cdir', 'scylla_debug'], argvalues=[
+        ("unstable/master:2021-01-18T15:48:13Z", "2021-01-18T15:48:13Z", False),
+        ("unstable/master:2021-01-18T15:48:13Z:debug", "2021-01-18T15:48:13Z", True),
+    ])
+    def test_setup_unstable_master_new_url(self, version, expected_cdir, scylla_debug):
+        cdir, packages = scylla_setup(version=version, verbose=True, skip_downloads=True)
+        assert re.sub(":", "_", expected_cdir) in cdir
+        assert packages.scylla_unified_package == f'http://s3.amazonaws.com/downloads.scylladb.com/unstable/scylla/master/relocatable/{expected_cdir}/scylla{"-debug" if scylla_debug else ""}-unified-package-4.4.dev.0.20210118.df3ef800c.tar.gz'
 
+    @pytest.mark.parametrize(argnames=['version', 'expected_cdir', 'scylla_debug'], argvalues=[
+        ("unstable/enterprise:2023-09-10T20:18:18Z", "2023-09-10T20:18:18Z", False),
+        ("unstable/enterprise:2023-09-10T20:18:18Z:debug", "2023-09-10T20:18:18Z", True),
+    ])
+    def test_setup_unstable_enterprise_new_url(self, version, expected_cdir, scylla_debug):
+        cdir, packages = scylla_setup(version=version, verbose=True, skip_downloads=True)
+        assert re.sub(":", "_", expected_cdir) in cdir
+        assert packages.scylla_unified_package == f'http://s3.amazonaws.com/downloads.scylladb.com/unstable/scylla-enterprise/enterprise/relocatable/{expected_cdir}/scylla-enterprise{"-debug" if scylla_debug else ""}-unified-2023.3.0~dev-0.20230910.4629201aceec.x86_64.tar.gz'
 
 class TestReinstallPackages:
     @staticmethod
