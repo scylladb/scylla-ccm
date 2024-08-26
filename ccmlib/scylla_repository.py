@@ -649,7 +649,7 @@ def get_manager_release_url(version: str = '', architecture: Architecture = None
 
     url = f"{BASE_DOWNLOADS_URL}/downloads/scylla-manager/relocatable"
 
-    version_regex = re.compile('scylla-manager_(.*)-0')
+    version_regex = re.compile('scylla-manager_(.*)_')
     # filter only specific architecture and version
     all_packages = reversed(aws_bucket_ls(url))
     latest_package = next(filter(lambda tar: architecture in tar and version in version_regex.search(tar)[0], all_packages))
