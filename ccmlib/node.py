@@ -1428,10 +1428,12 @@ class Node(object):
     def version(self):
         self.nodetool("version")
 
-    def decommission(self):
+    def decommission(self, stop_node: bool = True):
         self.nodetool("decommission")
         self.status = Status.DECOMMISSIONED
         self._update_config()
+        if stop_node:
+            self.stop()
 
     def hostid(self, timeout=60, force_refresh=False):
         if not hasattr(self, 'node_hostid') or force_refresh:
