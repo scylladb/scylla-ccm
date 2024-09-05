@@ -3,6 +3,7 @@
 
 from datetime import datetime
 import errno
+import functools
 import json
 import os
 import signal
@@ -47,7 +48,6 @@ class ScyllaNode(Node):
         self._node_install_dir = None
         self._node_scylla_version = None
         self._relative_repos_root = None
-        self._has_jmx = None
         super().__init__(name, cluster, auto_bootstrap,
                          None, storage_interface,
                          jmx_port, remote_debug_port,
@@ -85,7 +85,7 @@ class ScyllaNode(Node):
     def node_install_dir(self, install_dir):
         self._node_install_dir = install_dir
         # Force re-check based on the new install dir
-        self._has_jmx = None
+        del self.has_jmx
 
     @property
     def node_scylla_version(self):
@@ -101,16 +101,13 @@ class ScyllaNode(Node):
     def scylla_build_id(self):
         return self._run_scylla_executable_with_option(option="--build-id")
 
-    @property
+    @functools.cached_property
     def has_jmx(self):
-        if self._has_jmx is None:
-            install_dir = self.node_install_dir
-            if self.is_scylla_reloc():
-                self._has_jmx = os.path.isdir(os.path.join(install_dir, "jmx"))
-            else:
-                self._has_jmx = os.path.isdir(os.path.join(install_dir, "tools", "jmx"))
-
-        return self._has_jmx
+        install_dir = self.node_install_dir
+        if self.is_scylla_reloc():
+            return os.path.isdir(os.path.join(install_dir, "jmx"))
+        else:
+            return os.path.isdir(os.path.join(install_dir, "tools", "jmx"))
 
     @property
     def scylla_yaml(self) -> Dict[str, Any]:
