@@ -548,23 +548,11 @@ def get_stress_bin(install_dir):
     else:
         raise Exception("Cannot find stress binary (maybe it isn't compiled)")
 
-    # make sure it's executable -> win32 doesn't care
-    if sys.platform == "cygwin":
-        # Yes, we're unwinding the path join from above.
-        path = parse_path(stress)
-        short_bin = parse_bin(stress)
-        add_exec_permission(path, short_bin)
-    elif not os.access(stress, os.X_OK):
+    if not os.access(stress, os.X_OK):
         try:
-            # try to add user execute permissions
-            # os.chmod doesn't work on Windows and isn't necessary unless in cygwin...
-            if sys.platform == "cygwin":
-                add_exec_permission(path, stress)
-            else:
-                os.chmod(stress, os.stat(stress).st_mode | stat.S_IXUSR)
+            os.chmod(stress, os.stat(stress).st_mode | stat.S_IXUSR)
         except:
             raise Exception(f"stress binary is not executable: {stress}")
-
     return stress
 
 
