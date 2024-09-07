@@ -13,3 +13,4 @@ tests/test_results
 .direnv/
 
 .envrc
+ccmlib/tests/

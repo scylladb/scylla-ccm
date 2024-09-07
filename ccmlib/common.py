@@ -389,23 +389,42 @@ def make_cassandra_env(install_dir, node_path, update_conf=True, hardcode_java_v
 
     if hardcode_java_version:
         known_jvm_names = {
-            '8': ('8-openjdk', '8-jdk', '1.8.0-openjdk'),
-            '11': ('11-openjdk', '11-jdk', '1.11.0-openjdk'),
+            '8': ['1.8', '8'],
+            '11': ['11']
         }
-        assert hardcode_java_version in known_jvm_names.keys(), \
+        jvm_root_path = "/usr/lib/jvm/"
+        assert hardcode_java_version in known_jvm_names, \
             f"hardcode_java_version={hardcode_java_version} not supported in:\n{known_jvm_names}"
 
-        for java_path in pathlib.Path('/usr/lib/jvm/').iterdir():
-            if (java_path.is_dir
-                    and any(name in java_path.name for name in known_jvm_names[hardcode_java_version])
-                    and list(java_path.rglob('java'))):
-                env['JAVA_HOME'] = str(java_path)
-                break
-        else:
-            raise ArgumentError(f"java-8 wasn't found in /usr/lib/jvm/\n {list(pathlib.Path('/usr/lib/jvm/').iterdir())}")
+        java_home_path = get_java_home_path(pathlib.Path(jvm_root_path), known_jvm_names[hardcode_java_version])
+        if java_home_path is None:
+            raise ArgumentError(f"java-{hardcode_java_version} wasn't found in {jvm_root_path}")
 
+        env['JAVA_HOME'] = str(java_home_path.as_posix())
     return env
 
+def get_java_home_path(parent_path: pathlib.Path, hardcode_java_version: List[str]) -> [pathlib.Path]:
+    for java in pathlib.Path(parent_path).rglob('*/bin/java'):
+        if get_jvm_spec_version(java) in hardcode_java_version:
+            return java.parent.parent
+    return None
+
+java_version_property_regexp = re.compile(r'\s*java\.specification\.version\s*=\s*([0-9.]+)\s*')
+
+def get_jvm_spec_version(java_bin_path: pathlib.Path) -> Optional[str]:
+    if not java_bin_path.is_file() or not os.access(java_bin_path, os.X_OK):
+        return None
+    try:
+        properties = subprocess.check_output([java_bin_path.as_posix(), '-XshowSettings:properties', '-version'], stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as e:
+        return None
+
+    match = java_version_property_regexp.search(properties.decode('utf-8'))
+    if match is None:
+        return None
+    for version in match.groups():
+        return version
+    return None
 
 def make_dse_env(install_dir, node_path):
     env = os.environ.copy()
