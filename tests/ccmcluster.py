@@ -113,7 +113,10 @@ class CCMCluster:
         """
         nodes_status = []
         for line in stdout.split("\n")[2:]:
-            node, status = line.split(":")
+            chunks = line.split(":")
+            if len(chunks) != 2:
+                continue
+            node, status = chunks
             nodes_status.append((node.strip(), status.strip()))
 
         return nodes_status
