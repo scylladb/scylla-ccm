@@ -1473,7 +1473,7 @@ class ScyllaNode(Node):
                 return str(candidate)
         raise ValueError(f"gnutls.config wasn't found in any path: {candidates}")
 
-    def run_scylla_sstable(self, command, additional_args=None, keyspace=None, datafiles=None, column_families=None, batch=False, text=True):
+    def run_scylla_sstable(self, command, additional_args=None, keyspace=None, datafiles=None, column_families=None, batch=False, text=True, env=None):
         """Invoke scylla-sstable, with the specified command (operation) and additional_args.
 
         For more information about scylla-sstable, see https://docs.scylladb.com/stable/operating-scylla/admin-tools/scylla-sstable.html.
@@ -1512,8 +1512,9 @@ class ScyllaNode(Node):
                 else:
                     return stdout.encode('utf-8'), stderr.encode('utf-8')
             common_args = [scylla_path, "sstable", command] + additional_args
-            env = self._get_environ()
-            res = subprocess.run(common_args + sstables, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=text, check=False, env=env)
+            _env = self._get_environ()
+            _env.update(env or {})
+            res = subprocess.run(common_args + sstables, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=text, check=False, env=_env)
             if res.returncode:
                 raise ToolError(command=' '.join(common_args + sstables), exit_status=res.returncode, stdout=res.stdout, stderr=res.stderr)
             return (res.stdout, res.stderr)
@@ -1698,7 +1699,8 @@ class ScyllaNode(Node):
         for the JSON schema of it.
         """
 
-        additional_args = ['--scylla-yaml-file', str(Path(self.get_conf_dir()) / common.SCYLLA_CONF)]
+        additional_args = []
+        env = {'SCYLLA_CONF': str(Path(self.get_conf_dir()))}
         if keyspace:
             additional_args += ['--keyspace', keyspace]
 
@@ -1711,7 +1713,8 @@ class ScyllaNode(Node):
                                                 column_families=[column_family],
                                                 datafiles=datafiles,
                                                 batch=True,
-                                                text=False)
+                                                text=False,
+                                                env=env)
         assert '' in sstable_stats
         stdout, _ = sstable_stats['']
         return json.loads(stdout.decode('utf-8', 'ignore'))['sstables']
