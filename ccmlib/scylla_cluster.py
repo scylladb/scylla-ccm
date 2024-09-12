@@ -4,6 +4,7 @@ import shutil
 import time
 import subprocess
 import signal
+from typing import List, Tuple
 import uuid
 import datetime
 
@@ -41,7 +42,7 @@ class ScyllaCluster(Cluster):
             install_dir, self.scylla_mode = install_func(install_dir)
 
         self.started = False
-        self.force_wait_for_cluster_start = (force_wait_for_cluster_start != False)
+        self.force_wait_for_cluster_start = force_wait_for_cluster_start
         self.__set_default_timeouts()
         self._scylla_manager = None
         self.skip_manager_server = skip_manager_server
@@ -124,7 +125,7 @@ class ScyllaCluster(Cluster):
         elif isinstance(nodes, ScyllaNode):
             nodes = [nodes]
 
-        started = []
+        started: List[Tuple[ScyllaNode, subprocess.Popen, int]]  = []
         for node in nodes:
             if not node.is_running():
                 if started:
@@ -186,7 +187,7 @@ class ScyllaCluster(Cluster):
         marks = []
         if wait_other_notice:
             if not other_nodes:
-                other_nodes = [node for node in list(self.nodes.values()) if not node in nodes]
+                other_nodes = [node for node in list(self.nodes.values()) if node not in nodes]
             marks = [(node, node.mark_log()) for node in other_nodes if node.is_live()]
 
         # stop all nodes in parallel
@@ -256,7 +257,7 @@ class ScyllaCluster(Cluster):
             YAML().dump(data, f)
 
     def sctool(self, cmd):
-        if self._scylla_manager == None:
+        if self._scylla_manager is None:
             raise Exception("scylla manager not enabled - sctool command cannot be executed")
         return self._scylla_manager.sctool(cmd)
 
@@ -315,7 +316,7 @@ class ScyllaManager:
         with open(conf_file, 'r') as f:
             data = YAML().load(f)
         data['http'] = self._get_api_address()
-        if not 'database' in data:
+        if 'database' not in data:
             data['database'] = {}
         data['database']['hosts'] = [self.scylla_cluster.get_node_ip(1)]
         data['database']['replication_factor'] = 3
@@ -327,10 +328,10 @@ class ScyllaManager:
             del data['tls_cert_file']
         if 'tls_key_file' in data:
             del data['tls_key_file']
-        if not 'logger' in data:
+        if 'logger' not in data:
             data['logger'] = {}
         data['logger']['mode'] = 'stderr'
-        if not 'repair' in data:
+        if 'repair' not in data:
             data['repair'] = {}
         if self.version < ComparableScyllaVersion("2.2"):
             data['repair']['segments_per_repair'] = 16
@@ -387,7 +388,7 @@ class ScyllaManager:
         pidfile = self._get_pid_file()
         while not (os.path.isfile(pidfile) and os.stat(pidfile).st_size > 0):
             if time.time() - start > 30.0:
-                print("Timed out waiting for pidfile {} to be filled (current time is %s): File {} size={}".format(
+                print("Timed out waiting for pidfile {} to be filled (current time is {}): File {} size={}".format(
                         pidfile,
                         datetime.now(),
                         'exists' if os.path.isfile(pidfile) else 'does not exist' if not os.path.exists(pidfile) else 'is not a file',
@@ -411,7 +412,7 @@ class ScyllaManager:
             try:
                 os.kill(self._pid, 0)
                 return
-            except OSError as err:
+            except OSError:
                 pass
 
         log_file = os.path.join(self._get_path(), 'scylla-manager.log')
@@ -441,12 +442,12 @@ class ScyllaManager:
             if gently:
                 try:
                     self._process_scylla_manager.terminate()
-                except OSError as e:
+                except OSError:
                     pass
             else:
                 try:
                     self._process_scylla_manager.kill()
-                except OSError as e:
+                except OSError:
                     pass
         else:
             if self._pid:
@@ -470,7 +471,7 @@ class ScyllaManager:
     def agent_check_location(self, location_list, extra_config_file_list=None):
         agent_bin = os.path.join(self._get_path(), 'bin', 'scylla-manager-agent')
         locations_names = ','.join(location_list)
-        agent_conf = os.path.join(self.scylla_cluster.get_path(), 'node1/conf/scylla-manager-agent.yaml')
+        agent_conf = os.path.join(self.scylla_cluster.get_path(), 'node1/conf/scylla-manager-agent.yaml')  # noqa: F841
         args = [agent_bin, "check-location", "-L", str(locations_names)]
         if extra_config_file_list:
             for config_file in extra_config_file_list:

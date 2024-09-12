@@ -16,14 +16,16 @@ import warnings
 from datetime import datetime
 import locale
 from collections import defaultdict, namedtuple
+from typing import TYPE_CHECKING
 
 from ruamel.yaml import YAML
 
 from ccmlib import common
-from ccmlib.cli_session import CliSession
 from ccmlib.repository import setup
 from ccmlib.utils.version import parse_version
 
+if TYPE_CHECKING:
+    from ccmlib.scylla_cluster import ScyllaCluster
 
 class Status():
     UNINITIALIZED = "UNINITIALIZED"
@@ -104,7 +106,7 @@ class Node(object):
             is almost always the right choice.
         """
         self.name = name
-        self.cluster = cluster
+        self.cluster: 'ScyllaCluster' = cluster
         self.status = Status.UNINITIALIZED
         self.auto_bootstrap = auto_bootstrap
         self.network_interfaces = {'storage': common.normalize_interface(storage_interface),
@@ -424,7 +426,7 @@ class Node(object):
         try:
             stderr = proc.communicate()[1]
         except ValueError:
-            [stdout, stderr] = ['', '']
+            stderr = ''
         if stderr is None:
             stderr = ''
         if len(stderr) > 1:
@@ -709,7 +711,7 @@ class Node(object):
                 if gently is True:
                     try:
                         self.flush()
-                    except:
+                    except Exception:
                         print(f"WARN: Failed to flush node: {self.name} on shutdown.")
                         pass
 
@@ -1086,7 +1088,7 @@ class Node(object):
         return results
 
     def run_sstablemetadata(self, output_file=None, datafiles=None, keyspace=None, column_families=None):
-        cdir = self.get_install_dir()
+        cdir = self.get_install_dir()  # noqa: F841
         sstablemetadata = self._find_cmd('sstablemetadata')
         env = self.get_env()
         sstablefiles = self.__gather_sstables(datafiles=datafiles, keyspace=keyspace, columnfamilies=column_families)
@@ -1105,7 +1107,7 @@ class Node(object):
             return results
 
     def run_sstableexpiredblockers(self, output_file=None, keyspace=None, column_family=None):
-        cdir = self.get_install_dir()
+        cdir = self.get_install_dir()  # noqa: F841
         sstableexpiredblockers = self._find_cmd('sstableexpiredblockers')
         env = self.get_env()
         cmd = sstableexpiredblockers + [keyspace, column_family]
@@ -1125,7 +1127,7 @@ class Node(object):
         return sstablefiles
 
     def run_sstablerepairedset(self, set_repaired=True, datafiles=None, keyspace=None, column_families=None):
-        cdir = self.get_install_dir()
+        cdir = self.get_install_dir()  # noqa: F841
         sstablerepairedset = self._find_cmd('sstablerepairedset')
         env = self.get_env()
         sstablefiles = self.__gather_sstables(datafiles, keyspace, column_families)
@@ -1138,10 +1140,10 @@ class Node(object):
             subprocess.call(cmd, env=env)
 
     def run_sstablelevelreset(self, keyspace, cf, output=False):
-        cdir = self.get_install_dir()
+        cdir = self.get_install_dir()  # noqa: F841
         sstablelevelreset = self._find_cmd('sstablelevelreset')
         env = self.get_env()
-        sstablefiles = self.__cleanup_sstables(keyspace, cf)
+        sstablefiles = self.__cleanup_sstables(keyspace, cf)  # noqa: F841
 
         cmd = sstablelevelreset + ["--really-reset", keyspace, cf]
 
@@ -1154,10 +1156,10 @@ class Node(object):
             return subprocess.call(cmd, env=env)
 
     def run_sstableofflinerelevel(self, keyspace, cf, dry_run=False, output=False):
-        cdir = self.get_install_dir()
+        cdir = self.get_install_dir()  # noqa: F841
         sstableofflinerelevel = self._find_cmd('sstableofflinerelevel')
         env = self.get_env()
-        sstablefiles = self.__cleanup_sstables(keyspace, cf)
+        sstablefiles = self.__cleanup_sstables(keyspace, cf)  # noqa: F841
 
         if dry_run:
             cmd = sstableofflinerelevel + ["--dry-run", keyspace, cf]
@@ -1175,7 +1177,7 @@ class Node(object):
     def run_sstableverify(self, keyspace, cf, options=None, output=False):
         sstableverify = self.get_tool('sstableverify')
         env = self.get_env()
-        sstablefiles = self.__cleanup_sstables(keyspace, cf)
+        sstablefiles = self.__cleanup_sstables(keyspace, cf)  # noqa: F841
         if not isinstance(sstableverify, list):
             sstableverify = [sstableverify]
         cmd = sstableverify + [keyspace, cf]
@@ -1201,7 +1203,7 @@ class Node(object):
             fcmd = common.join_bin(cdir, 'bin', cmd)
         try:
             os.chmod(fcmd, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
-        except:
+        except Exception:
             print(f"WARN: Couldn't change permissions to use {cmd}.")
             print("WARN: If it didn't work, you will have to do so manually.")
         return [fcmd]
@@ -1879,7 +1881,7 @@ class Node(object):
         start = time.time()
         while not (os.path.isfile(pidfile) and os.stat(pidfile).st_size > 0):
             if (time.time() - start > 30.0):
-                print("Timed out waiting for pidfile {} to be filled (current time is %s): File {} size={}".format(
+                print("Timed out waiting for pidfile {} to be filled (current time is {}): File {} size={}".format(
                         pidfile,
                         datetime.now(),
                         'exists' if os.path.isfile(pidfile) else 'does not exist' if not os.path.exists(pidfile) else 'is not a file',
@@ -2085,7 +2087,7 @@ def _grep_log_for_errors(log, distinct_errors=False, search_str=None, case_sensi
     matchings = []
     it = iter(log.splitlines())
     for line in it:
-        l = line if case_sensitive else line.lower()
+        l = line if case_sensitive else line.lower()  # noqa: E741
         is_error_line = (error_pat.search(l) and
                          not debug_pat.search(error_pat.split(l)[0])) if not search_str else search_str in l
         if is_error_line:
