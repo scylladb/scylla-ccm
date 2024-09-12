@@ -178,6 +178,9 @@ def release_packages(s3_url, version, arch='x86_64', scylla_product='scylla'):
 
 
 def get_relocatable_s3_url(branch, s3_version, links):
+    debug_tag = ':debug'
+    if s3_version.endswith(debug_tag):
+        s3_version = s3_version[:-len(debug_tag)]
     for reloc_url in links:
         s3_url = reloc_url.format(branch, s3_version)
         resp = aws_bucket_ls(s3_url)
