@@ -15,7 +15,7 @@ import time
 import threading
 from pathlib import Path
 from collections import OrderedDict
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
 
 import logging
 
@@ -35,6 +35,8 @@ from ccmlib.node import TimeoutError
 from ccmlib.scylla_repository import setup, get_scylla_version
 from ccmlib.utils.version import parse_version
 
+if TYPE_CHECKING:
+    from ccmlib.scylla_cluster import ScyllaCluster
 
 class ScyllaNode(Node):
 
@@ -42,7 +44,7 @@ class ScyllaNode(Node):
     Provides interactions to a Scylla node.
     """
 
-    def __init__(self, name, cluster, auto_bootstrap, thrift_interface,
+    def __init__(self, name, cluster: 'ScyllaCluster', auto_bootstrap, thrift_interface,
                  storage_interface, jmx_port, remote_debug_port, initial_token,
                  save=True, binary_interface=None, scylla_manager=None):
         self._node_install_dir = None
@@ -184,7 +186,7 @@ class ScyllaNode(Node):
 
     def set_log_level(self, new_level, class_name=None):
         known_level = {'TRACE' : 'trace', 'DEBUG' : 'debug', 'INFO' : 'info', 'WARN' : 'warn', 'ERROR' : 'error', 'OFF' : 'info'}
-        if not new_level in known_level:
+        if new_level not in known_level:
             raise common.ArgumentError(f"Unknown log level {new_level} (use one of {' '.join(known_level)})")
 
         new_log_level = known_level[new_level]
@@ -303,7 +305,7 @@ class ScyllaNode(Node):
             time.sleep(sleep_time)
         return bool(self.grep_log(f"{bootstrap_message}|{resharding_message}", from_mark=from_mark))
 
-    def _start_scylla(self, args, marks, update_pid,
+    def _start_scylla(self, args, marks: List[Tuple['ScyllaNode', int]], update_pid,
                       wait_other_notice, wait_normal_token_owner,
                       wait_for_binary_proto, ext_env):
         log_file = os.path.join(self.get_path(), 'logs', 'system.log')
@@ -825,7 +827,7 @@ class ScyllaNode(Node):
         start = time.time()
         while not (os.path.isfile(pidfile) and os.stat(pidfile).st_size > 0):
             if time.time() - start > 30.0:
-                print("Timed out waiting for pidfile {} to be filled (current time is %s): File {} size={}".format(
+                print("Timed out waiting for pidfile {} to be filled (current time is {}): File {} size={}".format(
                         pidfile,
                         datetime.now(),
                         'exists' if os.path.isfile(pidfile) else 'does not exist' if not os.path.exists(pidfile) else 'is not a file',
@@ -881,7 +883,7 @@ class ScyllaNode(Node):
     def _wait_until_stopped(self, wait_seconds):
         return wait_for(func=lambda: not self.is_running(), timeout=wait_seconds)
 
-    def wait_until_stopped(self, wait_seconds=None, marks=None, dump_core=True):
+    def wait_until_stopped(self, wait_seconds=None, marks: List[Tuple['ScyllaNode', int]]=None, dump_core=True):
         """
         Wait until node is stopped after do_stop was called.
           - wait_other_notice: return only when the other live nodes of the
@@ -922,7 +924,7 @@ class ScyllaNode(Node):
         if self.jmx_pid:
             try:
                 self.warning("{} scylla-jmx is still running. Killing process using kill({}, SIGKILL)...".format(
-                    self.name, wait_seconds, self.jmx_pid))
+                    self.name, self.jmx_pid))
                 os.kill(self.jmx_pid, signal.SIGKILL)
             except OSError:
                 pass
@@ -934,7 +936,7 @@ class ScyllaNode(Node):
             if node != self:
                 node.watch_log_for_death(self, from_mark=mark)
 
-    def stop(self, wait=True, wait_other_notice=False, other_nodes=None, gently=True, wait_seconds=None, marks=None):
+    def stop(self, wait=True, wait_other_notice=False, other_nodes: List['ScyllaNode']=None, gently=True, wait_seconds=None, marks=None):
         """
         Stop the node.
           - wait: if True (the default), wait for the Scylla process to be
@@ -1393,7 +1395,7 @@ class ScyllaNode(Node):
             self.error(f"Failed to get hostid using {url}: {e}")
         return None
 
-    def watch_rest_for_alive(self, nodes, timeout=120, wait_normal_token_owner=True):
+    def watch_rest_for_alive(self, nodes: Union['ScyllaNode', List['ScyllaNode']], timeout=120, wait_normal_token_owner=True):
         """
         Use the REST API to wait until this node detects that the nodes listed
         in "nodes" become fully operational.

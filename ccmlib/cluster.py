@@ -3,16 +3,19 @@
 import os
 import random
 import shutil
+import subprocess
 import threading
 import time
 from collections import OrderedDict, defaultdict
 from concurrent.futures import ThreadPoolExecutor
+from typing import List, Tuple
 
 from ruamel.yaml import YAML
 
 from ccmlib import common, repository
 from ccmlib.node import Node, NodeError
 from ccmlib.common import logger
+from ccmlib.scylla_node import ScyllaNode
 from ccmlib.utils.version import parse_version
 
 
@@ -23,8 +26,8 @@ class Cluster(object):
         self.id = 0
         self.ipprefix = None
         self.ipformat = None
-        self.nodes = OrderedDict()
-        self.seeds = []
+        self.nodes: OrderedDict[str, ScyllaNode] = OrderedDict()
+        self.seeds: List[ScyllaNode] = []
         self.partitioner = partitioner
         self.snitch = snitch
         self._config_options = {}
@@ -140,7 +143,7 @@ class Cluster(object):
             def __init__(self, cluster):
                 self.executor = ThreadPoolExecutor(max_workers=1)
                 self.thread = None
-                self.cluster = cluster
+                self.cluster: Cluster = cluster
                 self.req_stop_event = threading.Event()
                 self.done_event = threading.Event()
                 self.log_positions = defaultdict(int)
@@ -213,7 +216,7 @@ class Cluster(object):
     def hasOpscenter(self):
         return False
 
-    def nodelist(self):
+    def nodelist(self) -> List[ScyllaNode]:
         return [self.nodes[name] for name in list(self.nodes.keys())]
 
     def version(self):
@@ -222,7 +225,7 @@ class Cluster(object):
     def cassandra_version(self):
         return self.version()
 
-    def add(self, node, is_seed, data_center=None, rack=None):
+    def add(self, node: ScyllaNode, is_seed, data_center=None, rack=None):
         if node.name in self.nodes:
             raise common.ArgumentError(f'Cannot create existing node {node.name}')
         self.nodes[node.name] = node
@@ -246,14 +249,14 @@ class Cluster(object):
 
     # nodes can be provided in multiple notations, determining the cluster topology:
     # 1. int - specifying the number of nodes in a single DC, single RACK cluster
-    # 2. list[int] - specifying the number of nodes in a multi DC, single RACK per DC cluster
+    # 2. List[int] - specifying the number of nodes in a multi DC, single RACK per DC cluster
     #    The datacenters are automatically named as dc{i}, starting from 1, the rack is named RAC1
     #    For example, [3, 2] would translate to the following topology {'dc1': {'RAC1': 3}, 'dc2': {'RAC1': 2}}
     #    Where 3 nodes are populated in dc1/RAC1, and 2 nodes are populated in dc2/RAC1
     # 3.a dict[str: int] - specifying the number of nodes in a multi DC, single RACK per DC cluster
     #     The dictionary keys explicitly identify each datacenter name, and the value is the number of nodes in the DC.
     #     For example, {'DC1': 3, 'DC2': 2] would translate to the following topology {'DC1': {'RAC1': 3}, 'DC2': {'RAC1': 2}}
-    # 3.b dict[str: list[int]] - specifying the number of nodes in a multi DC, multi RACK cluster
+    # 3.b dict[str: List[int]] - specifying the number of nodes in a multi DC, multi RACK cluster
     #     The dictionary keys explicitly identify each datacenter name, and the value is the number of nodes in each RACK in the DC.
     #     Racks are automatically named as RAC{i}, starting from 1
     #     For example, {'DC1': [2, 2, 2], 'DC2': [3, 3]] would translate to the following topology {'DC1': {'RAC1': 2, 'RAC2': 2, 'RAC3': 2}, 'DC2': {'RAC1': 3, 'RAC2': 3}}
@@ -328,8 +331,8 @@ class Cluster(object):
             self._update_config()
         return self
 
-    def new_node(self, i, auto_bootstrap=False, debug=False, initial_token=None, add_node=True, is_seed=True, data_center=None, rack=None):
-        ipformat = self.get_ipformat()
+    def new_node(self, i, auto_bootstrap=False, debug=False, initial_token=None, add_node=True, is_seed=True, data_center=None, rack=None) -> ScyllaNode:
+        ipformat = self.get_ipformat()  # noqa: F841
         binary = self.get_binary_interface(i)
         node = self.create_node(name=f'node{i}',
                                 auto_bootstrap=auto_bootstrap,
@@ -365,7 +368,7 @@ class Cluster(object):
         return (self.get_node_ip(nodeid), 7000)
 
     def get_node_jmx_port(self, nodeid):
-        return 7000 + nodeid * 100 + self.id;
+        return 7000 + nodeid * 100 + self.id
 
     def get_debug_port(self, nodeid):
         return 2000 + nodeid * 100
@@ -394,7 +397,7 @@ class Cluster(object):
         tokens.extend(new_tokens)
         return tokens
 
-    def remove(self, node=None, wait_other_notice=False, other_nodes=None, remove_node_dir=True):
+    def remove(self, node: ScyllaNode=None, wait_other_notice=False, other_nodes=None, remove_node_dir=True):
         if node is not None:
             if node.name not in self.nodes:
                 return
@@ -421,7 +424,7 @@ class Cluster(object):
                 try:
                     common.rmdirs(path)
                     removed = True
-                except:
+                except Exception:
                     tries = tries + 1
                     time.sleep(.1)
                     if tries == 5:
@@ -435,7 +438,7 @@ class Cluster(object):
     def get_path(self):
         return os.path.join(self.path, self.name)
 
-    def get_seeds(self, node=None):
+    def get_seeds(self, node: ScyllaNode=None):
         # if first node, or there is now seeds at all
         # or node added is not a seed, return 
         # all cluster seed nodes
@@ -450,7 +453,7 @@ class Cluster(object):
             address = node.address()
         else:
             address = node
-        if not address in self.seeds:
+        if address not in self.seeds:
             self.seeds.append(address)
 
     def show(self, verbose):
@@ -476,7 +479,7 @@ class Cluster(object):
         if wait_other_notice:
             marks = [(node, node.mark_log()) for node in list(self.nodes.values())]
 
-        started = []
+        started: List[Tuple[ScyllaNode, subprocess.Popen, int]] = []
         for node in list(self.nodes.values()):
             if not node.is_running():
                 mark = 0
@@ -677,7 +680,7 @@ class Cluster(object):
         with open(filename, 'w') as f:
             YAML().dump(cluster_config, f)
 
-    def __update_pids(self, started):
+    def __update_pids(self, started: List[Tuple[ScyllaNode, subprocess.Popen, int]]):
         for node, p, _ in started:
             node._update_pid(p)
 
