@@ -15,7 +15,7 @@ import time
 import warnings
 from datetime import datetime
 import locale
-from collections import namedtuple
+from collections import defaultdict, namedtuple
 
 from ruamel.yaml import YAML
 
@@ -743,58 +743,59 @@ class Node(object):
             return False
 
     @staticmethod
-    def _parse_pending_tasks(output, keyspace, column_family):
-        # "nodetool compactionstats" prints the compaction stats like:
-        # pending tasks: 42
-        # - ks1.cf1: 13
-        # - ks1.cf2: 19
-        # - ks2.cf1: 10
-        head_pattern = r"pending tasks:\s*(?P<tasks>\d+)"
-        tail_pattern = re.compile(r'\-\s+(\w+)\.(\w+):\s*(\d+)')
-        head, *tail = output.strip().split('\n')
+    def _parse_tasks(output: str, keyspace: str, column_family: str):
+        """
+        Returns the total number of tasks
+
+        `nodetool compactionstats` prints the compaction stats like:
+        ```
+        pending tasks: 42
+        - ks1.cf1: 13
+        - ks2.cf2: 19
+        - ks3.cf3: 10
+
+        id                                   compaction type keyspace table completed total unit progress
+        55eaee80-7445-11ef-9197-2931a44dadc4 COMPACTION      ks3      cf3   32116     55680 keys 57.68%  
+        55e8f2b0-7445-11ef-b438-2930a44dadc4 COMPACTION      ks4      cf4   46789     55936 keys 83.65%  
+        ```
+        """
+        lines = output.strip().splitlines()
+        tasks = defaultdict(int)
+        pending_tasks_pattern = re.compile(r'- (?P<ks>\w+)\.(?P<cf>\w+): (?P<tasks>\d+)')
+        active_tasks_pattern = re.compile(r'\s*([\w-]+)\s+\w+\s+(?P<ks>\w+)\s+(?P<cf>\w+)\s+\d+\s+\d+\s+\w+\s+\d+\.\d+%')
+
+        for line in lines:
+            line = line.strip()
+            if match := pending_tasks_pattern.match(line):
+                tasks[(match.group("ks"), match.group("cf"))] += int(match.group("tasks"))
+            elif match := active_tasks_pattern.match(line):
+                tasks[(match.group("ks"), match.group("cf"))] += 1
 
         if keyspace is None and column_family is None:
-            matched = re.search(head_pattern, head)
-            if not matched:
-                raise RuntimeError(f"Cannot find 'pending tasks' in nodetool output.\nOutput: {output}")
-            return int(matched.group('tasks'))
+            return sum(tasks.values())
+        elif keyspace is not None and column_family is None:
+            return sum(num_tasks for (ks, _), num_tasks in tasks.items() if ks == keyspace)
+        elif keyspace is not None and column_family is not None:
+            return tasks.get((keyspace, column_family), 0)
 
-        # if keyspace or column_family is specified, check active tasks
-        # of the specified ks.cf instead
-        def matches(expected, actual):
-            if expected is None:
-                return True
-            return expected == actual
-
-        total = 0
-        for line in tail:
-            m = tail_pattern.search(line)
-            if not m:
-                break
-            ks, cf, num = m.groups()
-            if matches(keyspace, ks) and matches(column_family, cf):
-                total += int(num)
-        return total
-
-    def wait_for_compactions(self,
-                             keyspace=None,
-                             column_family=None,
-                             idle_timeout=300):
+    def wait_for_compactions(self, keyspace: str=None, column_family: str=None, idle_timeout=300):
         """Wait for all compactions to finish on this node.
 
-        :param keyspace: only wait for the compactions performed for specified
-            keyspace. if not specified, all keyspaces are waited
-        :param column_family: only wait for the compactions performed for
-            specified column_family. if not specified, all keyspaces are waited
+        :param keyspace: only wait for the compactions performed for specified keyspace.
+            If not specified, all keyspaces are waited.
+            Must be provided if collumn_family is provided.
+        :param column_family: only wait for the compactions performed for specified column_family.
+            If not specified, all keyspaces are waited.
         :param idle_timeout: the time in seconds to wait for progress.
-            Total time to wait is undeteremined, as long as we observe forward
-            progress.
+            Total time to wait is undeteremined, as long as we observe forward progress.
         """
+        if column_family is not None and keyspace is None:
+            raise ValueError("Cannot search only by column family, need also keyspace")
         pending_tasks = -1
         last_change = None
         while not last_change or time.time() - last_change < idle_timeout:
             output, err = self.nodetool("compactionstats", capture_output=True)
-            n = self._parse_pending_tasks(output, keyspace, column_family)
+            n = self._parse_tasks(output, keyspace, column_family)
             # no active tasks, good!
             if n == 0:
                 return
