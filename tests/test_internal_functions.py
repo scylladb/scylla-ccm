@@ -85,11 +85,8 @@ test_cases = [
     }
 ]
 
-@pytest.mark.parametrize("test_case", test_cases, ids=[tc["id"] for tc in test_cases])
-def test_parse_tasks(test_case):
-    output = test_case["output"]
-    expected_tasks = test_case["expected_tasks"]
-
+@pytest.mark.parametrize("output, expected_tasks", [pytest.param(t["output"], t["expected_tasks"], id=t["id"]) for t in test_cases])
+def test_parse_tasks(output, expected_tasks):
     for ks, cf, expected in expected_tasks:
         n = Node._parse_tasks(output, ks, cf)
         assert n == expected, f"Expected {expected} tasks for {ks}.{cf}, but got {n}"
