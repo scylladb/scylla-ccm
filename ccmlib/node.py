@@ -78,6 +78,9 @@ NodetoolError = ToolError
 
 # Groups: 0 = ks, 1 = cf, 2 = tmp or none, 3 = version, 4 = identifier (generation), 4 = "big-" or none, 5 = suffix (Compacted or Data.db)
 _sstable_regexp = re.compile(r'((?P<keyspace>[^\s-]+)-(?P<cf>[^\s-]+)-)?(?P<tmp>tmp(link)?-)?(?P<version>[^\s-]+)-(?P<identifier>[^-]+)-(?P<big>big-)?(?P<suffix>[a-zA-Z]+)\.[a-zA-Z0-9]+$')
+# Regexes for parsing nodetool compactionstats
+_pending_tasks_pattern = re.compile(r'- (?P<ks>\w+)\.(?P<cf>\w+): (?P<tasks>\d+)')
+_active_tasks_pattern = re.compile(r'\s*([\w-]+)\s+\w+\s+(?P<ks>\w+)\s+(?P<cf>\w+)\s+\d+\s+\d+\s+\w+\s+\d+\.\d+%')
 
 
 class Node(object):
@@ -761,14 +764,12 @@ class Node(object):
         """
         lines = output.strip().splitlines()
         tasks = defaultdict(int)
-        pending_tasks_pattern = re.compile(r'- (?P<ks>\w+)\.(?P<cf>\w+): (?P<tasks>\d+)')
-        active_tasks_pattern = re.compile(r'\s*([\w-]+)\s+\w+\s+(?P<ks>\w+)\s+(?P<cf>\w+)\s+\d+\s+\d+\s+\w+\s+\d+\.\d+%')
 
         for line in lines:
             line = line.strip()
-            if match := pending_tasks_pattern.match(line):
+            if match := _pending_tasks_pattern.match(line):
                 tasks[(match.group("ks"), match.group("cf"))] += int(match.group("tasks"))
-            elif match := active_tasks_pattern.match(line):
+            elif match := _active_tasks_pattern.match(line):
                 tasks[(match.group("ks"), match.group("cf"))] += 1
 
         if keyspace is None and column_family is None:
@@ -784,8 +785,8 @@ class Node(object):
         :param keyspace: only wait for the compactions performed for specified keyspace.
             If not specified, all keyspaces are waited.
             Must be provided if collumn_family is provided.
-        :param column_family: only wait for the compactions performed for specified column_family.
-            If not specified, all keyspaces are waited.
+        :param column_family: only wait for the compactions performed for specified column family.
+            If not specified, all column families are waited.
         :param idle_timeout: the time in seconds to wait for progress.
             Total time to wait is undeteremined, as long as we observe forward progress.
         """
