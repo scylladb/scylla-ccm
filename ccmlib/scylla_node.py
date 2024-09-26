@@ -978,7 +978,12 @@ class ScyllaNode(Node):
 
     def copy_config_files(self):
         Node.copy_config_files(self)
-        conf_pattern = os.path.join(self.get_tools_java_dir(), 'conf', "jvm*.options")
+        tools_java_dir = self.get_tools_java_dir()
+        if not tools_java_dir:
+            # in newer scylla, the java-base scylla-tools is dropped, so this
+            # directory cannot be found in that case.
+            return
+        conf_pattern = os.path.join(tools_java_dir, 'conf', "jvm*.options")
         for filename in glob.glob(conf_pattern):
             if os.path.isfile(filename):
                 shutil.copy(filename, self.get_conf_dir())
