@@ -15,7 +15,8 @@ import time
 import threading
 from pathlib import Path
 from collections import OrderedDict
-from typing import Any, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Union, TYPE_CHECKING
+from enum import Enum
 
 import logging
 
@@ -37,6 +38,55 @@ from ccmlib.utils.version import parse_version
 
 if TYPE_CHECKING:
     from ccmlib.scylla_cluster import ScyllaCluster
+
+class ScyllaType:
+    """
+    Helper class for defining Scylla type definitions using type strings.
+
+    Refer to the Cassandra class names found at
+    https://github.com/scylladb/scylladb/blob/master/docs/dev/cql3-type-mapping.md for valid type strings.
+
+    Examples :
+        type1 = ScyllaType.make_partition_key("Int32Type")
+        type2 = ScyllaType.make_clustering_key("Int32Type", "FloatType")
+    """
+    class TypeKind(Enum):
+        REGULAR = 1
+        CLUSTERING_KEY = 2
+        PARTITION_KEY = 3
+
+    kind: TypeKind
+    types: Iterable[str]
+
+    def __init__(self, kind: TypeKind, types: Iterable[str]):
+        if not types:
+            raise common.ArgumentError("Please pass at least one type to create ScyllaType")
+        self.kind = kind
+        self.types = types
+
+    @classmethod
+    def make_regular(cls, keytype: str):
+        return cls(ScyllaType.TypeKind.REGULAR, (keytype,))
+
+    @classmethod
+    def make_clustering_key(cls, *keytypes):
+        return cls(ScyllaType.TypeKind.CLUSTERING_KEY, keytypes)
+
+    @classmethod
+    def make_partition_key(cls, *keytypes):
+        return cls(ScyllaType.TypeKind.PARTITION_KEY, keytypes)
+
+    def as_types_args(self) -> List[str]:
+        """Return the type definition as arguments to scylla types command"""
+        args = []
+        if self.kind == ScyllaType.TypeKind.CLUSTERING_KEY:
+            args.append("--prefix-compound")
+        elif self.kind == ScyllaType.TypeKind.PARTITION_KEY:
+            args.append("--full-compound")
+        for keytype in self.types:
+            args.extend(["-t", keytype])
+        return args
+
 
 class ScyllaNode(Node):
 
@@ -1784,6 +1834,33 @@ class ScyllaNode(Node):
         super().wait_for_compactions(keyspace=keyspace,
                                      column_family=column_family,
                                      idle_timeout=idle_timeout)
+
+    def run_scylla_types(self, action: str, scylla_type: ScyllaType, *values: Tuple[Any], extra_args: Optional[List[Any]]=None):
+        """Invoke scylla-types command, with the specified action and extra_args.
+
+        For more information about scylla-types, see https://opensource.docs.scylladb.com/stable/operating-scylla/admin-tools/scylla-types.html
+
+        Params:
+        * action - The scylla-types operation to run.
+        * scylla_type - The key type of the values being passed to the tool.
+        * value - The values on which the action is to be applied.
+        * extra_args - Additional command-line arguments to pass to scylla-types action.
+
+        Returns: stdout
+
+        Raises: ToolError if scylla-types returns a non-zero exit code.
+        """
+        if extra_args is None:
+            extra_args = []
+        extra_args.extend(scylla_type.as_types_args())
+
+        scylla_path = common.join_bin(self.get_path(), BIN_DIR, 'scylla')
+        cmd_and_args = [scylla_path, "types", action, *extra_args, "--", *values]
+        cmd_and_args = [str(value) for value in cmd_and_args]
+        res = subprocess.run(cmd_and_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False, env=self._get_environ())
+        if res.returncode:
+            raise ToolError(command=' '.join(cmd_and_args), exit_status=res.returncode, stdout=res.stdout, stderr=res.stderr)
+        return res.stdout.strip()
 
 
 class NodeUpgrader:
