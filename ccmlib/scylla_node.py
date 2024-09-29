@@ -201,9 +201,11 @@ class ScyllaNode(Node):
     def get_tool(self, toolname):
         candidate_dirs = [
             os.path.join(self.node_install_dir, 'share', 'cassandra', BIN_DIR),
-            os.path.join(self.get_tools_java_dir(), BIN_DIR),
             os.path.join(self.get_cqlsh_dir(), BIN_DIR),
         ]
+        tools_java_dir = self.get_tools_java_dir()
+        if tools_java_dir:
+            candidate_dirs.append(os.path.join(tools_java_dir, BIN_DIR))
         for candidate_dir in candidate_dirs:
             candidate = shutil.which(toolname, path=candidate_dir)
             if candidate:
@@ -217,7 +219,10 @@ class ScyllaNode(Node):
         update_conf = not self.__conf_updated
         if update_conf:
             self.__conf_updated = True
-        return common.make_cassandra_env(self.get_install_cassandra_root(),
+        install_cassandra_root = self.get_install_cassandra_root()
+        if not install_cassandra_root:
+            return {}
+        return common.make_cassandra_env(install_cassandra_root,
                                          self.get_node_cassandra_root(), update_conf=update_conf)
 
     def _get_environ(self, extra_env = None, /, **kwargs):
@@ -1050,7 +1055,10 @@ class ScyllaNode(Node):
         return os.path.join(self.node_install_dir, 'tools', 'cqlsh')
 
     def __copy_logback_files(self):
-        shutil.copy(os.path.join(self.get_tools_java_dir(), 'conf', 'logback-tools.xml'),
+        tools_java_dir = self.get_tools_java_dir()
+        if not tools_java_dir:
+            return
+        shutil.copy(os.path.join(tools_java_dir, 'conf', 'logback-tools.xml'),
                     os.path.join(self.get_conf_dir(), 'logback-tools.xml'))
 
     def import_dse_config_files(self):
@@ -1096,22 +1104,24 @@ class ScyllaNode(Node):
 
     def import_bin_files(self, exist_ok=False, replace=False):
         # selectively copying files to reduce risk of using unintended items
-        self._copy_binaries(files=[CASSANDRA_SH, 'nodetool'],
-                            src_path=os.path.join(self.get_tools_java_dir(), BIN_DIR),
-                            dest_path=os.path.join(self.get_path(), 'resources', 'cassandra', BIN_DIR),
-                            exist_ok=exist_ok,
-                            replace=replace
-                            )
+        tools_java_dir = self.get_tools_java_dir()
+        if tools_java_dir:
+            self._copy_binaries(files=[CASSANDRA_SH, 'nodetool'],
+                                src_path=os.path.join(tools_java_dir, BIN_DIR),
+                                dest_path=os.path.join(self.get_path(), 'resources', 'cassandra', BIN_DIR),
+                                exist_ok=exist_ok,
+                                replace=replace
+                                )
 
-        # selectively copying files to reduce risk of using unintended items
-        # Copy sstable tools
-        self._copy_binaries(files=['sstabledump', 'sstablelevelreset', 'sstablemetadata',
-                                   'sstablerepairedset', 'sstablesplit'],
-                            src_path=os.path.join(self.get_tools_java_dir(), 'tools', BIN_DIR),
-                            dest_path=os.path.join(self.get_path(), 'resources', 'cassandra', 'tools', BIN_DIR),
-                            exist_ok=exist_ok,
-                            replace=replace
-                            )
+            # selectively copying files to reduce risk of using unintended items
+            # Copy sstable tools
+            self._copy_binaries(files=['sstabledump', 'sstablelevelreset', 'sstablemetadata',
+                                       'sstablerepairedset', 'sstablesplit'],
+                                src_path=os.path.join(tools_java_dir, 'tools', BIN_DIR),
+                                dest_path=os.path.join(self.get_path(), 'resources', 'cassandra', 'tools', BIN_DIR),
+                                exist_ok=exist_ok,
+                                replace=replace
+                                )
 
         # TODO: - currently no scripts only executable - copying exec
         if self.is_scylla_reloc():
