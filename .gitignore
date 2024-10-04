@@ -15,3 +15,5 @@ tests/test_results
 
 .envrc
 ccmlib/tests/
+
+uv.lock

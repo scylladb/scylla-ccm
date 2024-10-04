@@ -1,0 +1,40 @@
+[project]
+name = "ccm"
+version = "0.1.0"
+license = { file = "license.txt"}
+description = "Cassandra Cluster Manager"
+authors = [
+    {name = "Sylvain Lebresne", email = "sylvain@datastax.com"}
+]
+maintainers = [
+ {name="ScyllaDB Contributors"}
+]
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "ruamel-yaml",
+    "psutil",
+    "requests",
+    "packaging",
+    "boto3",
+    "tqdm",
+    "urllib3 < 2",
+]
+[project.urls]
+Repository = "https://github.com/scylladb/scylla-ccm"
+Issues = "https://github.com/scylladb/scylla-ccm/issues"
+
+[project.scripts]
+ccm = "ccm:main"
+
+[dependency-groups]
+dev = [
+  "pytest",
+  "awscli"
+]
+[tool.setuptools]
+packages = ["ccmlib", "ccmlib.cmds", "ccmlib.utils"]
+
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
