@@ -56,7 +56,7 @@ Requirements
 ------------
 
 - A working python installation (tested to work with python 3.12).
-- `pip install -e .` to install the required dependencies.
+- [UV](https://docs.astral.sh/uv)
 - Java if cassandra is used or older scylla < 6.0 (which version depends on the version 
   of Cassandra you plan to use. If unsure, use Java 8 as it is known to 
   work with current versions of Cassandra).
@@ -80,9 +80,11 @@ Known issues
 Installation
 ------------
 
-ccm uses python setuptools (with distutils fallback) so from the source directory run:
+ccm uses UV with setuptools as a build system (with distutils fallback) so from the source directory run:
 
-    sudo ./setup.py install
+    uv python install
+    uv venv .venv-ccm
+    uv sync
 
 ccm is available on the [Python Package Index][pip]:
 
