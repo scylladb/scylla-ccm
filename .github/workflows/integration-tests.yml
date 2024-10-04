@@ -18,12 +18,12 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
     - name: Cache pip
-      uses: actions/cache@v2
+      uses: actions/cache@v4
       with:
         path: ~/.cache/pip
         key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements-test.txt') }}
@@ -31,7 +31,7 @@ jobs:
           ${{ runner.os }}-pip-
 
     - name: Setup java
-      uses: actions/setup-java@v3
+      uses: actions/setup-java@v4
       with:
         distribution: 'temurin'
         java-version: '8'
@@ -49,7 +49,7 @@ jobs:
 
     - name: Cache binary versions
       id: cache-versions
-      uses: actions/cache@v2
+      uses: actions/cache@v4
       with:
         path: |
           ~/.ccm/repository
