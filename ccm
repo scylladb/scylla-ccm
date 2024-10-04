@@ -40,35 +40,39 @@ def print_global_usage():
     exit(1)
 
 
-common.check_win_requirements()
+def main():
+    common.check_win_requirements()
 
-if len(sys.argv) <= 1:
-    print("Missing arguments")
-    print_global_usage()
-
-arg1 = sys.argv[1].lower()
-
-if arg1 in cluster_cmds.cluster_cmds():
-    kind = 'cluster'
-    cmd = arg1
-    cmd_args = sys.argv[2:]
-else:
-    if len(sys.argv) <= 2:
+    if len(sys.argv) <= 1:
         print("Missing arguments")
         print_global_usage()
-    kind = 'node'
-    node = arg1
-    cmd = sys.argv[2]
-    cmd_args = [node] + sys.argv[3:]
 
-cmd = get_command(kind, cmd)
-if not cmd:
-    print("Unknown node or command: {0}".format(arg1))
-    exit(1)
+    arg1 = sys.argv[1].lower()
 
-parser = cmd.get_parser()
+    if arg1 in cluster_cmds.cluster_cmds():
+        kind = 'cluster'
+        cmd = arg1
+        cmd_args = sys.argv[2:]
+    else:
+        if len(sys.argv) <= 2:
+            print("Missing arguments")
+            print_global_usage()
+        kind = 'node'
+        node = arg1
+        cmd = sys.argv[2]
+        cmd_args = [node] + sys.argv[3:]
 
-(options, args) = parser.parse_args(cmd_args)
-cmd.validate(parser, options, args)
+    cmd = get_command(kind, cmd)
+    if not cmd:
+        print("Unknown node or command: {0}".format(arg1))
+        exit(1)
 
-cmd.run()
+    parser = cmd.get_parser()
+
+    (options, args) = parser.parse_args(cmd_args)
+    cmd.validate(parser, options, args)
+
+    cmd.run()
+
+if __name__ == '__main__':
+    main()
