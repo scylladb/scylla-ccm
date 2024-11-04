@@ -431,9 +431,11 @@ class ScyllaManager:
             pid_file.write(str(self._process_scylla_manager.pid))
 
         api_interface = common.parse_interface(self._get_api_address(), 5080)
-        if not common.check_socket_listening(api_interface, timeout=180):
-            raise Exception("scylla manager interface %s:%s is not listening after 180 seconds, scylla manager may have failed to start."
-                          % (api_interface[0], api_interface[1]))
+        # With more nodes in cluster it may take longer for the manager to start HTTP server
+        timeout = 180 if len(self.scylla_cluster.nodes) < 6 else 240
+        if not common.check_socket_listening(api_interface, timeout=timeout):
+            raise Exception("scylla manager interface %s:%s is not listening after %s seconds, scylla manager may have failed to start."
+                          % (api_interface[0], api_interface[1], timeout))
 
         return self._process_scylla_manager
 
