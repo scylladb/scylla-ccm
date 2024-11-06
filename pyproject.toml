@@ -1,0 +1,33 @@
+[tool.poetry]
+name = "ccm"
+version = "0.1.0"
+license = "Apache-2.0"
+description = "Cassandra Cluster Manager"
+authors = ["Sylvain Lebresne <sylvain@datastax.com>"]
+readme = "README.md"
+repository = "https://github.com/scylladb/scylla-ccm"
+packages = [
+    { include = "ccmlib" },
+]
+
+[tool.poetry.scripts]
+ccm = "ccm:main"
+
+[tool.poetry.dependencies]
+python = "^3.8"
+ruamel-yaml = "^0.18.6"
+psutil = "^6.0.0"
+requests = "^2.32.3"
+packaging = "^24.1"
+boto3 = "^1.35.32"
+tqdm = "^4.66.5"
+urllib3 = "<2"
+
+[tool.poetry.group.test.dependencies]
+pytest = "*"
+awscli = "*"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

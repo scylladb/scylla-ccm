@@ -12,14 +12,14 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - uses: cachix/install-nix-action@v20
       with:
         github_access_token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Cache binary versions
       id: cache-versions
-      uses: actions/cache@v2
+      uses: actions/cache@v4
       with:
         path: |
           ~/.ccm/repository
