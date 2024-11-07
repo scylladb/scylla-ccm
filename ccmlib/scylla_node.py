@@ -221,7 +221,7 @@ class ScyllaNode(Node):
             self.__conf_updated = True
         install_cassandra_root = self.get_install_cassandra_root()
         if not install_cassandra_root:
-            return {}
+            return os.environ.copy()
         return common.make_cassandra_env(install_cassandra_root,
                                          self.get_node_cassandra_root(), update_conf=update_conf)
 
