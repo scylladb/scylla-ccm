@@ -35,6 +35,26 @@ dev = [
 [tool.setuptools]
 packages = ["ccmlib", "ccmlib.cmds", "ccmlib.utils"]
 
+[tool.pytest.ini_options]
+python_classes = ["*Test", "Test*"]
+python_files = ["test_*", "*_test"]
+python_functions = ["test_*", "*_test"]
+testpaths = "tests"
+norecursedirs = [".*", "ssl", "*.egg-info", "ccmlib", "docs"]
+log_cli = true
+log_cli_level = "ERROR"
+log_level = "DEBUG"
+log_format = "%(asctime)s %(levelname)-8s %(message)s"
+log_date_format = "%Y-%m-%d %H:%M:%S"
+log_file = "tests/test_results/ccm.log"
+markers = [
+  "docker: Run tests with docker image",
+  "reloc: Run tests with relocatable packages",
+  "cassandra: Run tests with cassandra binaries",
+  "repo_tests: Run test for testing get versions"
+]
+filterwarnings = ["error", "ignore::ResourceWarning"]
+
 [build-system]
 requires = ["setuptools >= 61.0"]
 build-backend = "setuptools.build_meta"
