@@ -730,15 +730,17 @@ def validate_install_dir(install_dir):
             raise ArgumentError(f'{install_dir} does not appear to be a cassandra or dse installation directory')
 
 
-def pid_listening_on(addr: str, port: int):
-    '''get pid of the process listening on the given port'''
-    pid = -1
+def pids_listening_on(addr: str, port: int) -> List[int]:
+    """get pids of the processes listening on the given address:port"""
+
+    pids = []
     if lsof := shutil.which('lsof'):
         result = subprocess.run([lsof, '-t', '-i', f'tcp@{addr}:{port}'],
                                 stdout=subprocess.PIPE,
+                                text=True,
                                 check=True)
         if result.stdout:
-            pid = int(result.stdout)
+            pids = [int(p) for p in result.stdout.split()]
     elif ss := shutil.which('ss'):
         result = subprocess.run([ss,
                                  '--no-header',
@@ -747,13 +749,13 @@ def pid_listening_on(addr: str, port: int):
                                  '--tcp',
                                  f'src = inet:{addr}:{port}'],
                                 stdout=subprocess.PIPE,
+                                text=True,
                                 check=True)
-        matched = re.search(r'pid=(\d+)', result.stdout)
-        if matched is not None:
-            pid = int(matched.group(1))
+        matches = re.findall(r'pid=(\d+)', result.stdout)
+        pids = [int(match) for match in matches]
     else:
         logger.info("neither lsof nor ss was found")
-    return pid
+    return pids
 
 
 def check_socket_available(itf):
@@ -771,18 +773,19 @@ def check_socket_available(itf):
     except socket.error as msg:
         s.close()
         addr, port = itf
-        pid = pid_listening_on(addr, port)
-        if pid == -1:
+        pids = pids_listening_on(addr, port)
+        if not pids:
             logger.error('Address %s:%d used unknown process')
         else:
-            p = psutil.Process(pid)
-            secs_ago = p.create_time()
-            fmt = '%H:%M:%S' if secs_ago < 60 * 60 * 24 else '%Y-%m-%d %H:%M:%S'
-            since = datetime.fromtimestamp(secs_ago).strftime(fmt)
-            logger.error('Address %s:%d used by: "%s" '
-                         '(pid: %d, since: %s, parent: "%s")',
-                         addr, port, ' '.join(p.cmdline()),
-                         p.pid, since, ' '.join(p.parent().cmdline()))
+            for pid in pids:
+                p = psutil.Process(pid)
+                secs_ago = p.create_time()
+                fmt = '%H:%M:%S' if secs_ago < 60 * 60 * 24 else '%Y-%m-%d %H:%M:%S'
+                since = datetime.fromtimestamp(secs_ago).strftime(fmt)
+                logger.error('Address %s:%d used by: "%s" '
+                             '(pid: %d, since: %s, parent: "%s")',
+                             addr, port, ' '.join(p.cmdline()),
+                             p.pid, since, ' '.join(p.parent().cmdline()))
         raise UnavailableSocketError(f'Inet address {addr}:{port} is not available: {msg}')
 
 
