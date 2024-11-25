@@ -519,7 +519,11 @@ def download_version(version, url=None, verbose=False, target_dir=None, unified=
         if verbose:
             print(f"Extracting {target} ({url}, {target_dir}) as version {version} ...")
         tar = tarfile.open(target)
-        tar.extractall(path=target_dir)
+        if sys.version_info >= (3, 12):
+            kwargs = {'path': target_dir, 'filter': 'data'}
+        else:
+            kwargs = {'path': target_dir}
+        tar.extractall(**kwargs)
         tar.close()
 
         # if relocatable package format >= 2, need to extract files under subdir
