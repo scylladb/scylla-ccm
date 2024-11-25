@@ -43,11 +43,11 @@ jobs:
 
     - name: Test with pytest (python 3.9)
       run: |
-        nix develop --command python3.9 -m pytest ./tests -x
+        nix develop --command python3.9 -m pytest ./tests -x -W ignore
 
     - name: Test with pytest (python 3.11)
       run: |
-        nix develop --command python3.11 -m pytest ./tests -x
+        nix develop --command python3.11 -m pytest ./tests -x -W ignore
 
     - name: Copy logs/results
       if: contains(github.event.pull_request.labels.*.name, 'PR-upload-log')
