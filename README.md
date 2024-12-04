@@ -56,7 +56,9 @@ Requirements
 ------------
 
 - A working python installation (tested to work with python 3.12).
-- `pip install -e .` to install the required dependencies.
+- [Poetry](https://python-poetry.org/docs/)
+- `poetry install` to install the required dependencies.
+  - This will create virtualenv, you can use `poetry shell` to enter it, see [poetry](https://python-poetry.org/docs/basic-usage/#using-your-virtual-environment) documentation for more details
 - Java if cassandra is used or older scylla < 6.0 (which version depends on the version 
   of Cassandra you plan to use. If unsure, use Java 8 as it is known to 
   work with current versions of Cassandra).
@@ -82,7 +84,8 @@ Installation
 
 ccm uses python setuptools (with distutils fallback) so from the source directory run:
 
-    sudo ./setup.py install
+    poetry install
+    poetry shell
 
 ccm is available on the [Python Package Index][pip]:
 
