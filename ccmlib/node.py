@@ -257,12 +257,12 @@ class Node(object):
 
     def get_cassandra_version(self):
         try:
-            return common.get_version_from_build(self.get_install_dir())
+            return str(common.get_version_from_build(self.get_install_dir()))
         except common.CCMError:
             return self.cluster.cassandra_version()
 
     def get_base_cassandra_version(self):
-        version = self.get_cassandra_version()
+        version = str(self.get_cassandra_version())
         return float(version[:version.index('.') + 2])
 
     def set_configuration_options(self, values=None, batch_commitlog=None):

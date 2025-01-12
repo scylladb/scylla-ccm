@@ -1,0 +1,7 @@
+ruamel.yaml
+psutil
+requests
+packaging
+boto3
+tqdm
+urllib3<2

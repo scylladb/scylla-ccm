@@ -19,7 +19,7 @@ jobs:
 
     - name: Cache binary versions
       id: cache-versions
-      uses: actions/cache@v2
+      uses: actions/cache@v4
       with:
         path: |
           ~/.ccm/repository

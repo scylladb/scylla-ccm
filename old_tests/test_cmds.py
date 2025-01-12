@@ -1,7 +1,7 @@
 import os
 import subprocess
 
-import yaml
+from ruamel.yaml import YAML
 
 from ccmlib import common
 from . import TEST_DIR
@@ -91,6 +91,6 @@ class TestCCMCreate(TestCCMCmd):
         self.validate_output(self.create_cmd(args))
         yaml_path = os.path.join(common.get_default_path(), 'test', 'node1', 'conf', 'cassandra.yaml')
         with open(yaml_path, 'r') as f:
-            data = yaml.safe_load(f)
+            data = YAML().load(f)
 
         self.assertEqual(256, data['num_tokens'])
