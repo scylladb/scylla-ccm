@@ -5,11 +5,12 @@ from pathlib import Path
 
 import pytest
 from tests.test_config import RESULTS_DIR, TEST_ID, SCYLLA_DOCKER_IMAGE, SCYLLA_RELOCATABLE_VERSION
+import shutil
 
 from ccmlib.scylla_cluster import ScyllaCluster
 from ccmlib.scylla_docker_cluster import ScyllaDockerCluster
 from .ccmcluster import CCMCluster
-
+from tests import TEST_DIR
 
 LOGGER = logging.getLogger(__name__)
 
@@ -60,10 +61,6 @@ def docker_cluster(test_dir, test_id):
     })
     cluster.populate(3)
     cluster.start(wait_for_binary_proto=True)
-    try:
-        yield cluster
-    finally:
-        cluster.clear()
 
 
 @pytest.fixture(scope="session")
@@ -86,6 +83,18 @@ def relocatable_cluster(test_dir, test_id):
         yield cluster
     finally:
         cluster.clear()
+
+
+@pytest.fixture(scope="package", autouse=True)
+def setup_and_package():
+    try:
+        shutil.rmtree(TEST_DIR)
+    except FileNotFoundError:
+        pass
+
+    os.makedirs(TEST_DIR)
+    yield
+    shutil.rmtree(TEST_DIR)
 
 
 @pytest.fixture(scope="session")
