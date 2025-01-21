@@ -37,12 +37,8 @@ jobs:
         java-version: '11'
 
     - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install python2
-        
+      run: |       
         pip install -U pip setuptools
-
         pip install .
 
         if [ -f requirements-test.txt ]; then pip install -r requirements-test.txt; fi
