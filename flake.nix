@@ -38,20 +38,20 @@ localhost.";
       in
       rec {
         packages = rec {
-          scylla_ccm = python: make_ccm_package { inherit python pkgs ; jdk = pkgs.jdk8; };
+          scylla_ccm = python: make_ccm_package { inherit python pkgs ; jdk = pkgs.jdk11; };
           default = scylla_ccm pkgs.python311;
         };
         devShell =
           pkgs.mkShell {
-            buildInputs = [ pkgs.poetry pkgs.glibcLocales (prepare_python_requirements pkgs.python39) (prepare_python_requirements pkgs.python311) pkgs.jdk8];
+            buildInputs = [ pkgs.poetry pkgs.glibcLocales (prepare_python_requirements pkgs.python39) (prepare_python_requirements pkgs.python311) pkgs.jdk11];
             shellHook = ''
-              set JAVA_HOME ${pkgs.jdk8}
+              set JAVA_HOME ${pkgs.jdk11}
             '';
         };
       }
     ) // rec {
       overlays.default = final: prev: {
-        scylla_ccm = python: make_ccm_package { inherit python; jdk = final.jdk8; pkgs = final; };
+        scylla_ccm = python: make_ccm_package { inherit python; jdk = final.jdk11; pkgs = final; };
       };
     };
 }

@@ -15,9 +15,9 @@ jobs:
     name: CCM Integration tests
     uses: ./.github/workflows/integration-tests.yml
     with:
-      reloc_version: "2023-04-13T13:31:00Z"
+      reloc_version: "2025-01-19T09:39:05Z"
   ci-with-nix:
     name: CCM Integration tests (using Nix)
     uses: ./.github/workflows/nix.yml
     with:
-      reloc_version: "2023-04-13T13:31:00Z"
+      reloc_version: "2025-01-19T09:39:05Z"
