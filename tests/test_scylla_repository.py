@@ -185,18 +185,18 @@ class TestReinstallPackages:
         - run setup again. It expected that the package will be downloaded again. The download time should be not short.
         Actually time without download should be less than 3 ms, and with download about 9 ms. I put here more than 20
         """
-        cdir, version = scylla_setup(version="unstable/master:2023-04-03T22:38:18Z", verbose=True, skip_downloads=False)
-        assert '2023-04-03T22_38_18Z' in cdir
-        assert version == '5.3.0-dev'
+        cdir, version = scylla_setup(version="unstable/master:2025-01-19T09:39:05Z", verbose=True, skip_downloads=False)
+        assert '2025-01-19T09_39_05Z' in cdir
+        assert version == '2025.1.0-dev'
 
         self.corrupt_hash_value(Path(cdir) / CORE_PACKAGE_DIR_NAME / SOURCE_FILE_NAME)
 
         start_time = time.time()
-        cdir, version = scylla_setup(version="unstable/master:2023-04-03T22:38:18Z", verbose=True, skip_downloads=False)
+        cdir, version = scylla_setup(version="unstable/master:2025-01-19T09:39:05Z", verbose=True, skip_downloads=False)
         end_time = time.time()
         assert (end_time - start_time) > 5
-        assert '2023-04-03T22_38_18Z' in cdir
-        assert version == '5.3.0-dev'
+        assert '2025-01-19T09_39_05Z' in cdir
+        assert version == '2025.1.0-dev'
 
 
 @pytest.mark.parametrize('architecture', argvalues=typing.get_args(Architecture))
