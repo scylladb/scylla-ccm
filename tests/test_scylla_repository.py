@@ -107,8 +107,8 @@ class TestScyllaRepositoryRelease:
         ("release:2021.1", '2021.1'),
         ("release:2021.1.10", '2021.1.10'),
         ("release:2024.2~rc0", '2024.2.0~rc0'),
-        ("release:2024.2", '2024.2.0'),
-        ("release:2024.2:debug", '2024.2.0'),
+        ("release:2024.2", '2024.2'),
+        ("release:2024.2:debug", '2024.2'),
     ])
     def test_setup_release_enterprise(self, version, expected_cdir):
         cdir, packages = scylla_setup(version=version, verbose=True, skip_downloads=True)
