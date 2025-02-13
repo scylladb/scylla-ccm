@@ -217,6 +217,8 @@ class ScyllaNode(Node):
         raise NotImplementedError('ScyllaNode.get_tool_args')
 
     def get_env(self):
+        if self._launch_env:
+            return self._launch_env
         update_conf = not self.__conf_updated
         if update_conf:
             self.__conf_updated = True
@@ -843,7 +845,7 @@ class ScyllaNode(Node):
             # some nodetool commands were added in 5.5, but we could test 5.4 in upgrade
             # tests, so check if this command is available before using it.
             command = next(arg for arg in cmd.split() if not arg.startswith('-'))
-            subprocess.check_call(nodetool + [command, '--help'], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+            subprocess.check_call(nodetool + [command, '--help'], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, env=self.get_env())
             if self.is_docker():
                 host = 'localhost'
             else:
