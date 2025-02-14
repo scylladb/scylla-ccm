@@ -125,6 +125,7 @@ class ScyllaNode(Node):
         self.upgraded = False
         self.upgrader = NodeUpgrader(node=self)
         self.node_hostid = None
+        self._launch_env = None
         self._create_directory()
 
     @property
@@ -226,10 +227,7 @@ class ScyllaNode(Node):
                                          self.get_node_cassandra_root(), update_conf=update_conf)
 
     def _get_environ(self, extra_env = None, /, **kwargs):
-        try:
-            env = self._launch_env
-        except AttributeError:
-            env = dict(os.environ)
+        env = self._launch_env or dict(os.environ)
         if extra_env is not None:
             env.update(extra_env)
         env.update(kwargs)
