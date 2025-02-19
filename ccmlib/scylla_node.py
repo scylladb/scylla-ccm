@@ -100,6 +100,7 @@ class ScyllaNode(Node):
         self._node_install_dir = None
         self._node_scylla_version = None
         self._relative_repos_root = None
+        self._launch_env = None
         super().__init__(name, cluster, auto_bootstrap,
                          None, storage_interface,
                          jmx_port, remote_debug_port,
@@ -125,7 +126,6 @@ class ScyllaNode(Node):
         self.upgraded = False
         self.upgrader = NodeUpgrader(node=self)
         self.node_hostid = None
-        self._launch_env = None
         self._create_directory()
 
     @property
