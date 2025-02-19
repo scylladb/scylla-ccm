@@ -16,32 +16,22 @@ jobs:
         python-version: ["3.8", "3.11", "3.12"]
 
     steps:
-    - uses: actions/checkout@v3
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
+    - uses: actions/checkout@v4
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
       with:
+        enable-cache: true
         python-version: ${{ matrix.python-version }}
-
-    - name: Cache pip
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements-test.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
 
     - name: Setup java
       uses: actions/setup-java@v4
       with:
         distribution: 'temurin'
-        java-version: '11'
+        java-version: '8'
 
     - name: Install dependencies
-      run: |       
-        pip install -U pip setuptools
-        pip install .
-
-        if [ -f requirements-test.txt ]; then pip install -r requirements-test.txt; fi
+      run: |
+        uv sync
 
     - name: Cache binary versions
       id: cache-versions
@@ -59,6 +49,7 @@ jobs:
     - name: Download versions
       if: steps.cache-versions.outputs.cache-hit != 'true'
       run: |
+        source ${{ env.VIRTUAL_ENV }}/bin/activate
         normalized=$(echo ${{ inputs.reloc_version }} | tr ':' '_')
         if [ ! -f ~/.ccm/scylla-repository/unstable/master/$normalized ]; then
           ./ccm create temp -n 1 --scylla --version unstable/master:${{ inputs.reloc_version }}
@@ -69,7 +60,7 @@ jobs:
 
     - name: Test with pytest
       run: |
-        python -m pytest ./tests -x
+        uv run python -m pytest ./tests -x
 
     - name: Copy logs/results
       if: contains(github.event.pull_request.labels.*.name, 'PR-upload-log')
