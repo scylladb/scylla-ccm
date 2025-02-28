@@ -39,6 +39,7 @@ from ccmlib.utils.version import parse_version
 if TYPE_CHECKING:
     from ccmlib.scylla_cluster import ScyllaCluster
 
+
 class ScyllaType:
     """
     Helper class for defining Scylla type definitions using type strings.
@@ -1871,6 +1872,100 @@ class ScyllaNode(Node):
         if res.returncode:
             raise ToolError(command=' '.join(cmd_and_args), exit_status=res.returncode, stdout=res.stdout, stderr=res.stderr)
         return res.stdout.strip()
+
+    def _get_common_repair_options(self, keyspace: Optional[str] = None, tables: Optional[List[str]] = None, hosts: Optional[List[str]] = None, dcs: Optional[List[str]] = None):
+        """
+        Serializes repair options common for both vnode and tablet repair
+        """
+        options = []
+        if keyspace:
+            options.append(keyspace)
+            if tables:
+                options.append(" ".join(tables))
+
+        if hosts:
+            options.append("--in-hosts")
+            options.append(",".join(hosts))
+
+        if dcs:
+            options.append("--in-dc")
+            options.append(",".join(dcs))
+
+        return options
+
+    def vnode_repair(self, keyspace: Optional[str] = None, tables: Optional[List[str]] = None, hosts: Optional[List[str]] = None, dcs: Optional[List[str]] = None,
+                   end_token: Optional[int] = None, local: bool = False, partitioner_range: bool = False, start_token: Optional[int] = None, timeout=None):
+        """
+        Serializes repair options and runs nodetool repair
+        """
+        options = self._get_common_repair_options(keyspace, tables, hosts, dcs)
+
+        if end_token:
+            options.append("--end-token")
+            options.append(f"{end_token}")
+
+        if local:
+            options.append("--in-local-dc")
+
+        if partitioner_range:
+            options.append("--partitioner-range")
+
+        if start_token:
+            options.append("--start-token")
+            options.append(f"{start_token}")
+
+        return self.nodetool("repair " + " ".join(options), timeout=timeout)
+
+    def tablet_repair(self, keyspace: Optional[str] = None, tables: Optional[List[str]] = None, hosts: Optional[List[str]] = None, dcs: Optional[List[str]] = None,
+                           tablet_tokens: Optional[List[str]] = None, timeout=None):
+        """
+        Serializes repair options and runs nodetool cluster repair
+        """
+        options = self._get_common_repair_options(keyspace, tables, hosts, dcs)
+
+        if tablet_tokens:
+            options.append("--tablet-tokens")
+            options.append(",".join(tablet_tokens))
+
+        return self.nodetool("cluster repair " + " ".join(options), timeout=timeout)
+
+    def repair(self, keyspace: Optional[str] = None, tables: Optional[List[str]] = None, hosts: Optional[List[str]] = None, dcs: Optional[List[str]] = None,
+               end_token: Optional[int] = None, local: bool = False, partitioner_range: bool = False, start_token: Optional[int] = None,
+               tablet_tokens: Optional[List[str]] = None, timeout: Optional[int] = None):
+        """
+        Runs both vnode (nodetool repair) and tablet (nodetool cluster repair) repair with specified params
+        :param keyspace: the keyspace to repair
+        :param tables: tables to repair in the given keyspace
+        :param hosts: hosts participating in the repair
+        :param dcs: dcs participating in repair
+        :param end_token: token on which to end repair (for vnode repair only)
+        :param local: if true repair is run only on local dc (for vnode repair only)
+        :param partitioner_range: if true only the primary replicas are repaired (for vnode repair only)
+        :param start_token: token on which to begin repair (for vnode repair only)
+        :param tablet_tokens: tokens owned by the tablets to repair (for tablet repair only)
+        :param timeout: timeout of nodetool operations
+        """
+        outs_and_errs = []
+        if keyspace:
+            url = f"http://{self.address()}:{self.api_port}/storage_service/keyspaces"
+            resp = requests.get(url=url, params={"replication": "vnodes"})
+            resp.raise_for_status()
+
+            if keyspace in resp.json():
+                res = self.vnode_repair(keyspace, tables, hosts, dcs, end_token, local, partitioner_range, start_token, timeout=timeout)
+                outs_and_errs.append(res)
+            else:
+                res = self.tablet_repair(keyspace, tables, hosts, dcs, tablet_tokens, timeout=timeout)
+                outs_and_errs.append(res)
+        else:
+            res = self.vnode_repair(keyspace, tables, hosts, dcs, end_token, local, partitioner_range, start_token, timeout=timeout)
+            outs_and_errs.append(res)
+
+            res = self.tablet_repair(keyspace, tables, hosts, dcs, tablet_tokens, timeout=timeout)
+            outs_and_errs.append(res)
+
+        outs, errs = zip(*outs_and_errs)
+        return outs, errs
 
 
 class NodeUpgrader:

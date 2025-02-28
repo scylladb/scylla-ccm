@@ -281,6 +281,19 @@ class ScyllaCluster(Cluster):
 
         self._update_config(install_dir=self.nodelist()[0].node_install_dir)
 
+    def repair(self):
+        """
+        Repairs the whole cluster, both vnode (with nodetool repair) and tablet (with nodetool cluster repair) keyspaces
+        """
+        self.nodetool("repair")
+
+        stdout, _ = self.nodetool('help')
+        if "  cluster  " in stdout:
+            for node in list(self.nodes.values()):
+                if node.is_running():
+                    node.nodetool("cluster repair")
+                    break
+
 
 class ScyllaManager:
     def __init__(self, scylla_cluster, install_dir=None):
