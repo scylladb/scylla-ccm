@@ -274,7 +274,8 @@ def setup(version, verbose=True, skip_downloads=False):
         s3_version = type_n_version[1]
 
         if type_n_version[0] == 'release':
-            scylla_product = 'scylla-enterprise' if parse_version(extract_major_version(s3_version)) > parse_version("2018.1") else 'scylla'
+            parsed_major = parse_version(extract_major_version(s3_version))
+            scylla_product = 'scylla-enterprise' if parsed_major > parse_version("2018.1") and parsed_major < parse_version("2025.1") else 'scylla'
             major_version = extract_major_version(s3_version)
 
             s3_url = get_relocatable_s3_url('', major_version, RELEASE_RELOCATABLE_URLS_BASE)
