@@ -11,6 +11,7 @@ ccm.egg-info/
 .coverage
 tests/test_results
 .direnv/
+.vscode/
 
 .envrc
 ccmlib/tests/
