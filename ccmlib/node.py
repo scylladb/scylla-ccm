@@ -1577,7 +1577,7 @@ class Node(object):
         }
         if self.pid:
             values['pid'] = self.pid
-        if self.initial_token:
+        if self.initial_token is not None:
             values['initial_token'] = self.initial_token
         if self.__install_dir is not None:
             values['install_dir'] = self.__install_dir

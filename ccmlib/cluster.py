@@ -319,7 +319,7 @@ class Cluster(object):
             if dcs is None or len(dcs) <= 1:
                 tokens = self.balanced_tokens(node_count)
             else:
-                tokens = self.balanced_tokens_across_dcs(dcs)
+                tokens = self.balanced_tokens_across_dcs(node_locations)
 
         assert node_count == len(node_locations)
         for i in range(1, node_count + 1):
@@ -379,18 +379,18 @@ class Cluster(object):
             return [int(t - 2 ** 63) for t in ptokens]
         return [int(i * (2 ** 127 // node_count)) for i in range(0, node_count)]
 
-    def balanced_tokens_across_dcs(self, dcs):
+    def balanced_tokens_across_dcs(self, node_locations):
         tokens = []
-        current_dc = dcs[0]
+        current_dc = node_locations[0][0]
         count = 0
         dc_count = 0
-        for dc in dcs:
-            if dc == current_dc:
+        for dc in node_locations:
+            if dc[0] == current_dc:
                 count += 1
             else:
                 new_tokens = [tk + (dc_count * 100) for tk in self.balanced_tokens(count)]
                 tokens.extend(new_tokens)
-                current_dc = dc
+                current_dc = dc[0]
                 count = 1
                 dc_count += 1
         new_tokens = [tk + (dc_count * 100) for tk in self.balanced_tokens(count)]
