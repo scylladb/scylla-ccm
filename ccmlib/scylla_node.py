@@ -1449,6 +1449,10 @@ class ScyllaNode(Node):
     def hostid(self, timeout=60, force_refresh=False):
         if self.node_hostid and not force_refresh:
             return self.node_hostid
+        m = self.grep_log("init - Setting local host id to (.+?)$")
+        if m:
+            self.node_hostid = m[-1][1].group(1)
+            return self.node_hostid
         try:
             node_address = self.address()
             url = f"http://{node_address}:{self.api_port}/storage_service/hostid/local"
