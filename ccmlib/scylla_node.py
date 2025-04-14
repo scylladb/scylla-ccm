@@ -744,6 +744,10 @@ class ScyllaNode(Node):
         if max_networking_io_control_blocks_supported and '--max-networking-io-control-blocks' not in args:
             args += ['--max-networking-io-control-blocks', '1000']
 
+        if '--rf-rack-valid-keyspaces' in args and parse_version(current_node_version) <= parse_version('2025.1'):
+            arg_index = args.index('--rf-rack-valid-keyspaces')
+            del args[arg_index+1],args[arg_index]
+        
         ext_env = {}
         scylla_ext_env = os.getenv('SCYLLA_EXT_ENV', "").strip()
         if scylla_ext_env:
