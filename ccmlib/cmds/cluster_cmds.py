@@ -311,6 +311,8 @@ class ClusterAddCmd(Cmd):
                           help="Initial token for the node", default=None)
         parser.add_option('-d', '--data-center', type="string", dest="data_center",
                           help="Datacenter name this node is part of", default=None)
+        parser.add_option('--rack', type="string", dest="rack",
+                          help="Rack name this node is part of", default=None)
         parser.add_option('--dse', action="store_true", dest="dse_node",
                           help="Add node to DSE Cluster", default=False)
         parser.add_option('--scylla', action="store_true", dest="scylla_node",
@@ -364,7 +366,7 @@ class ClusterAddCmd(Cmd):
                 node = DseNode(self.name, self.cluster, self.options.bootstrap, None, self.storage, self.jmx_port, self.remote_debug_port, self.initial_token, binary_interface=self.binary)
             else:
                 node = Node(self.name, self.cluster, self.options.bootstrap, None, self.storage, self.jmx_port, self.remote_debug_port, self.initial_token, binary_interface=self.binary)
-            self.cluster.add(node, self.options.is_seed, self.options.data_center)
+            self.cluster.add(node, self.options.is_seed, data_center=self.options.data_center, rack=self.options.rack)
         except common.ArgumentError as e:
             print(str(e), file=sys.stderr)
             sys.exit(1)
