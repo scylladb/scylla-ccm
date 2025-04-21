@@ -1585,6 +1585,8 @@ class Node(object):
             values['remote_debug_port'] = self.remote_debug_port
         if self.data_center:
             values['data_center'] = self.data_center
+        if self.rack:
+            values['rack'] = self.rack
         if self.workload is not None:
             values['workload'] = self.workload
         with open(filename, 'w') as f:
