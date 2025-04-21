@@ -1,3 +1,4 @@
+import logging
 import os
 
 from ruamel.yaml import YAML
@@ -62,6 +63,11 @@ class ClusterFactory():
         for node_name in node_list:
             cluster.nodes[node_name] = Node.load(cluster_path, node_name, cluster)
         for seed_name in seed_list:
-            cluster.seeds.append(cluster.nodes[seed_name])
+            seed_node = cluster.nodes.get(seed_name)
+            if seed_node:
+                cluster.seeds.append(seed_node)
+            else:
+                logging.warning("Seed node %s not found in cluster %s" % (seed_name, cluster.name))
+
 
         return cluster
