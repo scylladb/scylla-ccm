@@ -531,7 +531,7 @@ class Node(object):
         nodes are marked UP. This method works similarly to watch_log_for_death.
         """
         tofind = nodes if isinstance(nodes, list) else [nodes]
-        tofind = [f"({node.address()}|{node.hostid()}).* now UP" for node in tofind]
+        tofind = [f"({node.address()}|[A-Za-z0-9-]+).* now UP" for node in tofind]
         self.watch_log_for(tofind, from_mark=from_mark, timeout=timeout, filename=filename)
 
     def wait_for_binary_interface(self, **kwargs):
