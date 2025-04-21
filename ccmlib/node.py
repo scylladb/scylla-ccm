@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 from ruamel.yaml import YAML
 
 from ccmlib import common
+from ccmlib.common import DEFAULT_DATACENTER, DEFAULT_RACK
 from ccmlib.repository import setup
 from ccmlib.utils.version import parse_version
 
@@ -116,8 +117,8 @@ class Node(object):
         self.initial_token = initial_token
         self.pid = None
         self.all_pids = []
-        self.data_center = None
-        self.rack = None
+        self.data_center = DEFAULT_DATACENTER
+        self.rack = DEFAULT_RACK
         self.workload = None
         self.__config_options = {}
         self.__install_dir = None

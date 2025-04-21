@@ -52,6 +52,9 @@ CCM_CONFIG_DIR = "CCM_CONFIG_DIR"
 
 DOWNLOAD_IN_PROGRESS_FILE = "download_in_progress"
 
+DEFAULT_DATACENTER = 'dc1'
+DEFAULT_RACK = 'rac1'
+
 logger = logging.getLogger('ccm')
 
 class CCMError(Exception):
