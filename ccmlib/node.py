@@ -523,7 +523,7 @@ class Node(object):
         the log is watched from the beginning.
         """
         tofind = nodes if isinstance(nodes, list) else [nodes]
-        tofind = [f"({node.address()}|{node.hostid()}).* now (dead|DOWN)" for node in tofind]
+        tofind = [f"{node.identifier_pattern}.* now (dead|DOWN)" for node in tofind]
         self.watch_log_for(tofind, from_mark=from_mark, timeout=timeout, filename=filename)
 
     def watch_log_for_alive(self, nodes, from_mark=None, timeout=120, filename='system.log'):
@@ -532,7 +532,7 @@ class Node(object):
         nodes are marked UP. This method works similarly to watch_log_for_death.
         """
         tofind = nodes if isinstance(nodes, list) else [nodes]
-        tofind = [f"({node.address()}|{node.hostid()}).* now UP" for node in tofind]
+        tofind = [f"{node.identifier_pattern}.* now UP" for node in tofind]
         self.watch_log_for(tofind, from_mark=from_mark, timeout=timeout, filename=filename)
 
     def wait_for_binary_interface(self, **kwargs):
@@ -1458,6 +1458,17 @@ class Node(object):
         except Exception as e:
             self.error(f"Failed to get hostid via nodetool: {e}")
         return self.node_hostid
+
+    @property
+    def identifier_pattern(self):
+        # Returns a pattern that identifies the node.
+        # When hostid is available, the pattern is `(ip-address|host-id)`.
+        # Otherwise, it returns just an ip address.
+        host_id = self.hostid()
+        ip_address = self.address().replace('.', '\\.')
+        if host_id:
+            return f'({ip_address}|{host_id})'
+        return ip_address
 
     def get_datacenter_name(self):
         info = self.nodetool('info', capture_output=True)[0]
