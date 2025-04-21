@@ -82,6 +82,10 @@ class Cluster(object):
             raise
         self.debug(f"Started cluster '{self.name}' version {self.__version} installed in {self.__install_dir}")
 
+    @property
+    def parallel_start_supported(self):
+        return self.__version and not self.__version.startswith('3.')
+
     def load_from_repository(self, version, verbose):
         return repository.setup(version, verbose)
 
@@ -480,13 +484,14 @@ class Cluster(object):
             marks = [(node, node.mark_log()) for node in list(self.nodes.values())]
 
         started: List[Tuple[ScyllaNode, subprocess.Popen, int]] = []
+        wait_args = {} if self.parallel_start_supported else {'wait_other_notice': True, 'wait_for_binary_proto': True}
         for node in list(self.nodes.values()):
             if not node.is_running():
                 mark = 0
                 if os.path.exists(node.logfilename()):
                     mark = node.mark_log()
 
-                p = node.start(update_pid=False, jvm_args=jvm_args, profile_options=profile_options, verbose=verbose, quiet_start=quiet_start)
+                p = node.start(update_pid=False, jvm_args=jvm_args, profile_options=profile_options, verbose=verbose, quiet_start=quiet_start, **wait_args)
                 started.append((node, p, mark))
 
         if no_wait and not verbose:

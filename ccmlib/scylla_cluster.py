@@ -82,6 +82,17 @@ class ScyllaCluster(Cluster):
         self.default_wait_other_notice_timeout = 120 if self.scylla_mode != 'debug' else 600
         self.default_wait_for_binary_proto = 420 if self.scylla_mode != 'debug' else 900
 
+    @property
+    def parallel_start_supported(self):
+        if not self.__version:
+            return False
+        chunks = self.__version.split('.')
+        if len(chunks) < 1:
+            return False
+        if int(chunks[0]) >= 2000:
+            return int(chunks[0]) >= 2025
+        return int(chunks[0]) >= 6
+
     # override get_node_jmx_port for scylla-jmx
     # scylla-jmx listens on the unique node address (127.0.<cluster.id><node.id>)
     # so there's no need to listen on a different port for every jmx instance
