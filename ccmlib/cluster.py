@@ -34,7 +34,7 @@ class Cluster(object):
         self._dse_config_options = {}
         self.__log_level = "INFO"
         self.path = path
-        self.__version = None
+        self._version = None
         self.use_vnodes = False
         # Classes that are to follow the respective logging level
         self._debug = []
@@ -55,7 +55,7 @@ class Cluster(object):
         if docker_image:
             self.docker_image = docker_image
             self.__install_dir = None
-            self.__version = '3.0'  # TODO: add option to read the version from docker image
+            self._version = '3.0'  # TODO: add option to read the version from docker image
             return
 
         try:
@@ -67,11 +67,11 @@ class Cluster(object):
                         self.__install_dir = install_dir
                     else:
                         self.__install_dir = os.path.abspath(install_dir)
-                    self.__version = self.__get_version_from_build()
+                    self._version = self.__get_version_from_build()
             else:
                 dir, v = self.load_from_repository(version, verbose)
                 self.__install_dir = dir
-                self.__version = v if v is not None else self.__get_version_from_build()
+                self._version = v if v is not None else self.__get_version_from_build()
 
             if create_directory:
                 common.validate_install_dir(self.__install_dir)
@@ -80,7 +80,18 @@ class Cluster(object):
             if create_directory:
                 common.rmdirs(self.get_path())
             raise
-        self.debug(f"Started cluster '{self.name}' version {self.__version} installed in {self.__install_dir}")
+        self.debug(f"Started cluster '{self.name}' version {self._version} installed in {self.__install_dir}")
+
+    @property
+    def parallel_start_supported(self):
+        return self.database_version.startswith('3.')
+
+    @property
+    def database_version(self):
+        if self._version:
+            return self._version
+        self._version = self.__get_version_from_build()
+        return self._version
 
     def load_from_repository(self, version, verbose):
         return repository.setup(version, verbose)
@@ -109,11 +120,11 @@ class Cluster(object):
         if version is None:
             self.__install_dir = install_dir
             common.validate_install_dir(install_dir)
-            self.__version = self.__get_version_from_build()
+            self._version = self.__get_version_from_build()
         else:
             dir, v = repository.setup(version, verbose)
             self.__install_dir = dir
-            self.__version = v if v is not None else self.__get_version_from_build()
+            self._version = v if v is not None else self.__get_version_from_build()
         self._update_config()
         for node in list(self.nodes.values()):
             node.import_config_files()
@@ -220,7 +231,7 @@ class Cluster(object):
         return [self.nodes[name] for name in list(self.nodes.keys())]
 
     def version(self):
-        return self.__version
+        return self._version
 
     def cassandra_version(self):
         return self.version()
@@ -480,13 +491,14 @@ class Cluster(object):
             marks = [(node, node.mark_log()) for node in list(self.nodes.values())]
 
         started: List[Tuple[ScyllaNode, subprocess.Popen, int]] = []
+        wait_args = {} if self.parallel_start_supported else {'wait_other_notice': True, 'wait_for_binary_proto': True}
         for node in list(self.nodes.values()):
             if not node.is_running():
                 mark = 0
                 if os.path.exists(node.logfilename()):
                     mark = node.mark_log()
 
-                p = node.start(update_pid=False, jvm_args=jvm_args, profile_options=profile_options, verbose=verbose, quiet_start=quiet_start)
+                p = node.start(update_pid=False, jvm_args=jvm_args, profile_options=profile_options, verbose=verbose, quiet_start=quiet_start, **wait_args)
                 started.append((node, p, mark))
 
         if no_wait and not verbose:
