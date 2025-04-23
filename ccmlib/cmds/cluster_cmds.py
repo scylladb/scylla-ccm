@@ -7,7 +7,7 @@ from ccmlib import common, repository
 from ccmlib.cluster import Cluster
 from ccmlib.cluster_factory import ClusterFactory
 from ccmlib.cmds.command import Cmd, PlainHelpFormatter
-from ccmlib.common import ArgumentError
+from ccmlib.common import ArgumentError, DEFAULT_DATACENTER, DEFAULT_RACK
 from ccmlib.dse_cluster import DseCluster
 from ccmlib.scylla_cluster import ScyllaCluster
 from ccmlib.scylla_docker_cluster import ScyllaDockerCluster, ScyllaDockerNode
@@ -310,9 +310,9 @@ class ClusterAddCmd(Cmd):
         parser.add_option('-n', '--token', type="string", dest="initial_token",
                           help="Initial token for the node", default=None)
         parser.add_option('-d', '--data-center', type="string", dest="data_center",
-                          help="Datacenter name this node is part of", default=None)
+                          help="Datacenter name this node is part of", default=DEFAULT_DATACENTER)
         parser.add_option('--rack', type="string", dest="rack",
-                          help="Rack name this node is part of", default=None)
+                          help="Rack name this node is part of", default=DEFAULT_RACK)
         parser.add_option('--dse', action="store_true", dest="dse_node",
                           help="Add node to DSE Cluster", default=False)
         parser.add_option('--scylla', action="store_true", dest="scylla_node",

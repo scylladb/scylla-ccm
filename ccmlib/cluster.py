@@ -10,11 +10,11 @@ from collections import OrderedDict, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Tuple
 
-from ruamel.yaml import YAML
+from ruamel.yaml import YAML, CommentedMap
 
 from ccmlib import common, repository
 from ccmlib.node import Node, NodeError
-from ccmlib.common import logger
+from ccmlib.common import logger, DEFAULT_DATACENTER, DEFAULT_RACK
 from ccmlib.scylla_node import ScyllaNode
 from ccmlib.utils.version import parse_version
 
@@ -81,6 +81,10 @@ class Cluster(object):
                 common.rmdirs(self.get_path())
             raise
         self.debug(f"Started cluster '{self.name}' version {self.__version} installed in {self.__install_dir}")
+
+    @property
+    def parallel_start_supported(self):
+        return self.__version and not self.__version.startswith('3.')
 
     def load_from_repository(self, version, verbose):
         return repository.setup(version, verbose)
@@ -225,7 +229,7 @@ class Cluster(object):
     def cassandra_version(self):
         return self.version()
 
-    def add(self, node: ScyllaNode, is_seed, data_center=None, rack=None):
+    def add(self, node: ScyllaNode, is_seed, data_center=DEFAULT_DATACENTER, rack=DEFAULT_RACK):
         if node.name in self.nodes:
             raise common.ArgumentError(f'Cannot create existing node {node.name}')
         self.nodes[node.name] = node
@@ -241,9 +245,9 @@ class Cluster(object):
         for trace_class in self._trace:
             node.set_log_level("TRACE", trace_class)
 
-        if data_center is not None:
-            self.debug(f"{node.name}: data_center={node.data_center} rack={node.rack} snitch={self.snitch}")
-            self.__update_topology_files()
+        self.set_configuration_options(values={'endpoint_snitch': self.snitch})
+        self._update_config()
+        self.debug(f"{node.name}: data_center={node.data_center} rack={node.rack} snitch={self.snitch}")
         node._save()
         return self
 
@@ -275,18 +279,18 @@ class Cluster(object):
         self.use_vnodes = use_vnodes
         topology = OrderedDict()
         if isinstance(nodes, int):
-            topology[None] = OrderedDict([(None, nodes)])
+            topology[DEFAULT_DATACENTER] = OrderedDict([(DEFAULT_RACK, nodes)])
         elif isinstance(nodes, list):
             for i in range(0, len(nodes)):
                 dc = f"dc{i + 1}"
                 n = nodes[i]
-                topology[dc] = OrderedDict([(None, n)])
+                topology[dc] = OrderedDict([(DEFAULT_RACK, n)])
         elif isinstance(nodes, dict):
             for dc, x in nodes.items():
                 if isinstance(x, int):
-                    topology[dc] = OrderedDict([(None, x)])
+                    topology[dc] = OrderedDict([(DEFAULT_RACK, x)])
                 elif isinstance(x, list):
-                    topology[dc] = OrderedDict([(f"RAC{i}", n) for i, n in enumerate(x, start=1)])
+                    topology[dc] = OrderedDict([(f"rac{i}", n) for i, n in enumerate(x, start=1)])
                 elif isinstance(x, dict):
                     topology[dc] = OrderedDict([(rack, n) for rack, n in x.items()])
                 else:
@@ -304,12 +308,12 @@ class Cluster(object):
                 node_count += n
                 for _ in range(n):
                     node_locations.append((dc, rack))
-        if dcs != [None]:
-            self.set_configuration_options(values={'endpoint_snitch': self.snitch})
         self.use_vnodes = use_vnodes
 
         if node_count < 1:
             raise common.ArgumentError(f'invalid topology {topology}')
+
+        self.set_configuration_options(values={'endpoint_snitch': self.snitch})
 
         for i in range(1, node_count + 1):
             if f'node{i}' in list(self.nodes.values()):
@@ -331,7 +335,7 @@ class Cluster(object):
             self._update_config()
         return self
 
-    def new_node(self, i, auto_bootstrap=False, debug=False, initial_token=None, add_node=True, is_seed=True, data_center=None, rack=None) -> ScyllaNode:
+    def new_node(self, i, auto_bootstrap=False, debug=False, initial_token=None, add_node=True, is_seed=True, data_center=DEFAULT_DATACENTER, rack=DEFAULT_RACK) -> ScyllaNode:
         ipformat = self.get_ipformat()  # noqa: F841
         binary = self.get_binary_interface(i)
         node = self.create_node(name=f'node{i}',
@@ -480,13 +484,14 @@ class Cluster(object):
             marks = [(node, node.mark_log()) for node in list(self.nodes.values())]
 
         started: List[Tuple[ScyllaNode, subprocess.Popen, int]] = []
+        wait_args = {} if self.parallel_start_supported else {'wait_other_notice': True, 'wait_for_binary_proto': True}
         for node in list(self.nodes.values()):
             if not node.is_running():
                 mark = 0
                 if os.path.exists(node.logfilename()):
                     mark = node.mark_log()
 
-                p = node.start(update_pid=False, jvm_args=jvm_args, profile_options=profile_options, verbose=verbose, quiet_start=quiet_start)
+                p = node.start(update_pid=False, jvm_args=jvm_args, profile_options=profile_options, verbose=verbose, quiet_start=quiet_start, **wait_args)
                 started.append((node, p, mark))
 
         if no_wait and not verbose:
@@ -670,7 +675,7 @@ class Cluster(object):
                 'log_level': self.__log_level,
                 'use_vnodes': self.use_vnodes,
                 'id': self.id,
-                'ipprefix': self.ipprefix
+                'ipprefix': self.ipprefix,
             }
         if getattr(self, 'sni_proxy_docker_ids', None):
             cluster_config['sni_proxy_docker_ids'] = self.sni_proxy_docker_ids
@@ -691,10 +696,10 @@ class Cluster(object):
             self.__update_topology_using_rackdc_properties()
 
     def __update_topology_using_toplogy_properties(self):
-        dcs = [('default', 'dc1', 'r1')]
+        dcs = [('default', DEFAULT_DATACENTER, DEFAULT_RACK)]
         for node in self.nodelist():
             if node.data_center is not None:
-                dcs.append((node.address(), node.data_center, node.rack or 'r1'))
+                dcs.append((node.address(), node.data_center, node.rack))
 
         content = ""
         for k, v, r in dcs:
@@ -707,10 +712,10 @@ class Cluster(object):
 
     def __update_topology_using_rackdc_properties(self):
         for node in self.nodelist():
-            dc = 'dc1'
+            dc = DEFAULT_DATACENTER
             if node.data_center is not None:
                 dc = node.data_center
-            rack = 'RAC1'
+            rack = DEFAULT_RACK
             if node.rack is not None:
                 rack = node.rack
             rackdc_file = os.path.join(node.get_conf_dir(), 'cassandra-rackdc.properties')

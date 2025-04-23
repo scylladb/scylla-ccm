@@ -2,8 +2,9 @@ import logging
 import os
 import subprocess
 
+from ruamel.yaml import YAML
 from ccmlib import common
-
+from ccmlib.cluster_factory import ClusterFactory
 
 LOGGER = logging.getLogger(__name__)
 
@@ -44,6 +45,12 @@ class CCMCluster:
 
         return cmd_args
 
+    def get_ccm_cluster(self):
+        return ClusterFactory.load(common.get_default_path(), self.name)
+
+    def get_populate_cmd(self, *args):
+        return [self.ccm_bin, "populate", self.name, *args]
+
     def get_remove_cmd(self):
         return [self.ccm_bin, "remove", self.name]
 
@@ -56,20 +63,39 @@ class CCMCluster:
     def get_status_cmd(self):
         return [self.ccm_bin, "status"]
 
-    def get_start_cmd(self):
-        return [self.ccm_bin, "start", "--wait-for-binary-proto"]
+    def get_start_cmd(self, *args):
+        return [self.ccm_bin, "start", "--wait-for-binary-proto", *args]
 
     def get_start_sni_proxy_cmd(self):
         return [self.ccm_bin, "start", "--sni-proxy", "--sni-port", "8443", "--wait-for-binary-proto"]
 
-    def get_add_cmd(self, node_name):
-        cmd_args = []
+    def get_add_cmd(self, node_name, *args):
+        cmd_args = args
         if self.use_scylla:
-            cmd_args += ["--scylla"]
-        return [self.ccm_bin, "add", "-b", *cmd_args, node_name]
+            cmd_args += ("--scylla", )
+        return [self.ccm_bin, "add", "-b", node_name, *cmd_args]
 
-    def get_node_start_cmd(self, node_name):
-        return [self.ccm_bin, node_name, "start"]
+    def get_node_start_cmd(self, node_name, *args):
+        return [self.ccm_bin, node_name, "start", *args]
+
+    def get_cluster_config(self):
+        with open(os.path.join(self.cluster_dir, "cluster.conf")) as f:
+            return YAML(typ='rt').load(f)
+
+    def get_nodes_cassandra_rackdc_properties(self, node_name):
+        rackdc_file_name = os.path.join(self.cluster_dir, node_name, "conf", "cassandra-rackdc.properties")
+        if not os.path.exists(rackdc_file_name):
+            return []
+        with open(rackdc_file_name) as f:
+            res = {}
+            for line in f.readlines():
+                if line.startswith("#"):
+                    continue
+                chunks = line.strip().split("=", 2)
+                if len(chunks) == 2:
+                    key, value = chunks
+                    res[key.strip()] = value.strip()
+            return res
 
     def get_updateconf_cmd(self):
         return [self.ccm_bin, "updateconf",

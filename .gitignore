@@ -9,10 +9,10 @@ ccm.py
 ccm.egg-info/
 .project
 .coverage
-tests/test_results
+tests/test_results/
+tests/tests/test_results/
 .direnv/
 .vscode/
-
 .envrc
 ccmlib/tests/
 
