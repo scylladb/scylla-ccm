@@ -21,7 +21,7 @@ class CCMCluster:
                 pass
 
         self.name = f"{self.__class__.__name__}-{test_id}"
-        self.ccm_bin = os.path.join(os.curdir, "ccm")
+        self.ccm_bin = "ccm"
         self.cluster_dir = os.path.join(common.get_default_path(), self.name)
         self.use_scylla = use_scylla
         self.relocatable_version = relocatable_version
