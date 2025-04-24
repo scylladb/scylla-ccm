@@ -111,7 +111,9 @@ class ScyllaCluster(Cluster):
 
     def start_nodes(self, nodes=None, no_wait=False, verbose=False, wait_for_binary_proto=None,
               wait_other_notice=None, wait_normal_token_owner=None, jvm_args=None, profile_options=None,
-              quiet_start=False):
+              quiet_start=False, parallel_start=None):
+        if parallel_start is None:
+            parallel_start = self.parallel_start_supported
         if wait_for_binary_proto is None:
             wait_for_binary_proto = self.force_wait_for_cluster_start
         if wait_other_notice is None:
@@ -135,6 +137,7 @@ class ScyllaCluster(Cluster):
             nodes = [nodes]
 
         started: List[Tuple[ScyllaNode, subprocess.Popen, int]]  = []
+        wait_args = {} if parallel_start else {'wait_other_notice': True, 'wait_for_binary_proto': True}
         for node in nodes:
             if not node.is_running():
                 if started:
@@ -148,9 +151,9 @@ class ScyllaCluster(Cluster):
 
                 p = node.start(update_pid=False, jvm_args=jvm_args,
                                profile_options=profile_options, no_wait=no_wait,
-                               wait_for_binary_proto=wait_for_binary_proto,
-                               wait_other_notice=wait_other_notice,
-                               wait_normal_token_owner=False)
+                               wait_normal_token_owner=False,
+                               **wait_args
+                               )
                 started.append((node, p, mark))
                 marks.append((node, mark))
 
@@ -160,12 +163,12 @@ class ScyllaCluster(Cluster):
             if not node.is_running():
                 raise NodeError(f"Error starting {node.name}.", p)
 
-        if wait_for_binary_proto:
+        if wait_for_binary_proto and parallel_start:
             for node, _, mark in started:
                 node.watch_log_for("Starting listening for CQL clients",
                                    verbose=verbose, from_mark=mark)
 
-        if wait_other_notice:
+        if wait_other_notice and parallel_start:
             for old_node, mark in marks:
                 for node, _, _ in started:
                     if old_node is not node:
@@ -178,7 +181,7 @@ class ScyllaCluster(Cluster):
     # override cluster
     def start(self, no_wait=False, verbose=False, wait_for_binary_proto=None,
               wait_other_notice=None, jvm_args=None, profile_options=None,
-              quiet_start=False):
+              quiet_start=False, parallel_start=None):
         kwargs = dict(**locals())
         del kwargs['self']
         started = self.start_nodes(**kwargs)

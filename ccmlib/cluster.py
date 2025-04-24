@@ -481,9 +481,12 @@ class Cluster(object):
             else:
                 node.show(only_status=True)
 
-    def start(self, no_wait=False, verbose=False, wait_for_binary_proto=False, wait_other_notice=False, jvm_args=None, profile_options=None, quiet_start=False):
+    def start(self, no_wait=False, verbose=False, wait_for_binary_proto=False, wait_other_notice=False, jvm_args=None,
+              profile_options=None, quiet_start=False, parallel_start=None):
         if jvm_args is None:
             jvm_args = []
+        if parallel_start is None:
+            parallel_start = self.parallel_start_supported
 
         common.assert_jdk_valid_for_cassandra_version(self.cassandra_version())
 
@@ -491,7 +494,7 @@ class Cluster(object):
             marks = [(node, node.mark_log()) for node in list(self.nodes.values())]
 
         started: List[Tuple[ScyllaNode, subprocess.Popen, int]] = []
-        wait_args = {} if self.parallel_start_supported else {'wait_other_notice': True, 'wait_for_binary_proto': True}
+        wait_args = {} if parallel_start else {'wait_other_notice': True, 'wait_for_binary_proto': True}
         for node in list(self.nodes.values()):
             if not node.is_running():
                 mark = 0
@@ -526,13 +529,13 @@ class Cluster(object):
                     if other_node is not node:
                         node.watch_log_for_alive(other_node, from_mark=mark)
 
-        if wait_other_notice:
+        if wait_other_notice and parallel_start:
             for old_node, mark in marks:
                 for node, _, _ in started:
                     if old_node is not node:
                         old_node.watch_log_for_alive(node, from_mark=mark)
 
-        if wait_for_binary_proto:
+        if wait_for_binary_proto and parallel_start:
             for node, p, mark in started:
                 node.wait_for_binary_interface(process=p, verbose=verbose, from_mark=mark)
 
