@@ -1439,15 +1439,18 @@ class Node(object):
 
     def hostid(self, timeout=60, force_refresh=False):
         if not hasattr(self, 'node_hostid') or force_refresh:
-            info = self.nodetool('info', capture_output=True, timeout=timeout)[0]
-            id_lines = [s for s in info.split('\n')
-                        if s.startswith('ID')]
-            if not len(id_lines) == 1:
-                msg = ('Expected output from `nodetool info` to contain exactly 1 '
-                    'line starting with "ID". Found:\n') + info
-                raise RuntimeError(msg)
-            id_line = id_lines[0].replace(":", "").split()
-            self.node_hostid = id_line[1]
+            try:
+                info = self.nodetool('info', capture_output=True, timeout=timeout)[0]
+                id_lines = [s for s in info.split('\n')
+                            if s.startswith('ID')]
+                if not len(id_lines) == 1:
+                    msg = ('Expected output from `nodetool info` to contain exactly 1 '
+                        'line starting with "ID". Found:\n') + info
+                    raise RuntimeError(msg)
+                id_line = id_lines[0].replace(":", "").split()
+                self.node_hostid = id_line[1]
+            except Exception as e:
+                self.error(f"Failed to get hostid via nodetool: {e}")
         return self.node_hostid
 
     def get_datacenter_name(self):
