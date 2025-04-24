@@ -49,6 +49,8 @@ class ClusterFactory():
                 cluster.__log_level = data['log_level']
             if 'use_vnodes' in data:
                 cluster.use_vnodes = data['use_vnodes']
+            if 'ipprefix' in data:
+                cluster.ipprefix = data['ipprefix']
             if 'sni_proxy_docker_ids' in data and data['sni_proxy_docker_ids']:
                 cluster.sni_proxy_docker_ids = data['sni_proxy_docker_ids']
             if 'sni_proxy_listen_port' in data and data['sni_proxy_listen_port']:
