@@ -265,13 +265,11 @@ class Cluster(object):
     #     For example, {'DC1': {'RC1-1': 2, 'RC1-2': 2, 'RC1-3': 2}, 'DC2': {'RC2-1': 3, 'RC2-2': 3}}
     def populate(self, nodes, debug=False, tokens=None, use_vnodes=False, ipprefix=None, ipformat=None):
         if ipprefix:
-            self.ipprefix = ipprefix
-        elif not self.ipprefix:
-            self.ipprefix = '127.0.0.'
+            self.set_ipprefix(ipprefix)
         if ipformat:
             self.ipformat = ipformat
         elif not self.ipformat:
-            self.ipformat = self.ipprefix + "%d"
+            self.ipformat = self.get_ipprefix() + "%d"
         self.use_vnodes = use_vnodes
         topology = OrderedDict()
         if isinstance(nodes, int):
@@ -350,7 +348,7 @@ class Cluster(object):
         return Node(name, self, auto_bootstrap, None, storage_interface, jmx_port, remote_debug_port, initial_token, save, binary_interface)
 
     def get_ipprefix(self):
-        return self.ipprefix if self.ipprefix is not None else '127.0.0.'
+        return self.ipprefix or '127.0.0.'
 
     def get_ipformat(self):
         return self.ipformat if self.ipformat is not None else f'{self.get_ipprefix()}%d'
