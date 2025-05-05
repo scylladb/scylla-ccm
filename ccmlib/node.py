@@ -106,6 +106,7 @@ class Node(object):
             is almost always the right choice.
         """
         self.name = name
+        self.node_hostid = None
         self.cluster: 'ScyllaCluster' = cluster
         self.status = Status.UNINITIALIZED
         self.auto_bootstrap = auto_bootstrap
@@ -522,7 +523,7 @@ class Node(object):
         the log is watched from the beginning.
         """
         tofind = nodes if isinstance(nodes, list) else [nodes]
-        tofind = [f"({node.address()}|{node.hostid()}).* now (dead|DOWN)" for node in tofind]
+        tofind = [f"{node.identifier_pattern}.* now (dead|DOWN)" for node in tofind]
         self.watch_log_for(tofind, from_mark=from_mark, timeout=timeout, filename=filename)
 
     def watch_log_for_alive(self, nodes, from_mark=None, timeout=120, filename='system.log'):
@@ -531,7 +532,7 @@ class Node(object):
         nodes are marked UP. This method works similarly to watch_log_for_death.
         """
         tofind = nodes if isinstance(nodes, list) else [nodes]
-        tofind = [f"({node.address()}|{node.hostid()}).* now UP" for node in tofind]
+        tofind = [f"{node.identifier_pattern}.* now UP" for node in tofind]
         self.watch_log_for(tofind, from_mark=from_mark, timeout=timeout, filename=filename)
 
     def wait_for_binary_interface(self, **kwargs):
@@ -1438,7 +1439,13 @@ class Node(object):
         self._update_config()
 
     def hostid(self, timeout=60, force_refresh=False):
-        if not hasattr(self, 'node_hostid') or force_refresh:
+        if self.node_hostid and not force_refresh:
+            return self.node_hostid
+        m = self.grep_log("No host ID found, created ([a-zA-Z0-9-]{36})")
+        if m:
+            self.node_hostid = m[-1][1].group(1)
+            return self.node_hostid
+        try:
             info = self.nodetool('info', capture_output=True, timeout=timeout)[0]
             id_lines = [s for s in info.split('\n')
                         if s.startswith('ID')]
@@ -1448,7 +1455,20 @@ class Node(object):
                 raise RuntimeError(msg)
             id_line = id_lines[0].replace(":", "").split()
             self.node_hostid = id_line[1]
+        except Exception as e:
+            self.error(f"Failed to get hostid via nodetool: {e}")
         return self.node_hostid
+
+    @property
+    def identifier_pattern(self):
+        # Returns a pattern that identifies the node.
+        # When hostid is available, the pattern is `(ip-address|host-id)`.
+        # Otherwise, it returns just an ip address.
+        host_id = self.hostid()
+        ip_address = self.address().replace('.', '\\.')
+        if host_id:
+            return f'({ip_address}|{host_id})'
+        return ip_address
 
     def get_datacenter_name(self):
         info = self.nodetool('info', capture_output=True)[0]
