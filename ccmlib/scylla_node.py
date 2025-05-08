@@ -17,6 +17,7 @@ from pathlib import Path
 from collections import OrderedDict
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union, TYPE_CHECKING
 from enum import Enum
+import uuid
 
 import logging
 
@@ -1564,6 +1565,14 @@ class ScyllaNode(Node):
             Batch-mode can be only used if column_families contains a single item.
         * text - If True, output of the command is treated as text, if not as bytes
 
+        If datafiles is provided, the caller is responsible for making sure these
+        files are not removed by ScyllaDB while the tool is running.
+        If datafiles = None, this function will create a snapshot and dump
+        sstables from the snapshot to ensure that the sstables are not removed
+        while the tools is running.
+        The snapshot is removed after the dump completed, but it is left there in
+        case of error, for post-mortem analysis.
+
         Returns: map: {sstable: (stdout, stderr)} of all invokations. When batch == True, a single entry will be present, with empty key.
 
         Raises: subprocess.CalledProcessError if scylla-sstable returns a non-zero exit code.
@@ -1572,8 +1581,21 @@ class ScyllaNode(Node):
             additional_args = []
 
         scylla_path = common.join_bin(self.get_path(), BIN_DIR, 'scylla')
-        sstables = self._Node__gather_sstables(datafiles, keyspace, column_families)
         ret = {}
+
+        if datafiles is None and keyspace is not None:
+            tag = "sstable-dump-{}".format(uuid.uuid1())
+            kts = ",".join(f"{keyspace}.{column_family}" for column_family in column_families)
+            self.debug(f"run_scylla_sstable(): creating snapshot with tag {tag} to be used for sstable dumping")
+            self.nodetool(f"snapshot -t {tag} {kts}")
+            sstables = []
+            for column_family in column_families:
+                sstables.extend(glob.glob(os.path.join(self.get_path(), 'data', keyspace, f"{column_family}-*/snapshots/{tag}/*-Data.db")))
+        else:
+            sstables = self._Node__gather_sstables(datafiles, keyspace, column_families)
+            tag = None
+
+        self.debug(f"run_scylla_sstable(): preparing to dump sstables {sstables}")
 
         def do_invoke(sstables):
             # there are chances that the table is not replicated on this node,
@@ -1602,6 +1624,13 @@ class ScyllaNode(Node):
         else:
             for sst in sstables:
                 ret[sst] = do_invoke([sst])
+
+        # Deliberately not putting this in a `finally` block, if the command
+        # above failed, leave the snapshot with the sstables around for
+        # post-mortem analysis.
+        if tag is not None:
+            self.nodetool(f"clearsnapshot -t {tag} {keyspace}")
+
         return ret
 
     def dump_sstables(self,
