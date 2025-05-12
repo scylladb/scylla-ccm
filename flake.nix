@@ -13,7 +13,7 @@ localhost.";
       make_ccm_package = {python, jdk, pkgs}: python.pkgs.buildPythonApplication {
         pname = "scylla_ccm";
         version = "0.1";
-
+        format = "pyproject";
         src = ./. ;
 
         checkInputs = with python.pkgs; [ pytestCheckHook ];
