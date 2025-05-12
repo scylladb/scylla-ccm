@@ -49,6 +49,10 @@ jobs:
       run: |
         nix develop --command python3.11 -m pytest ./tests -x -W ignore
 
+    - name: Verify that installation with Nix works
+      run: |
+        nix profile install .
+
     - name: Copy logs/results
       if: contains(github.event.pull_request.labels.*.name, 'PR-upload-log')
       uses: actions/upload-artifact@v4
