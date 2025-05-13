@@ -33,7 +33,6 @@ def node_cmds():
         "updateconf",
         "updatelog4j",
         "stress",
-        "cli",
         "cqlsh",
         "scrub",
         "verify",
