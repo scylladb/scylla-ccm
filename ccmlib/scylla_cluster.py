@@ -287,7 +287,7 @@ class ScyllaCluster(Cluster):
         """
         self.nodetool("repair")
 
-        stdout, _ = self.nodetool('help')
+        stdout, _ = self.nodes[0].nodetool('help')
         if "  cluster  " in stdout:
             for node in list(self.nodes.values()):
                 if node.is_running():
