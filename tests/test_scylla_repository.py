@@ -191,6 +191,8 @@ class TestReinstallPackages:
 
         self.corrupt_hash_value(Path(cdir) / CORE_PACKAGE_DIR_NAME / SOURCE_FILE_NAME)
 
+        scylla_setup.cache_clear()
+        
         start_time = time.time()
         cdir, version = scylla_setup(version="unstable/master:2025-01-19T09:39:05Z", verbose=True, skip_downloads=False)
         end_time = time.time()

@@ -10,6 +10,7 @@ import urllib
 import logging
 import random
 import time
+from functools import lru_cache
 from pathlib import Path
 from typing import NamedTuple, Literal
 
@@ -222,6 +223,7 @@ def extract_major_version(version):
     return major_version
 
 
+@lru_cache(maxsize=None)
 def setup(version, verbose=True, skip_downloads=False):
     """
     :param version:
@@ -450,6 +452,7 @@ def download_packages(version_dir, packages, s3_url, version, verbose):
     return package_version, packages
 
 
+@lru_cache(maxsize=None)
 def setup_scylla_manager(scylla_manager_package=None, verbose=False):
 
     """
