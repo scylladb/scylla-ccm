@@ -13,7 +13,7 @@ import tempfile
 import time
 from typing import List
 import urllib
-
+from functools import lru_cache
 
 from ccmlib.utils.version import ComparableCassandraVersion
 from ccmlib.common import (ArgumentError, CCMError, get_default_path,
@@ -26,7 +26,7 @@ ARCHIVE = "http://archive.apache.org/dist/cassandra"
 GIT_REPO = "http://git-wip-us.apache.org/repos/asf/cassandra.git"
 GITHUB_TAGS = "https://api.github.com/repos/apache/cassandra/git/refs/tags"
 
-
+@lru_cache(maxsize=None)
 def setup(version, verbose=False):
     binary = True
     fallback = True
