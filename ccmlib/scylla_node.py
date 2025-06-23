@@ -1252,6 +1252,10 @@ class ScyllaNode(Node):
         # because some dtests use `commitlogs` value to get the commitlog directory.
         data['commitlog_directory'] = os.path.join(self.get_path(),
                                                    'commitlogs')
+        # Although the default value of this option in `scylla.yaml` is `false`, we want to
+        # test with it enabled. It's the same in the tests in Scylla's repository.
+        # For more information, see issues: scylladb/scylladb#23071 and scylladb/scylla-dtest#5633.
+        data['rf_rack_valid_keyspaces'] = 'true'
 
         if self.cluster.partitioner:
             data['partitioner'] = self.cluster.partitioner
