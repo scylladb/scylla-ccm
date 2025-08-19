@@ -312,7 +312,9 @@ class ScyllaManager:
     @property
     def version(self):
         stdout, _ = self.sctool(["version"], ignore_exit_status=True)
-        version_string = stdout[stdout.find(": ") + 2:].strip()  # Removing unnecessary information
+        # from stdout = 'Client version: 3.6.0-0.20250807.b9c9d5d94\nServer version: 3.6.0-0.20250807.b9c9d5d94'
+        # to version_string = '3.6.0-0.20250807.b9c9d5d94'
+        version_string = stdout.splitlines()[0][stdout.find(": ") + 2:].strip()
         version_code = ComparableScyllaVersion(version_string)
         return version_code
 
