@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 import itertools
+from random import choices
 
 from ccmlib import common, repository
 from ccmlib.cluster import Cluster
@@ -631,6 +632,8 @@ class ClusterStartCmd(Cmd):
         parser.add_option('--sni-proxy', action="store_true", dest="sni_proxy", help="Start sniproxy infront of the cluster", default=False)
         parser.add_option('--sni-port', action="store", type="int", dest="sni_port",
                           help="the port to use for the sniproxy", default=443)
+        parser.add_option('--parallel-start', action="store", type="choice", dest="parallel_start",
+                          help="start nodes in parallel, or one by one. If not provided it will decide based on db type and version", default=None, choices=['true', 'false'])
 
         return parser
 
@@ -681,7 +684,9 @@ class ClusterStartCmd(Cmd):
                                   verbose=self.options.verbose,
                                   jvm_args=self.options.jvm_args,
                                   profile_options=profile_options,
-                                  quiet_start=self.options.quiet_start) is None:
+                                  quiet_start=self.options.quiet_start,
+                                  parallel_start=self.options.parallel_start and self.options.parallel_start == 'true',
+                                  ) is None:
                 details = ""
                 if not self.options.verbose:
                     details = " (you can use --verbose for more information)"
