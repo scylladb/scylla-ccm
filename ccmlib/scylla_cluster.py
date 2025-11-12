@@ -221,6 +221,48 @@ class ScyllaCluster(Cluster):
     def is_scylla_reloc(self):
         return self.scylla_reloc
 
+    def enable_ssl(self, ssl_path, require_client_auth):
+        """
+        Enables SSL encryption for client connections to the cluster.
+
+        Copies the required SSL certificate and key files from the specified path to the cluster directory,
+        and updates the cluster configuration to enable client encryption.
+
+        Parameters:
+            ssl_path (str): Path to the directory containing SSL files ('ccm_node.pem', 'ccm_node.key', and optionally 'ccm_node.cer').
+            require_client_auth (bool): If True, enables client authentication and copies the truststore file.
+
+        Side Effects:
+            - Copies SSL files into the cluster directory.
+            - Updates the 'client_encryption_options' in the cluster configuration.
+        """
+        # Validate required SSL files exist before copying
+        for required_file in ['ccm_node.pem', 'ccm_node.key']:
+            file_path = os.path.join(ssl_path, required_file)
+            if not os.path.exists(file_path):
+                raise FileNotFoundError(f"Required SSL file not found: {file_path}")
+        shutil.copyfile(os.path.join(ssl_path, 'ccm_node.pem'), os.path.join(self.get_path(), 'ccm_node.pem'))
+        shutil.copyfile(os.path.join(ssl_path, 'ccm_node.key'), os.path.join(self.get_path(), 'ccm_node.key'))
+        ssl_options = {
+            'enabled': True,
+            'certificate': os.path.join(self.get_path(), "ccm_node.pem"),
+            'keyfile': os.path.join(self.get_path(), "ccm_node.key")
+        }
+
+        if require_client_auth:
+            cer_src = os.path.join(ssl_path, 'ccm_node.cer')
+            cer_dst = os.path.join(self.get_path(), "ccm_node.cer")
+            if not os.path.exists(cer_src):
+                raise FileNotFoundError(f"Required client certificate file not found: {cer_src}")
+            shutil.copyfile(cer_src, cer_dst)
+            truststore_ssl_options = {'require_client_auth': require_client_auth,
+                                       'truststore': cer_dst
+                                       }
+            ssl_options.update(truststore_ssl_options)
+
+        self._config_options['client_encryption_options'] = ssl_options
+        self._update_config()
+
     def enable_internode_ssl(self, node_ssl_path, internode_encryption='all'):
         shutil.copyfile(os.path.join(node_ssl_path, 'trust.pem'), os.path.join(self.get_path(), 'internode-trust.pem'))
         shutil.copyfile(os.path.join(node_ssl_path, 'ccm_node.pem'), os.path.join(self.get_path(), 'internode-ccm_node.pem'))
