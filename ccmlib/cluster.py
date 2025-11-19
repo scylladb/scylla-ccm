@@ -327,6 +327,11 @@ class Cluster(object):
             dc, rack = node_locations[i - 1]
             self.new_node(i, debug=debug, initial_token=tk, data_center=dc, rack=rack)
             self._update_config()
+        
+        # Run cluster-wide cleanup if any nodes are running
+        # This prevents delays during decommission due to automatic cleanup
+        self.cluster_cleanup()
+        
         return self
 
     def new_node(self, i, auto_bootstrap=False, debug=False, initial_token=None, add_node=True, is_seed=True, data_center=None, rack=None) -> ScyllaNode:
@@ -616,6 +621,16 @@ class Cluster(object):
 
     def cleanup(self):
         self.nodetool("cleanup")
+
+    def cluster_cleanup(self):
+        """
+        Run cluster-wide cleanup using 'nodetool cluster cleanup' on a single node.
+        This is faster than running cleanup on each node individually.
+        """
+        for node in list(self.nodes.values()):
+            if node.is_running():
+                node.nodetool("cluster cleanup")
+                break
 
     def decommission(self):
         for node in list(self.nodes.values()):
