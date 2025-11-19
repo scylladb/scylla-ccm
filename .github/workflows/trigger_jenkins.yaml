@@ -7,7 +7,7 @@ on:
 
 jobs:
   trigger-jenkins:
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
       - name: Determine Jenkins Job Name
         run: |
