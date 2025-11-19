@@ -625,7 +625,6 @@ class Cluster(object):
     def cluster_cleanup(self):
         """
         Run cluster-wide cleanup using 'nodetool cluster cleanup' on a single node.
-        This is faster than running cleanup on each node individually.
         """
         for node in list(self.nodes.values()):
             if node.is_running():
