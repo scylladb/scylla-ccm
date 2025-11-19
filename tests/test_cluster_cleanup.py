@@ -2,6 +2,7 @@
 import pytest
 from unittest.mock import Mock, MagicMock, patch
 from ccmlib.cluster import Cluster
+from ccmlib.node import NodetoolError
 
 
 class TestClusterCleanup:
@@ -93,3 +94,31 @@ class TestClusterCleanup:
             
             # Call cluster_cleanup - should not raise an exception
             cluster.cluster_cleanup()
+
+    def test_cluster_cleanup_fallback_to_regular_cleanup(self):
+        """Test that cluster_cleanup falls back to regular cleanup if cluster cleanup fails."""
+        # Create a mock cluster
+        with patch.object(Cluster, '__init__', lambda x, *args, **kwargs: None):
+            cluster = Cluster(None, None)
+            cluster.nodes = {}
+            
+            # Create a mock node that raises NodetoolError on first call
+            mock_node = Mock()
+            mock_node.is_running.return_value = True
+            
+            # Make the first call (cluster cleanup) raise NodetoolError
+            # and the second call (regular cleanup) succeed
+            mock_node.nodetool = Mock(side_effect=[
+                NodetoolError("cluster cleanup", 1, "", "Unknown command"),
+                None  # Second call succeeds
+            ])
+            
+            cluster.nodes = {'node1': mock_node}
+            
+            # Call cluster_cleanup
+            cluster.cluster_cleanup()
+            
+            # Verify that nodetool was called twice: first with "cluster cleanup", then with "cleanup"
+            assert mock_node.nodetool.call_count == 2
+            mock_node.nodetool.assert_any_call("cluster cleanup")
+            mock_node.nodetool.assert_any_call("cleanup")

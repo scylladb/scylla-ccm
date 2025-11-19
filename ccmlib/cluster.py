@@ -13,7 +13,7 @@ from typing import List, Tuple
 from ruamel.yaml import YAML
 
 from ccmlib import common, repository
-from ccmlib.node import Node, NodeError
+from ccmlib.node import Node, NodeError, NodetoolError
 from ccmlib.common import logger
 from ccmlib.scylla_node import ScyllaNode
 from ccmlib.utils.version import parse_version
@@ -625,10 +625,15 @@ class Cluster(object):
     def cluster_cleanup(self):
         """
         Run cluster-wide cleanup using 'nodetool cluster cleanup' on a single node.
+        Falls back to regular cleanup if the cluster cleanup command is not available.
         """
         for node in list(self.nodes.values()):
             if node.is_running():
-                node.nodetool("cluster cleanup")
+                try:
+                    node.nodetool("cluster cleanup")
+                except NodetoolError:
+                    # Fallback to regular cleanup if cluster cleanup command doesn't exist
+                    node.nodetool("cleanup")
                 break
 
     def decommission(self):
