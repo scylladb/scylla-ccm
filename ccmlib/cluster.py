@@ -625,7 +625,7 @@ class Cluster(object):
     def cluster_cleanup(self):
         """
         Run cluster-wide cleanup using 'nodetool cluster cleanup' on a single node.
-        Falls back to regular cleanup on all nodes if the cluster cleanup command is not available.
+        Falls back to regular cleanup on all nodes except the last if the cluster cleanup command is not available.
         """
         nodes = [node for node in list(self.nodes.values()) if node.is_running()]
         if not nodes:
@@ -635,8 +635,9 @@ class Cluster(object):
         try:
             nodes[0].nodetool("cluster cleanup")
         except NodetoolError:
-            # Fallback: run regular cleanup on all nodes (command doesn't exist)
-            for node in nodes:
+            # Fallback: run regular cleanup on all nodes except the last (command doesn't exist)
+            # The last node added to the cluster doesn't need cleanup
+            for node in nodes[:-1]:
                 node.nodetool("cleanup")
 
     def decommission(self):
