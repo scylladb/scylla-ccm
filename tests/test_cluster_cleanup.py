@@ -1,0 +1,158 @@
+"""Tests for cluster_cleanup function."""
+import pytest
+from unittest.mock import Mock, MagicMock, patch
+from ccmlib.cluster import Cluster
+from ccmlib.node import NodetoolError
+
+
+class TestClusterCleanup:
+    """Test suite for the cluster_cleanup method."""
+
+    def test_cluster_cleanup_exists(self):
+        """Test that cluster_cleanup method exists on Cluster class."""
+        assert hasattr(Cluster, 'cluster_cleanup')
+        assert callable(getattr(Cluster, 'cluster_cleanup'))
+
+    def test_cluster_cleanup_calls_nodetool_on_single_node(self):
+        """Test that cluster_cleanup calls 'cluster cleanup' on a single running node."""
+        # Create a mock cluster
+        with patch.object(Cluster, '__init__', lambda x, *args, **kwargs: None):
+            cluster = Cluster(None, None)
+            cluster.nodes = {}
+            
+            # Create mock nodes
+            mock_node1 = Mock()
+            mock_node1.is_running.return_value = True
+            mock_node1.nodetool = Mock()
+            
+            mock_node2 = Mock()
+            mock_node2.is_running.return_value = True
+            mock_node2.nodetool = Mock()
+            
+            mock_node3 = Mock()
+            mock_node3.is_running.return_value = False
+            mock_node3.nodetool = Mock()
+            
+            cluster.nodes = {
+                'node1': mock_node1,
+                'node2': mock_node2,
+                'node3': mock_node3,
+            }
+            
+            # Call cluster_cleanup
+            cluster.cluster_cleanup()
+            
+            # Verify that nodetool was called with "cluster cleanup" on exactly one node
+            total_calls = (mock_node1.nodetool.call_count + 
+                          mock_node2.nodetool.call_count + 
+                          mock_node3.nodetool.call_count)
+            assert total_calls == 1, f"Expected exactly 1 nodetool call, got {total_calls}"
+            
+            # Verify it was called on a running node
+            if mock_node1.nodetool.called:
+                mock_node1.nodetool.assert_called_once_with("cluster cleanup")
+            elif mock_node2.nodetool.called:
+                mock_node2.nodetool.assert_called_once_with("cluster cleanup")
+            
+            # Verify the stopped node was not called
+            assert not mock_node3.nodetool.called
+
+    def test_cluster_cleanup_with_no_running_nodes(self):
+        """Test that cluster_cleanup does nothing when no nodes are running."""
+        # Create a mock cluster
+        with patch.object(Cluster, '__init__', lambda x, *args, **kwargs: None):
+            cluster = Cluster(None, None)
+            cluster.nodes = {}
+            
+            # Create mock stopped nodes
+            mock_node1 = Mock()
+            mock_node1.is_running.return_value = False
+            mock_node1.nodetool = Mock()
+            
+            mock_node2 = Mock()
+            mock_node2.is_running.return_value = False
+            mock_node2.nodetool = Mock()
+            
+            cluster.nodes = {
+                'node1': mock_node1,
+                'node2': mock_node2,
+            }
+            
+            # Call cluster_cleanup
+            cluster.cluster_cleanup()
+            
+            # Verify that nodetool was not called on any node
+            assert not mock_node1.nodetool.called
+            assert not mock_node2.nodetool.called
+
+    def test_cluster_cleanup_with_empty_cluster(self):
+        """Test that cluster_cleanup handles an empty cluster gracefully."""
+        # Create a mock cluster with no nodes
+        with patch.object(Cluster, '__init__', lambda x, *args, **kwargs: None):
+            cluster = Cluster(None, None)
+            cluster.nodes = {}
+            
+            # Call cluster_cleanup - should not raise an exception
+            cluster.cluster_cleanup()
+
+    def test_cluster_cleanup_fallback_to_regular_cleanup(self):
+        """Test that cluster_cleanup falls back to regular cleanup on all nodes except the last if cluster cleanup fails."""
+        # Create a mock cluster
+        with patch.object(Cluster, '__init__', lambda x, *args, **kwargs: None):
+            cluster = Cluster(None, None)
+            cluster.nodes = {}
+            
+            # Create mock nodes
+            mock_node1 = Mock()
+            mock_node1.is_running.return_value = True
+            # First call raises NodetoolError, second call (cleanup) succeeds
+            mock_node1.nodetool = Mock(side_effect=[
+                NodetoolError("cluster cleanup", 1, "", "Unknown command"),
+                None  # cleanup succeeds
+            ])
+            
+            mock_node2 = Mock()
+            mock_node2.is_running.return_value = True
+            mock_node2.nodetool = Mock()
+            
+            mock_node3 = Mock()
+            mock_node3.is_running.return_value = True
+            mock_node3.nodetool = Mock()
+            
+            cluster.nodes = {
+                'node1': mock_node1,
+                'node2': mock_node2,
+                'node3': mock_node3,
+            }
+            
+            # Call cluster_cleanup
+            cluster.cluster_cleanup()
+            
+            # Verify that cluster cleanup was tried on node1, then cleanup was called
+            assert mock_node1.nodetool.call_count == 2
+            mock_node1.nodetool.assert_any_call("cluster cleanup")
+            mock_node1.nodetool.assert_any_call("cleanup")
+            
+            # Verify that regular cleanup was called on node2 but NOT on node3 (last node)
+            mock_node2.nodetool.assert_called_once_with("cleanup")
+            mock_node3.nodetool.assert_not_called()
+
+    def test_cluster_cleanup_fallback_with_single_node(self):
+        """Test that cluster_cleanup with single node doesn't call cleanup when cluster cleanup fails (it's the last node)."""
+        # Create a mock cluster
+        with patch.object(Cluster, '__init__', lambda x, *args, **kwargs: None):
+            cluster = Cluster(None, None)
+            cluster.nodes = {}
+            
+            # Create a single mock node that raises NodetoolError on cluster cleanup
+            mock_node = Mock()
+            mock_node.is_running.return_value = True
+            mock_node.nodetool = Mock(side_effect=NodetoolError("cluster cleanup", 1, "", "Unknown command"))
+            
+            cluster.nodes = {'node1': mock_node}
+            
+            # Call cluster_cleanup
+            cluster.cluster_cleanup()
+            
+            # Verify that cluster cleanup was tried once, but no fallback cleanup (it's the last/only node)
+            mock_node.nodetool.assert_called_once_with("cluster cleanup")

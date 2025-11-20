@@ -13,7 +13,7 @@ from typing import List, Tuple
 from ruamel.yaml import YAML
 
 from ccmlib import common, repository
-from ccmlib.node import Node, NodeError
+from ccmlib.node import Node, NodeError, NodetoolError
 from ccmlib.common import logger
 from ccmlib.scylla_node import ScyllaNode
 from ccmlib.utils.version import parse_version
@@ -327,6 +327,11 @@ class Cluster(object):
             dc, rack = node_locations[i - 1]
             self.new_node(i, debug=debug, initial_token=tk, data_center=dc, rack=rack)
             self._update_config()
+        
+        # Run cluster-wide cleanup if any nodes are running
+        # This prevents delays during decommission due to automatic cleanup
+        self.cluster_cleanup()
+        
         return self
 
     def new_node(self, i, auto_bootstrap=False, debug=False, initial_token=None, add_node=True, is_seed=True, data_center=None, rack=None) -> ScyllaNode:
@@ -616,6 +621,24 @@ class Cluster(object):
 
     def cleanup(self):
         self.nodetool("cleanup")
+
+    def cluster_cleanup(self):
+        """
+        Run cluster-wide cleanup using 'nodetool cluster cleanup' on a single node.
+        Falls back to regular cleanup on all nodes except the last if the cluster cleanup command is not available.
+        """
+        nodes = [node for node in list(self.nodes.values()) if node.is_running()]
+        if not nodes:
+            return
+        
+        # Try cluster cleanup on the first running node
+        try:
+            nodes[0].nodetool("cluster cleanup")
+        except NodetoolError:
+            # Fallback: run regular cleanup on all nodes except the last (command doesn't exist)
+            # The last node added to the cluster doesn't need cleanup
+            for node in nodes[:-1]:
+                node.nodetool("cleanup")
 
     def decommission(self):
         for node in list(self.nodes.values()):
