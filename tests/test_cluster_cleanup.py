@@ -96,29 +96,57 @@ class TestClusterCleanup:
             cluster.cluster_cleanup()
 
     def test_cluster_cleanup_fallback_to_regular_cleanup(self):
-        """Test that cluster_cleanup falls back to regular cleanup if cluster cleanup fails."""
+        """Test that cluster_cleanup falls back to regular cleanup on all nodes except first if cluster cleanup fails."""
         # Create a mock cluster
         with patch.object(Cluster, '__init__', lambda x, *args, **kwargs: None):
             cluster = Cluster(None, None)
             cluster.nodes = {}
             
-            # Create a mock node that raises NodetoolError on first call
+            # Create mock nodes
+            mock_node1 = Mock()
+            mock_node1.is_running.return_value = True
+            mock_node1.nodetool = Mock(side_effect=NodetoolError("cluster cleanup", 1, "", "Unknown command"))
+            
+            mock_node2 = Mock()
+            mock_node2.is_running.return_value = True
+            mock_node2.nodetool = Mock()
+            
+            mock_node3 = Mock()
+            mock_node3.is_running.return_value = True
+            mock_node3.nodetool = Mock()
+            
+            cluster.nodes = {
+                'node1': mock_node1,
+                'node2': mock_node2,
+                'node3': mock_node3,
+            }
+            
+            # Call cluster_cleanup
+            cluster.cluster_cleanup()
+            
+            # Verify that cluster cleanup was tried on node1
+            mock_node1.nodetool.assert_called_once_with("cluster cleanup")
+            
+            # Verify that regular cleanup was called on node2 and node3 (all nodes except the first)
+            mock_node2.nodetool.assert_called_once_with("cleanup")
+            mock_node3.nodetool.assert_called_once_with("cleanup")
+
+    def test_cluster_cleanup_fallback_with_single_node(self):
+        """Test that cluster_cleanup with single node doesn't call cleanup when cluster cleanup fails."""
+        # Create a mock cluster
+        with patch.object(Cluster, '__init__', lambda x, *args, **kwargs: None):
+            cluster = Cluster(None, None)
+            cluster.nodes = {}
+            
+            # Create a single mock node that raises NodetoolError on cluster cleanup
             mock_node = Mock()
             mock_node.is_running.return_value = True
-            
-            # Make the first call (cluster cleanup) raise NodetoolError
-            # and the second call (regular cleanup) succeed
-            mock_node.nodetool = Mock(side_effect=[
-                NodetoolError("cluster cleanup", 1, "", "Unknown command"),
-                None  # Second call succeeds
-            ])
+            mock_node.nodetool = Mock(side_effect=NodetoolError("cluster cleanup", 1, "", "Unknown command"))
             
             cluster.nodes = {'node1': mock_node}
             
             # Call cluster_cleanup
             cluster.cluster_cleanup()
             
-            # Verify that nodetool was called twice: first with "cluster cleanup", then with "cleanup"
-            assert mock_node.nodetool.call_count == 2
-            mock_node.nodetool.assert_any_call("cluster cleanup")
-            mock_node.nodetool.assert_any_call("cleanup")
+            # Verify that cluster cleanup was tried once and no fallback cleanup was called
+            mock_node.nodetool.assert_called_once_with("cluster cleanup")
