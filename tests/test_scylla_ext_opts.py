@@ -6,54 +6,11 @@ in SCYLLA_EXT_OPTS would cause Scylla startup to fail with duplicate command lin
 
 The fix normalizes short form options (-c, -m) to their long form equivalents (--smp, --memory)
 in the process_opts function in scylla_node.py.
-
-Note: The process_opts function is a local function defined inside ScyllaNode._start_scylla()
-and cannot be directly imported. This test file contains a copy of the function to verify
-the expected behavior. When modifying the option_aliases mapping or process_opts logic in
-ccmlib/scylla_node.py, ensure this test file is updated accordingly.
 """
 
 import pytest
-from collections import OrderedDict
 
-
-# This mapping should match the option_aliases in ScyllaNode._start_scylla()
-# in ccmlib/scylla_node.py
-OPTION_ALIASES = {
-    '-c': '--smp',
-    '-m': '--memory',
-}
-
-
-def process_opts(opts):
-    """
-    Process command line options, normalizing short form to long form.
-
-    This function should match the implementation in ScyllaNode._start_scylla()
-    in ccmlib/scylla_node.py.
-    """
-    ext_args = OrderedDict()
-    opts_i = 0
-    while opts_i < len(opts):
-        # the command line options show up either like "--foo value-of-foo"
-        # or as a single option like --yes-i-insist
-        assert opts[opts_i].startswith('-')
-        o = opts[opts_i]
-        opts_i += 1
-        if '=' in o:
-            key, val = o.split('=', 1)
-        else:
-            key = o
-            vals = []
-            while opts_i < len(opts) and not opts[opts_i].startswith('-'):
-                vals.append(opts[opts_i])
-                opts_i += 1
-            val = ' '.join(vals)
-        # Normalize short option aliases to their long form
-        key = OPTION_ALIASES.get(key, key)
-        if not key.startswith("--scylla-manager"):
-            ext_args.setdefault(key, []).append(val)
-    return ext_args
+from ccmlib.scylla_node import process_opts, OPTION_ALIASES
 
 
 class TestProcessOptsShortForms:
@@ -143,3 +100,8 @@ class TestProcessOptsShortForms:
         assert '--scylla-manager-auth-token' not in result
         assert '--smp' in result
         assert result['--smp'] == ['2']
+
+    def test_option_aliases_contains_expected_mappings(self):
+        """Verify the OPTION_ALIASES constant has the expected mappings."""
+        assert OPTION_ALIASES['-c'] == '--smp'
+        assert OPTION_ALIASES['-m'] == '--memory'
