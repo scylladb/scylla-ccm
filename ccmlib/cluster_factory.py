@@ -35,6 +35,9 @@ class ClusterFactory():
             elif common.isScylla(install_dir):
                 cluster = ScyllaCluster(path, data['name'], install_dir=install_dir, create_directory=False,
                                         manager=scylla_manager_install_path, cassandra_version=data.get('scylla_version', None))
+                # Restore scylla_mode if it was saved (for non-relocatable builds)
+                if 'scylla_mode' in data:
+                    cluster.scylla_mode = data['scylla_mode']
             elif common.isDse(install_dir):
                 cluster = DseCluster(path, data['name'], install_dir=install_dir, create_directory=False)
             else:
