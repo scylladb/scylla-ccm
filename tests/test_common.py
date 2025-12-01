@@ -96,3 +96,95 @@ def test_parse_settings():
     # would break if incorrect yaml format is passed in the value
     with pytest.raises(ruamel.yaml.parser.ParserError):
         parse_settings(["experimental_features:['udf',\"tablets\""])
+
+
+def test_merge_configuration():
+    from ccmlib.common import merge_configuration
+
+    # Test basic merging of flat dictionaries
+    base = {'a': 1, 'b': 2}
+    updates = {'b': 3, 'c': 4}
+    merge_configuration(base, updates)
+    assert base == {'a': 1, 'b': 3, 'c': 4}
+
+    # Test merging nested dictionaries
+    base = {'nested': {'a': 1, 'b': 2}}
+    updates = {'nested': {'b': 3, 'c': 4}}
+    merge_configuration(base, updates)
+    assert base == {'nested': {'a': 1, 'b': 3, 'c': 4}}
+
+    # Test adding new nested dictionary
+    base = {'a': 1}
+    updates = {'nested': {'x': 1}}
+    merge_configuration(base, updates)
+    assert base == {'a': 1, 'nested': {'x': 1}}
+
+    # Test replacing a non-dict value with dict
+    base = {'a': 1}
+    updates = {'a': {'x': 1}}
+    merge_configuration(base, updates)
+    assert base == {'a': {'x': 1}}
+
+    # Test replacing a dict value with non-dict
+    base = {'a': {'x': 1}}
+    updates = {'a': 2}
+    merge_configuration(base, updates)
+    assert base == {'a': 2}
+
+
+def test_merge_configuration_client_encryption_options():
+    """
+    Test the specific use case from the issue:
+    - First ccm updateconf sets client_encryption_options.truststore
+    - Then ccm updateconf sets client_encryption_options.require_client_auth
+    - Both should be preserved
+    """
+    from ccmlib.common import merge_configuration
+
+    # Simulate: ccm updateconf client_encryption_options.truststore:/path/to/ca.crt
+    cluster_config = {}
+    merge_configuration(cluster_config, {'client_encryption_options': {'truststore': '/path/to/ca.crt'}})
+    assert cluster_config == {'client_encryption_options': {'truststore': '/path/to/ca.crt'}}
+
+    # Simulate: ccm updateconf client_encryption_options.require_client_auth:true
+    # This should merge, not replace
+    merge_configuration(cluster_config, {'client_encryption_options': {'require_client_auth': True}})
+    assert cluster_config == {
+        'client_encryption_options': {
+            'truststore': '/path/to/ca.crt',
+            'require_client_auth': True
+        }
+    }
+
+    # Simulate node-specific options
+    node_config = {}
+    merge_configuration(node_config, {
+        'client_encryption_options': {
+            'enabled': True,
+            'certificate': '/path/to/node.crt',
+            'keyfile': '/path/to/node.key'
+        }
+    })
+    assert node_config == {
+        'client_encryption_options': {
+            'enabled': True,
+            'certificate': '/path/to/node.crt',
+            'keyfile': '/path/to/node.key'
+        }
+    }
+
+    # Simulate merging cluster and node config (as done in __update_yaml)
+    import copy
+    full_options = copy.deepcopy(cluster_config)
+    merge_configuration(full_options, node_config)
+    
+    # All options should be present
+    assert full_options == {
+        'client_encryption_options': {
+            'truststore': '/path/to/ca.crt',
+            'require_client_auth': True,
+            'enabled': True,
+            'certificate': '/path/to/node.crt',
+            'keyfile': '/path/to/node.key'
+        }
+    }

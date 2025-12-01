@@ -850,6 +850,21 @@ def parse_settings(args):
             settings[key] = val
     return settings
 
+
+def merge_configuration(base, updates):
+    """
+    Merge configuration dictionaries, properly handling nested dictionaries.
+    Updates values in 'base' with values from 'updates', merging nested dicts
+    instead of replacing them.
+    """
+    for key, value in updates.items():
+        if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+            # Recursively merge nested dictionaries
+            merge_configuration(base[key], value)
+        else:
+            base[key] = value
+
+
 #
 # Copy file from source to destination with reasonable error handling
 #
