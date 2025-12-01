@@ -5,6 +5,7 @@ import pytest
 import ruamel
 
 from ccmlib.common import scylla_extract_mode, LockFile, parse_settings
+from ruamel.yaml import YAML
 
 
 def test_scylla_extract_mode():
@@ -188,3 +189,57 @@ def test_merge_configuration_client_encryption_options():
             'keyfile': '/path/to/node.key'
         }
     }
+
+
+def test_scylla_mode_persistence():
+    """Test that scylla_mode is properly saved to and loaded from cluster.conf.
+
+    This test verifies the fix for issue #164 where `ccm add` command would forget
+    which build mode was used during cluster creation (e.g., dev vs release).
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Create a mock cluster.conf file with scylla_mode
+        cluster_conf = os.path.join(tmpdir, 'cluster.conf')
+        config_data = {
+            'name': 'test_cluster',
+            'nodes': ['node1'],
+            'seeds': ['node1'],
+            'partitioner': None,
+            'install_dir': '/path/to/scylla',
+            'config_options': {},
+            'log_level': 'INFO',
+            'use_vnodes': False,
+            'id': 0,
+            'ipprefix': None,
+            'scylla_mode': 'dev',  # This is what we're testing
+        }
+
+        with open(cluster_conf, 'w') as f:
+            YAML().dump(config_data, f)
+
+        # Read back and verify scylla_mode is preserved
+        with open(cluster_conf, 'r') as f:
+            loaded_data = YAML().load(f)
+
+        assert 'scylla_mode' in loaded_data
+        assert loaded_data['scylla_mode'] == 'dev'
+
+        # Also test with 'debug' mode
+        config_data['scylla_mode'] = 'debug'
+        with open(cluster_conf, 'w') as f:
+            YAML().dump(config_data, f)
+
+        with open(cluster_conf, 'r') as f:
+            loaded_data = YAML().load(f)
+
+        assert loaded_data['scylla_mode'] == 'debug'
+
+        # Test with 'release' mode
+        config_data['scylla_mode'] = 'release'
+        with open(cluster_conf, 'w') as f:
+            YAML().dump(config_data, f)
+
+        with open(cluster_conf, 'r') as f:
+            loaded_data = YAML().load(f)
+
+        assert loaded_data['scylla_mode'] == 'release'

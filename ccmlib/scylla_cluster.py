@@ -287,6 +287,10 @@ class ScyllaCluster(Cluster):
         if self.is_scylla_reloc():
             data['scylla_version'] = self.scylla_version
 
+        # Save scylla_mode so that nodes added via `ccm add` use the same build mode
+        if self.scylla_mode:
+            data['scylla_mode'] = self.scylla_mode
+
         if self._scylla_manager and self._scylla_manager.install_dir:
             data['scylla_manager_install_path'] = self._scylla_manager.install_dir
 
