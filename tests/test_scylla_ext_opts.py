@@ -6,14 +6,19 @@ in SCYLLA_EXT_OPTS would cause Scylla startup to fail with duplicate command lin
 
 The fix normalizes short form options (-c, -m) to their long form equivalents (--smp, --memory)
 in the process_opts function in scylla_node.py.
+
+Note: The process_opts function is a local function defined inside ScyllaNode._start_scylla()
+and cannot be directly imported. This test file contains a copy of the function to verify
+the expected behavior. When modifying the option_aliases mapping or process_opts logic in
+ccmlib/scylla_node.py, ensure this test file is updated accordingly.
 """
 
 import pytest
 from collections import OrderedDict
 
 
-# This is a copy of the process_opts function from scylla_node.py
-# It should match the implementation in ccmlib/scylla_node.py
+# This mapping should match the option_aliases in ScyllaNode._start_scylla()
+# in ccmlib/scylla_node.py
 OPTION_ALIASES = {
     '-c': '--smp',
     '-m': '--memory',
@@ -24,7 +29,8 @@ def process_opts(opts):
     """
     Process command line options, normalizing short form to long form.
 
-    This function mirrors the implementation in ccmlib/scylla_node.py.
+    This function should match the implementation in ScyllaNode._start_scylla()
+    in ccmlib/scylla_node.py.
     """
     ext_args = OrderedDict()
     opts_i = 0
