@@ -640,6 +640,12 @@ class ScyllaNode(Node):
 
         MB = 1024 * 1024
 
+        # Mapping of short option aliases to their long form equivalents
+        option_aliases = {
+            '-c': '--smp',
+            '-m': '--memory',
+        }
+
         def process_opts(opts):
             ext_args = OrderedDict()
             opts_i = 0
@@ -658,6 +664,8 @@ class ScyllaNode(Node):
                         vals.append(opts[opts_i])
                         opts_i += 1
                     val = ' '.join(vals)
+                # Normalize short option aliases to their long form
+                key = option_aliases.get(key, key)
                 if not key.startswith("--scylla-manager"):
                     ext_args.setdefault(key, []).append(val)
             return ext_args
