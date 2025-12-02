@@ -4,6 +4,7 @@ import shutil
 import time
 import subprocess
 import signal
+import warnings
 from typing import List, Tuple
 import uuid
 import datetime
@@ -90,6 +91,8 @@ class ScyllaCluster(Cluster):
     def create_node(self, name, auto_bootstrap,
                     storage_interface, jmx_port, remote_debug_port,
                     initial_token, save=True, binary_interface=None, thrift_interface=None):
+        if thrift_interface is not None:
+            warnings.warn("thrift_interface is deprecated and will be removed in a future version", DeprecationWarning, stacklevel=2)
         return ScyllaNode(name, self, auto_bootstrap,
                           storage_interface, jmx_port, remote_debug_port,
                           initial_token, save, binary_interface, scylla_manager=self._scylla_manager)
