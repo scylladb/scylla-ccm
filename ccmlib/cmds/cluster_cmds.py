@@ -344,11 +344,12 @@ class ClusterAddCmd(Cmd):
         if options.jmx_port is None:
             options.jmx_port = self.cluster.get_node_jmx_port(len(self.cluster.nodelist())+1)
 
-        used_jmx_ports = [node.jmx_port for node in self.cluster.nodelist()]
-        if options.jmx_port in used_jmx_ports:
-            print("This JMX port is already in use. Choose another.", file=sys.stderr)
-            parser.print_help()
-            sys.exit(1)
+        if not options.scylla_node:
+            used_jmx_ports = [node.jmx_port for node in self.cluster.nodelist()]
+            if options.jmx_port in used_jmx_ports:
+                print("This JMX port is already in use. Choose another.", file=sys.stderr)
+                parser.print_help()
+                sys.exit(1)
 
         self.jmx_port = options.jmx_port
         self.remote_debug_port = options.remote_debug_port
