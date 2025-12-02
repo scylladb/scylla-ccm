@@ -850,6 +850,37 @@ def parse_settings(args):
             settings[key] = val
     return settings
 
+
+def merge_configuration(base: dict, updates: dict) -> None:
+    """
+    Merge configuration dictionaries in-place, properly handling nested dictionaries.
+
+    This function modifies 'base' in-place by merging values from 'updates'.
+    For nested dictionaries, the merge is recursive - keys from both dictionaries
+    are preserved rather than 'updates' replacing 'base' entirely.
+
+    Args:
+        base: The base configuration dictionary to be modified in-place.
+        updates: The dictionary containing updates to merge into base.
+
+    Returns:
+        None. The base dictionary is modified in-place.
+
+    Example:
+        >>> base = {'nested': {'a': 1, 'b': 2}}
+        >>> updates = {'nested': {'b': 3, 'c': 4}}
+        >>> merge_configuration(base, updates)
+        >>> base
+        {'nested': {'a': 1, 'b': 3, 'c': 4}}
+    """
+    for key, value in updates.items():
+        if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+            # Recursively merge nested dictionaries
+            merge_configuration(base[key], value)
+        else:
+            base[key] = value
+
+
 #
 # Copy file from source to destination with reasonable error handling
 #
