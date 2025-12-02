@@ -37,7 +37,7 @@ class ScyllaDockerCluster(ScyllaCluster):
 
     def create_node(self, name, auto_bootstrap,
                     storage_interface, jmx_port, remote_debug_port,
-                    initial_token, save=True, binary_interface=None):
+                    initial_token, save=True, binary_interface=None, thrift_interface=None):
 
         return ScyllaDockerNode(name, self, auto_bootstrap,
                                 storage_interface, jmx_port, remote_debug_port,

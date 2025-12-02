@@ -348,7 +348,7 @@ class Cluster(object):
             self.add(node, is_seed=is_seed, data_center=data_center, rack=rack)
         return node
 
-    def create_node(self, name, auto_bootstrap, storage_interface, jmx_port, remote_debug_port, initial_token, save=True, binary_interface=None):
+    def create_node(self, name, auto_bootstrap, storage_interface, jmx_port, remote_debug_port, initial_token, save=True, binary_interface=None, thrift_interface=None):
         return Node(name, self, auto_bootstrap, storage_interface, jmx_port, remote_debug_port, initial_token, save, binary_interface)
 
     def get_ipprefix(self):
