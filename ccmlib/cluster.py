@@ -585,8 +585,7 @@ class Cluster(object):
 
     def set_configuration_options(self, values=None, batch_commitlog=None):
         if values is not None:
-            for k, v in values.items():
-                self._config_options[k] = v
+            common.merge_configuration(self._config_options, values)
         if batch_commitlog is not None:
             if batch_commitlog:
                 self._config_options["commitlog_sync"] = "batch"

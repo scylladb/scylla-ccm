@@ -1,6 +1,7 @@
 # ccm node
 
 
+import copy
 import errno
 import glob
 import itertools
@@ -278,8 +279,7 @@ class Node(object):
         commitlog (since it requires setting 2 options and unsetting one).
         """
         if values is not None:
-            for k, v in values.items():
-                self.__config_options[k] = v
+            common.merge_configuration(self.__config_options, values)
         if batch_commitlog is not None:
             if batch_commitlog:
                 self.__config_options["commitlog_sync"] = "batch"
@@ -1645,7 +1645,10 @@ class Node(object):
         if self.cluster.partitioner:
             data['partitioner'] = self.cluster.partitioner
 
-        full_options = dict(list(self.cluster._config_options.items()) + list(self.__config_options.items()))  # last win and we want node options to win
+        # Properly merge cluster and node options, with node options taking precedence
+        # for nested dictionaries, both cluster and node options should be merged
+        full_options = copy.deepcopy(self.cluster._config_options)
+        common.merge_configuration(full_options, self.__config_options)  # node options win
         for name in full_options:
             value = full_options[name]
             if (isinstance(value, str) and len(value) == 0) or value is None:

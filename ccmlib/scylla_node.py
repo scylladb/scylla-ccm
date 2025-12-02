@@ -90,6 +90,51 @@ class ScyllaType:
         return args
 
 
+# Mapping of short option aliases to their long form equivalents
+OPTION_ALIASES = {
+    '-c': '--smp',
+    '-m': '--memory',
+}
+
+
+def process_opts(opts):
+    """
+    Process command line options, normalizing short form to long form.
+
+    Parses command line options that show up either like "--foo value-of-foo"
+    or as a single option like "--yes-i-insist". Short options (-c, -m) are
+    normalized to their long form equivalents (--smp, --memory).
+
+    Args:
+        opts: List of command line option strings
+
+    Returns:
+        OrderedDict mapping option keys to lists of values
+    """
+    ext_args = OrderedDict()
+    opts_i = 0
+    while opts_i < len(opts):
+        # the command line options show up either like "--foo value-of-foo"
+        # or as a single option like --yes-i-insist
+        assert opts[opts_i].startswith('-')
+        o = opts[opts_i]
+        opts_i += 1
+        if '=' in o:
+            key, val = o.split('=', 1)
+        else:
+            key = o
+            vals = []
+            while opts_i < len(opts) and not opts[opts_i].startswith('-'):
+                vals.append(opts[opts_i])
+                opts_i += 1
+            val = ' '.join(vals)
+        # Normalize short option aliases to their long form
+        key = OPTION_ALIASES.get(key, key)
+        if not key.startswith("--scylla-manager"):
+            ext_args.setdefault(key, []).append(val)
+    return ext_args
+
+
 class ScyllaNode(Node):
 
     """
@@ -639,28 +684,6 @@ class ScyllaNode(Node):
         args = [launch_bin, '--options-file', options_file, '--log-to-stdout', '1']
 
         MB = 1024 * 1024
-
-        def process_opts(opts):
-            ext_args = OrderedDict()
-            opts_i = 0
-            while opts_i < len(opts):
-                # the command line options show up either like "--foo value-of-foo"
-                # or as a single option like --yes-i-insist
-                assert opts[opts_i].startswith('-')
-                o = opts[opts_i]
-                opts_i += 1
-                if '=' in o:
-                    key, val = o.split('=', 1)
-                else:
-                    key = o
-                    vals = []
-                    while opts_i < len(opts) and not opts[opts_i].startswith('-'):
-                        vals.append(opts[opts_i])
-                        opts_i += 1
-                    val = ' '.join(vals)
-                if not key.startswith("--scylla-manager"):
-                    ext_args.setdefault(key, []).append(val)
-            return ext_args
 
         # Lets search for default overrides in SCYLLA_EXT_OPTS
         env_args = process_opts(os.getenv('SCYLLA_EXT_OPTS', "").split())
