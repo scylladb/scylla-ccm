@@ -1,4 +1,5 @@
 import os
+import warnings
 from shutil import copyfile
 from subprocess import check_call, run, PIPE
 import logging
@@ -38,6 +39,8 @@ class ScyllaDockerCluster(ScyllaCluster):
     def create_node(self, name, auto_bootstrap,
                     storage_interface, jmx_port, remote_debug_port,
                     initial_token, save=True, binary_interface=None, thrift_interface=None):
+        if thrift_interface is not None:
+            warnings.warn("thrift_interface is deprecated and will be removed in a future version", DeprecationWarning, stacklevel=2)
 
         return ScyllaDockerNode(name, self, auto_bootstrap,
                                 storage_interface, jmx_port, remote_debug_port,

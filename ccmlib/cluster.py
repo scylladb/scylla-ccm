@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import threading
 import time
+import warnings
 from collections import OrderedDict, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Tuple
@@ -349,6 +350,8 @@ class Cluster(object):
         return node
 
     def create_node(self, name, auto_bootstrap, storage_interface, jmx_port, remote_debug_port, initial_token, save=True, binary_interface=None, thrift_interface=None):
+        if thrift_interface is not None:
+            warnings.warn("thrift_interface is deprecated and will be removed in a future version", DeprecationWarning, stacklevel=2)
         return Node(name, self, auto_bootstrap, storage_interface, jmx_port, remote_debug_port, initial_token, save, binary_interface)
 
     def get_ipprefix(self):
