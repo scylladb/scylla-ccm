@@ -91,7 +91,7 @@ class Node(object):
     Provides interactions to a Cassandra node.
     """
 
-    def __init__(self, name, cluster, auto_bootstrap, storage_interface, jmx_port, remote_debug_port, initial_token, save=True, binary_interface=None):
+    def __init__(self, name, cluster, auto_bootstrap, storage_interface, jmx_port, remote_debug_port, initial_token, save=True, binary_interface=None, thrift_interface=None):
         """
         Create a new Node.
           - name: the name for that node
@@ -103,6 +103,7 @@ class Node(object):
           - initial_token: the token for this node. If None, use Cassandra token auto-assignment
           - save: copy all data useful for this node to the right position.  Leaving this true
             is almost always the right choice.
+          - thrift_interface: deprecated, unused
         """
         self.name = name
         self.node_hostid = None

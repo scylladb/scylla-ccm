@@ -143,7 +143,7 @@ class ScyllaNode(Node):
 
     def __init__(self, name, cluster: 'ScyllaCluster', auto_bootstrap,
                  storage_interface, jmx_port, remote_debug_port, initial_token,
-                 save=True, binary_interface=None, scylla_manager=None):
+                 save=True, binary_interface=None, scylla_manager=None, thrift_interface=None):
         self._node_install_dir = None
         self._node_scylla_version = None
         self._relative_repos_root = None
