@@ -21,8 +21,8 @@ class DseNode(Node):
     Provides interactions to a DSE node.
     """
 
-    def __init__(self, name, cluster, auto_bootstrap, _, storage_interface, jmx_port, remote_debug_port, initial_token, save=True, binary_interface=None):
-        super(DseNode, self).__init__(name, cluster, auto_bootstrap, None, storage_interface, jmx_port, remote_debug_port, initial_token, save, binary_interface)
+    def __init__(self, name, cluster, auto_bootstrap, storage_interface, jmx_port, remote_debug_port, initial_token, save=True, binary_interface=None):
+        super(DseNode, self).__init__(name, cluster, auto_bootstrap, storage_interface, jmx_port, remote_debug_port, initial_token, save, binary_interface)
         self.get_cassandra_version()
         if self.cluster.hasOpscenter():
             self._copy_agent()

@@ -294,9 +294,7 @@ class ClusterAddCmd(Cmd):
         parser.add_option('-s', '--seeds', action="store_true", dest="is_seed",
                           help="Configure this node as a seed", default=False)
         parser.add_option('-i', '--itf', type="string", dest="itfs",
-                          help="Set host and port for thrift, the binary protocol and storage (format: host[:port])")
-        parser.add_option('-t', '--thrift-itf', type="string", dest="thrift_itf",
-                          help="Set the thrift host and port for the node (format: host[:port])")
+                          help="Set host and port for the binary protocol and storage (format: host[:port])")
         parser.add_option('-l', '--storage-itf', type="string", dest="storage_itf",
                           help="Set the storage (cassandra internal) host and port for the node (format: host[:port])")
         parser.add_option('--binary-itf', type="string", dest="binary_itf",
@@ -360,11 +358,11 @@ class ClusterAddCmd(Cmd):
                     node_class = ScyllaDockerNode
                 else:
                     node_class = ScyllaNode
-                node = node_class(self.name, self.cluster, self.options.bootstrap, None, self.storage, self.jmx_port, self.remote_debug_port, self.initial_token, binary_interface=self.binary)
+                node = node_class(self.name, self.cluster, self.options.bootstrap, self.storage, self.jmx_port, self.remote_debug_port, self.initial_token, binary_interface=self.binary)
             elif self.options.dse_node:
-                node = DseNode(self.name, self.cluster, self.options.bootstrap, None, self.storage, self.jmx_port, self.remote_debug_port, self.initial_token, binary_interface=self.binary)
+                node = DseNode(self.name, self.cluster, self.options.bootstrap, self.storage, self.jmx_port, self.remote_debug_port, self.initial_token, binary_interface=self.binary)
             else:
-                node = Node(self.name, self.cluster, self.options.bootstrap, None, self.storage, self.jmx_port, self.remote_debug_port, self.initial_token, binary_interface=self.binary)
+                node = Node(self.name, self.cluster, self.options.bootstrap, self.storage, self.jmx_port, self.remote_debug_port, self.initial_token, binary_interface=self.binary)
             self.cluster.add(node, self.options.is_seed, data_center=self.options.data_center, rack=self.options.rack)
         except common.ArgumentError as e:
             print(str(e), file=sys.stderr)

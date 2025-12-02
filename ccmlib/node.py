@@ -92,13 +92,12 @@ class Node(object):
     Provides interactions to a Cassandra node.
     """
 
-    def __init__(self, name, cluster, auto_bootstrap, thrift_interface, storage_interface, jmx_port, remote_debug_port, initial_token, save=True, binary_interface=None):
+    def __init__(self, name, cluster, auto_bootstrap, storage_interface, jmx_port, remote_debug_port, initial_token, save=True, binary_interface=None):
         """
         Create a new Node.
           - name: the name for that node
           - cluster: the cluster this node is part of
           - auto_bootstrap: whether or not this node should be set for auto-bootstrap
-          - thrift_interface: the (host, port) tuple for thrift
           - storage_interface: the (host, port) tuple for internal cluster communication
           - jmx_port: the port for JMX to bind to
           - remote_debug_port: the port for remote debugging
