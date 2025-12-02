@@ -141,7 +141,7 @@ class ScyllaNode(Node):
     Provides interactions to a Scylla node.
     """
 
-    def __init__(self, name, cluster: 'ScyllaCluster', auto_bootstrap, thrift_interface,
+    def __init__(self, name, cluster: 'ScyllaCluster', auto_bootstrap,
                  storage_interface, jmx_port, remote_debug_port, initial_token,
                  save=True, binary_interface=None, scylla_manager=None):
         self._node_install_dir = None
@@ -149,7 +149,7 @@ class ScyllaNode(Node):
         self._relative_repos_root = None
         self._launch_env = None
         super().__init__(name, cluster, auto_bootstrap,
-                         None, storage_interface,
+                         storage_interface,
                          jmx_port, remote_debug_port,
                          initial_token, save, binary_interface)
         self.__global_log_level = 'info'
