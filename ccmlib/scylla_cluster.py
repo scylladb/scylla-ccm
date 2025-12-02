@@ -87,10 +87,10 @@ class ScyllaCluster(Cluster):
     def get_node_jmx_port(self, nodeid):
         return 7199
 
-    def create_node(self, name, auto_bootstrap, thrift_interface,
+    def create_node(self, name, auto_bootstrap,
                     storage_interface, jmx_port, remote_debug_port,
                     initial_token, save=True, binary_interface=None):
-        return ScyllaNode(name, self, auto_bootstrap, None,
+        return ScyllaNode(name, self, auto_bootstrap,
                           storage_interface, jmx_port, remote_debug_port,
                           initial_token, save, binary_interface, scylla_manager=self._scylla_manager)
 
