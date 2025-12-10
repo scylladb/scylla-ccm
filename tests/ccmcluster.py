@@ -59,8 +59,6 @@ class CCMCluster:
     def get_start_cmd(self):
         return [self.ccm_bin, "start", "--wait-for-binary-proto"]
 
-
-
     def get_add_cmd(self, node_name):
         cmd_args = []
         if self.use_scylla:
