@@ -51,12 +51,6 @@ class ClusterFactory():
                 cluster.use_vnodes = data['use_vnodes']
             if 'ipprefix' in data:
                 cluster.ipprefix = data['ipprefix']
-            if 'sni_proxy_docker_ids' in data and data['sni_proxy_docker_ids']:
-                cluster.sni_proxy_docker_ids = data['sni_proxy_docker_ids']
-            if 'sni_proxy_listen_port' in data and data['sni_proxy_listen_port']:
-                cluster.sni_proxy_listen_port = data['sni_proxy_listen_port']
-            if 'sni_generate_ssl_automatic' in data and data['sni_generate_ssl_automatic']:
-                cluster.sni_generate_ssl_automatic = data['sni_generate_ssl_automatic']
 
 
         except KeyError as k:

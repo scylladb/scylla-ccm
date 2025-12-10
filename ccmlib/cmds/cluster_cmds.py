@@ -1,7 +1,6 @@
 import os
 import subprocess
 import sys
-import itertools
 
 from ccmlib import common, repository
 from ccmlib.cluster import Cluster
@@ -15,7 +14,6 @@ from ccmlib.scylla_node import ScyllaNode
 from ccmlib.dse_node import DseNode
 from ccmlib.node import Node, NodeError
 from ccmlib.utils.ssl_utils import generate_ssl_stores
-from ccmlib.utils.sni_proxy import get_cluster_info, start_sni_proxy, configure_sni_proxy, reload_sni_proxy, refresh_certs, create_cloud_config
 
 os.environ['SCYLLA_CCM_STANDALONE'] = '1'
 
@@ -628,10 +626,6 @@ class ClusterStartCmd(Cmd):
                           help="Yourkit options when profiling", default=None)
         parser.add_option('--quiet-windows', action="store_true", dest="quiet_start", help="Pass -q on Windows 2.2.4+ and 3.0+ startup. Ignored on linux.", default=False)
 
-        parser.add_option('--sni-proxy', action="store_true", dest="sni_proxy", help="Start sniproxy infront of the cluster", default=False)
-        parser.add_option('--sni-port', action="store", type="int", dest="sni_port",
-                          help="the port to use for the sniproxy", default=443)
-
         return parser
 
     def validate(self, parser, options, args):
@@ -649,32 +643,6 @@ class ClusterStartCmd(Cmd):
                 print("No node in this cluster yet. Use the populate command before starting.")
                 sys.exit(1)
 
-            ssl_port = self.cluster._config_options.get('native_transport_port_ssl', 9142)
-            encryption_options =  self.cluster._config_options.get('client_encryption_options', {})
-
-            if not getattr(self.cluster, 'sni_generate_ssl_automatic', False):
-                if 'keyfile' not in encryption_options and \
-                    'certificate' not in encryption_options and \
-                    'truststore' not in encryption_options:
-                    self.cluster.sni_generate_ssl_automatic = True
-
-            if self.options.sni_proxy and getattr(self.cluster, 'sni_generate_ssl_automatic', False):
-                generate_ssl_stores(self.cluster.get_path())
-
-                self.cluster.set_configuration_options(dict(
-                        client_encryption_options=
-                            dict(require_client_auth=True,
-                                 truststore=os.path.join(self.cluster.get_path(), 'ccm_node.cer'),
-                                 certificate=os.path.join(self.cluster.get_path(), 'ccm_node.pem'),
-                                 keyfile=os.path.join(self.cluster.get_path(), 'ccm_node.key'),
-                                 enabled=True),
-                        native_transport_port_ssl=ssl_port))
-
-                self.cluster._update_config()
-
-            if self.options.sni_proxy:
-                self.options.wait_for_binary_proto = True
-
             if self.cluster.start(no_wait=self.options.no_wait,
                                   wait_other_notice=self.options.wait_other_notice,
                                   wait_for_binary_proto=self.options.wait_for_binary_proto,
@@ -687,36 +655,6 @@ class ClusterStartCmd(Cmd):
                     details = " (you can use --verbose for more information)"
                 print(f"Error starting nodes, see above for details{details}", file=sys.stderr)
                 sys.exit(1)
-            if self.options.sni_proxy:
-                nodes_info = get_cluster_info(self.cluster, port=ssl_port)
-                if getattr(self.cluster, 'sni_generate_ssl_automatic', False):
-                    refresh_certs(self.cluster, nodes_info)
-
-                nodes_info_per_dc_map = dict((k, list(g)) for k, g in itertools.groupby(nodes_info, key=lambda x: x.data_center))
-
-                listen_port = getattr(self.cluster, 'sni_proxy_listen_port', None)
-                if getattr(self.cluster, 'sni_proxy_docker_ids', None):
-                    sni_proxy_docker_ids = self.cluster.sni_proxy_docker_ids
-                    for _, nodes_info_per_dc in nodes_info_per_dc_map.items():
-                        configure_sni_proxy(self.cluster.get_path(), nodes_info_per_dc, listen_port=listen_port)
-
-                    for docker_id in sni_proxy_docker_ids:
-                        reload_sni_proxy(docker_id)
-                else:
-                    sni_proxy_configs = []
-                    for _, nodes_info_per_dc in nodes_info_per_dc_map.items():
-                        docker_id, listen_address, listen_port = \
-                            start_sni_proxy(self.cluster.get_path(), nodes_info=nodes_info_per_dc, listen_port=self.options.sni_port)
-                        sni_proxy_configs.append((docker_id, listen_address, listen_port))
-
-                    create_cloud_config(self.cluster.get_path(), port=listen_port, address=None, nodes_info=nodes_info)
-
-                    for sni_proxy_config in sni_proxy_configs:
-                        print(f'sni_proxy listening on: {sni_proxy_config[1]}:{sni_proxy_config[2]}')
-
-                    self.cluster.sni_proxy_docker_ids = [sni_proxy_config[0] for sni_proxy_config in sni_proxy_configs]
-                    self.cluster.sni_proxy_listen_port = listen_port
-                    self.cluster._update_config()
 
         except NodeError as e:
             print(str(e), file=sys.stderr)

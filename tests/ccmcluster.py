@@ -59,8 +59,7 @@ class CCMCluster:
     def get_start_cmd(self):
         return [self.ccm_bin, "start", "--wait-for-binary-proto"]
 
-    def get_start_sni_proxy_cmd(self):
-        return [self.ccm_bin, "start", "--sni-proxy", "--sni-port", "8443", "--wait-for-binary-proto"]
+
 
     def get_add_cmd(self, node_name):
         cmd_args = []
