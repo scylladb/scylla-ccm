@@ -318,7 +318,7 @@ def setup(version, verbose=True, skip_downloads=False):
                 elif scylla_noarch_package_path in aws_files:
                     scylla_package_path = scylla_noarch_package_path
                 elif scylla_package_path in aws_files:
-                    scylla_package_path = scylla_package_path
+                    pass
                 else:
                     raise RuntimeError("Can't find %s or %s in the %s",
                                        scylla_arch_package_path, scylla_noarch_package_path, s3_url)
