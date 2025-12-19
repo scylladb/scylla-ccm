@@ -1,7 +1,7 @@
 [project]
 name = "ccm"
 version = "2.0.5"
-license = { file = "license.txt"}
+license = "Apache-2.0"
 description = "Cassandra Cluster Manager"
 authors = [
     {name = "Sylvain Lebresne", email = "sylvain@datastax.com"}
@@ -33,7 +33,20 @@ dev = [
   "awscli"
 ]
 [tool.setuptools]
-packages = ["ccmlib", "ccmlib.cmds", "ccmlib.utils", "ccmlib.bin"]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ccmlib*"]
+exclude = ["ccmlib.resources*", "ccmlib.scylla_test_ssl"]
+
+[tool.setuptools.package-data]
+ccmlib = [
+    "resources/bin/*.sh",
+    "resources/docker/sniproxy/*",
+    "scylla_test_ssl/scylla-manager-agent.key",
+    "scylla_test_ssl/scylla-manager-agent.crt"
+]
 
 [tool.pytest.ini_options]
 python_classes = ["*Test", "Test*"]
@@ -56,5 +69,5 @@ markers = [
 filterwarnings = ["error", "ignore::ResourceWarning"]
 
 [build-system]
-requires = ["setuptools >= 61.0"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
