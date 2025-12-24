@@ -918,6 +918,15 @@ def get_version_from_build(install_dir=None, node_path=None):
             return dse_version
         # Source cassandra installs we can read from build.xml
         build = os.path.join(install_dir, 'build.xml')
+        if not os.path.exists(build):
+            raise CCMError(
+                f"Cannot find version information in {install_dir}.\n"
+                f"Expected to find one of:\n"
+                f"  - {version_file} (for binary Cassandra installs)\n"
+                f"  - {build} (for source Cassandra installs)\n"
+                f"  - dse*.jar (for DSE installs)\n"
+                f"Please ensure --install-dir points to a valid Cassandra/DSE installation."
+            )
         with open(build) as f:
             for line in f:
                 match = re.search(r'name="base\.version" value="([0-9.]+)[^"]*"', line)
@@ -938,8 +947,13 @@ def _get_scylla_version(install_dir):
         os.path.join(install_dir, 'scylla-core-package', 'SCYLLA-VERSION-FILE'),
         os.path.join(install_dir, 'scylla-core-package', 'scylla', 'SCYLLA-VERSION-FILE'),
     ]
+    
+    # Track if we found any version file (even with invalid content)
+    version_file_exists = False
+    
     for version_file in scylla_version_files:
         if os.path.exists(version_file):
+            version_file_exists = True
             with open(version_file) as file:
                 v = file.read().strip()
             # return only version strings (loosly) conforming to PEP-440
@@ -947,7 +961,39 @@ def _get_scylla_version(install_dir):
             # 'i.j(.|-)dev[N]' < 'i.j.rc[N]' < 'i.j.k' < i.j(.|-)post[N]
             if re.fullmatch(r'(\d+!)?\d+([.-]\d+)*([a-z]+\d*)?([.-](post|dev|rc)\d*)*', v):
                 return v
-    return '3.0'
+    
+    # If we found a version file but it had invalid content, return default
+    if version_file_exists:
+        return '3.0'
+    
+    # No version file found at all - check if scylla binary exists to provide better error message
+    scylla_bin_paths = [
+        os.path.join(install_dir, 'scylla'),
+        os.path.join(install_dir, 'bin', 'scylla'),
+    ]
+    scylla_build_modes = ['debug', 'dev', 'release']
+    cmake_build_types = ['Debug', 'Dev', 'RelWithDebInfo']
+    for mode in scylla_build_modes + cmake_build_types:
+        scylla_bin_paths.append(os.path.join(install_dir, 'build', mode, 'scylla'))
+    
+    scylla_bin_exists = any(os.path.exists(path) for path in scylla_bin_paths)
+    
+    if scylla_bin_exists:
+        # Scylla binary exists but no version file found
+        raise CCMError(
+            f"Could not find SCYLLA-VERSION-FILE in the Scylla installation directory.\n"
+            f"Searched in: {install_dir}\n"
+            f"Expected locations:\n" + "\n".join(f"  - {vf}" for vf in scylla_version_files) + "\n"
+            f"Please ensure you have built Scylla completely or use a relocatable package."
+        )
+    else:
+        # No scylla binary found either
+        raise CCMError(
+            f"Could not find Scylla binary in the installation directory: {install_dir}\n"
+            f"Expected to find 'scylla' binary in one of:\n"
+            f"{chr(10).join(f'  - {path}' for path in scylla_bin_paths)}\n"
+            f"Please ensure --install-dir points to a valid Scylla installation or build directory."
+        )
 
 
 def _get_scylla_release(install_dir):
