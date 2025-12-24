@@ -1,6 +1,19 @@
 """Tests for ClusterAddCmd JMX port conflict check."""
+import os
 import pytest
 from unittest.mock import MagicMock, patch
+
+
+@pytest.fixture(autouse=True)
+def preserve_env():
+    """Preserve environment variables across tests."""
+    old_standalone = os.environ.get('SCYLLA_CCM_STANDALONE')
+    yield
+    # Restore original value
+    if old_standalone is None:
+        os.environ.pop('SCYLLA_CCM_STANDALONE', None)
+    else:
+        os.environ['SCYLLA_CCM_STANDALONE'] = old_standalone
 
 
 @pytest.fixture
