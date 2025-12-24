@@ -170,22 +170,6 @@ uv sync
 uv run ccm --help
 ```
 
-### From PyPI
-
-CCM is available on the [Python Package Index][pip]:
-
-```bash
-pip install ccm
-```
-
-### Using Homebrew
-
-There is a [Homebrew package][brew] available:
-
-```bash
-brew install ccm
-```
-
 ### Using Nix
 
 You can use CCM through Nix without installing:
@@ -202,9 +186,6 @@ nix profile list
 nix profile upgrade <index>
 nix profile remove <index>
 ```
-
-  [pip]: https://pypi.python.org/pypi/ccm
-  [brew]: https://github.com/Homebrew/homebrew/blob/master/Library/Formula/ccm.rb
 
 
 Nix Development Environment
