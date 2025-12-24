@@ -233,6 +233,17 @@ class Cluster(object):
         if is_seed:
             self.seeds.append(node)
         self._update_config()
+        
+        # If data_center is not specified, infer it from existing nodes
+        if data_center is None and len(self.nodes) > 1:
+            # Get datacenter from the first existing node (excluding the one we just added)
+            for existing_node in self.nodes.values():
+                if existing_node.name != node.name and existing_node.data_center is not None:
+                    data_center = existing_node.data_center
+                    if rack is None and existing_node.rack is not None:
+                        rack = existing_node.rack
+                    break
+        
         node.data_center = data_center
         node.rack = rack
         node.set_log_level(self.__log_level)
@@ -244,7 +255,7 @@ class Cluster(object):
 
         if data_center is not None:
             self.debug(f"{node.name}: data_center={node.data_center} rack={node.rack} snitch={self.snitch}")
-        self.__update_topology_files()
+            self.__update_topology_files()
         node._save()
         return self
 
