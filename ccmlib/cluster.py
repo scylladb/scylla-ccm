@@ -244,7 +244,7 @@ class Cluster(object):
 
         if data_center is not None:
             self.debug(f"{node.name}: data_center={node.data_center} rack={node.rack} snitch={self.snitch}")
-            self.__update_topology_files()
+        self.__update_topology_files()
         node._save()
         return self
 
