@@ -33,7 +33,7 @@ The nodes will be available at 127.0.0.1, 127.0.0.2 and 127.0.0.3.
 ### Creating a cluster with an unstable/nightly build:
 ```bash
 # Using a specific build timestamp (from S3)
-$ ccm create nightly_cluster --scylla -n 3 -v unstable/master:2025-01-19T09:39:05Z -s
+$ ccm create nightly_cluster --scylla -n 3 -v unstable/master:2024-12-20T10:30:00Z -s
 
 # Or use the latest nightly build number
 $ ccm create nightly_cluster --scylla -n 3 -v unstable/master:380 -s
@@ -62,7 +62,7 @@ CCM supports two main version formats:
 
 2. **Unstable/nightly versions**: `unstable/<branch>:<timestamp>` or `unstable/<branch>:<build-number>`
    ```bash
-   ccm create my_cluster --scylla -n 3 -v unstable/master:2025-01-19T09:39:05Z
+   ccm create my_cluster --scylla -n 3 -v unstable/master:2024-12-20T10:30:00Z
    ccm create my_cluster --scylla -n 3 -v unstable/master:380
    ccm create my_cluster --scylla -n 3 -v unstable/branch-5.4:2024-12-01T10:00:00Z
    ```
