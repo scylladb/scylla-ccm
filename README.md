@@ -1,25 +1,25 @@
-CCM (Cassandra Cluster Manager)
+CCM (Cassandra Cluster Manager) - Scylla Fork
 ====================================================
 
-A script/library to create, launch and remove an Apache Cassandra cluster on
-localhost.
+CCM is a script/library to create, launch and remove an Apache Cassandra or ScyllaDB cluster on
+localhost. This is ScyllaDB's fork with enhanced support for Scylla, including:
 
-The goal of ccm and ccmlib is to make it easy to create, manage and destroy a
-small Cassandra cluster on a local box. It is meant for testing a Cassandra cluster.
+- **Relocatable packages** - Download and use pre-built Scylla packages from S3
+- **Docker support** - Run Scylla clusters using Docker images
+- **Unified packages** - Simplified installation with all-in-one packages
 
+The goal of ccm is to make it easy to create, manage and destroy a
+small Scylla cluster on a local box for testing purposes.
 
-Pointer to the Scylla CCM instructions (should really be merged here)
----------------------------------------------------------------------
-https://github.com/scylladb/scylla/wiki/Using-CCM
+Quick Start
+-----------
 
-
-Scylla usage examples:
----------------------------------------------------------------------
-### Creating a 3-node Scylla cluster:
+### Creating a 3-node Scylla cluster (using relocatable packages):
 ```bash
-$ ccm create my_cluster --scylla --vnodes -n 3 -v release:2022.2
-$ ccm start
-# Now wait...
+# Create cluster with a released version
+$ ccm create my_cluster --scylla -n 3 -v release:2024.2 -s
+
+# Check cluster status
 $ ccm status
 Cluster: 'my_cluster'
 -----------------
@@ -27,281 +27,341 @@ node1: UP
 node2: UP
 node3: UP
 ```
+
 The nodes will be available at 127.0.0.1, 127.0.0.2 and 127.0.0.3.
 
-### Creating a multi-datacenter cluster that has 3 nodes in dc1, 4 nodes in dc2 and 5 nodes in dc3:
+### Creating a cluster with an unstable/nightly build:
 ```bash
-$ ccm create my_multi_dc_cluster --scylla --vnodes -n 3:4:5 -v release:2022.2
-$ ccm start
-# Wait a lot...
+# Using a specific build timestamp (from S3)
+$ ccm create nightly_cluster --scylla -n 3 -v unstable/master:2024-12-20T10:30:00Z -s
+
+# Or use the latest nightly build number
+$ ccm create nightly_cluster --scylla -n 3 -v unstable/master:380 -s
 ```
 
-### Creating a cluster of nodes with a specific build-id:
-
-Let's say you want to create a cluster of Scylla with build id `f6e718548e76ccf3564ed2387b6582ba8d37793c` (it's `Scylla 2023.1.0~rc8-20230731.b6f7c5a6910c`).
-
-1. Go to https://backtrace.scylladb.com and find your desired Scylla version
-2. Click the arrow down symbol (\\/) to show all available download links
-3. Download the unified Scylla package (`unified-pack-url-x86_64`)
-4. Create a 3 node cluster:
+### Creating a multi-datacenter cluster:
 ```bash
-# The unified package will be extracted to ~/.ccm/scylla-repository/my_custom_scylla
-# Make sure that the version name (my_custom_scylla) is different for each unified package you use, otherwise ccm will use the previously extracted version.
-ccm create my_cluster -n 3 --scylla --vnodes \
+# 3 nodes in dc1, 4 nodes in dc2, 5 nodes in dc3
+$ ccm create my_multi_dc_cluster --scylla -n 3:4:5 -v release:2024.2 -s
+```
+
+Using Relocatable Packages
+---------------------------
+
+Scylla CCM primarily uses **relocatable packages** downloaded from S3. These are pre-built packages that work across different Linux distributions.
+
+### Version Format
+
+CCM supports two main version formats:
+
+1. **Release versions**: `release:X.Y.Z`
+   ```bash
+   ccm create my_cluster --scylla -n 3 -v release:2024.2.3
+   ccm create my_cluster --scylla -n 3 -v release:6.0
+   ```
+
+2. **Unstable/nightly versions**: `unstable/<branch>:<timestamp>` or `unstable/<branch>:<build-number>`
+   ```bash
+   ccm create my_cluster --scylla -n 3 -v unstable/master:2024-12-20T10:30:00Z
+   ccm create my_cluster --scylla -n 3 -v unstable/master:380
+   ccm create my_cluster --scylla -n 3 -v unstable/branch-5.4:2024-12-01T10:00:00Z
+   ```
+
+3. **Debug builds**: Append `:debug` to any version
+   ```bash
+   ccm create my_cluster --scylla -n 3 -v release:2024.2:debug
+   ccm create my_cluster --scylla -n 3 -v unstable/master:latest:debug
+   ```
+
+### Using Custom Relocatable Packages
+
+You can override packages with your own locally-built versions:
+
+```bash
+# Using a unified package (all-in-one)
+ccm create my_cluster -n 3 --scylla \
     --version my_custom_scylla \
-    --scylla-unified-package-uri=/home/$USER/Downloads/scylla-enterprise-unified-2023.1.0\~rc8-0.20230731.b6f7c5a6910c.x86_64.tar.gz
+    --scylla-unified-package-uri=/path/to/scylla-unified-package.tar.gz
+
+# Mix and match: use S3 version but override just the core package
+ccm create my_cluster -n 3 --scylla \
+    --version unstable/master:380 \
+    --scylla-core-package-uri=../scylla/build/release/scylla-package.tar.gz
+
+# Override individual components
+ccm create my_cluster -n 3 --scylla --version temp \
+    --scylla-core-package-uri=../scylla/build/release/scylla-package.tar.gz \
+    --scylla-tools-java-package-uri=../scylla-tools-java/temp.tar.gz \
+    --scylla-jmx-package-uri=../scylla-jmx/temp.tar.gz
+```
+
+Using Docker
+------------
+
+CCM supports running Scylla clusters in Docker containers:
+
+```bash
+# Create cluster using official Scylla Docker image
+ccm create my_docker_cluster --scylla --docker-image scylladb/scylla:6.0 -n 3
+ccm start
+ccm status
+```
+
+For more details, see [docs/docker-ccm.md](docs/docker-ccm.md).
+
+Using Local Install Directory
+------------------------------
+
+If you have a locally compiled Scylla installation, you can use it instead of relocatable packages:
+
+```bash
+# Create cluster from local Scylla installation
+ccm create my_local_cluster --scylla -n 3 --install-dir=/path/to/scylla
+
+# Or from the Scylla source directory
+cd /path/to/scylla
+ccm create my_local_cluster --scylla -n 3
 ```
 
 Requirements
 ------------
 
-- A working python installation (tested to work with python 3.12).
-- [UV](https://docs.astral.sh/uv)
-- Java if cassandra is used or older scylla < 6.0 (which version depends on the version 
-  of Cassandra you plan to use. If unsure, use Java 8 as it is known to 
-  work with current versions of Cassandra).
-- ccm only works on localhost for now. If you want to create multiple
-  node clusters, the simplest way is to use multiple loopback aliases. On
-  modern linux distributions you probably don't need to do anything, but
-  on Mac OS X, you will need to create the aliases with
+- **Python 3.9+** (tested with Python 3.14)
+- **[UV](https://docs.astral.sh/uv)** - for development and building from source
+- **Java 8+** - only required for:
+  - Using Cassandra clusters
+  - Using older Scylla versions (< 6.0)
+- **Docker** (optional) - for Docker-based clusters
+- **Multiple loopback interfaces** - CCM runs nodes on 127.0.0.X addresses
+  - On Linux: Usually available by default
+  - On Mac OS X: Create aliases manually:
+    ```bash
+    sudo ifconfig lo0 alias 127.0.0.2 up
+    sudo ifconfig lo0 alias 127.0.0.3 up
+    # ... add more as needed
+    ```
 
-      sudo ifconfig lo0 alias 127.0.0.2 up
-      sudo ifconfig lo0 alias 127.0.0.3 up
-      ...
-
-  Note that the usage section assumes that at least 127.0.0.1, 127.0.0.2 and
-  127.0.0.3 are available.
-
-Known issues
+Known Issues
 ------------
 
-- this fork of ccm doesn't support Windows
+- This fork of CCM doesn't support Windows
+- Docker support is currently experimental
 
 Installation
 ------------
 
-ccm uses UV with setuptools as a build system (with distutils fallback) so from the source directory run:
+### From Source (Development)
 
-    uv python install
-    uv venv .venv-ccm
-    uv sync
+CCM uses UV with setuptools as a build system:
 
-ccm is available on the [Python Package Index][pip]:
+```bash
+# Install UV if you don't have it
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-    pip install ccm
+# Clone and install
+git clone https://github.com/scylladb/scylla-ccm.git
+cd scylla-ccm
+uv sync
 
-There is also a [Homebrew package][brew] available:
+# Run CCM directly
+./ccm --help
 
-    brew install ccm
-
-You can also use ccm trough Nix.
-
-    Spawn new temporary shell with ccm present, without installing: `nix shell github:scylladb/scylla-ccm`
-    Install ccm: `nix profile install github:scylladb/scylla-ccm`
-    To remove / update ccm installed this way, first locate it's index in `nix profile list`.
-    To remove it, use `nix profile remove <index>`.
-    To update it use `nix profile upgrade <index>` - or `nix profile upgrade '.*'` to upgrade all Nix packages.
-
-  [pip]: https://pypi.python.org/pypi/ccm
-  [brew]: https://github.com/Homebrew/homebrew/blob/master/Library/Formula/ccm.rb
-
-Nix
------------------------
-
-This project features experimental Nix flake.
-It allows ccm to be used as a dependency in other nix projects or to quickly launch a dev shell
-with all dependencies required to run and test the project.
-
-### How to setup Nix shell
-
-1. Install Nix: https://nixos.org/download.html - on Fedora you should probably use "Single-user installation",
-   as there are some problems with multi-user due to SELinux.
-2. Activate required experimental features:
-```
-mkdir -p ~/.config/nix
-echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
-```
-   If you installed Nix in multi-user mode, you will need to restart Nix daemon.
-3. First option: using direnv. Install direnv (see: https://direnv.net/docs/installation.html ), `cd` into project directory and execute `direnv allow .`.
-   Now you will have dev env activated whenever you are in a project's directory - and automatically unloaded when you leave it.
-4. Second option: use `nix develop` command directly. This command will launch a bash session with loaded dev env. If you want to use your favourite shell,
-   pass `--command <shell>` flag to `nix develop` (in my case: `nix develop --command zsh`).
-
-If you want to install ccm using Nix, or launch a temporary shell with ccm - see "Installation" section.
-
-Usage
------
-
-Let's say you wanted to fire up a 3 node Cassandra cluster.
-
-### Short version
-
-    ccm create test -v 2.0.5 -n 3 -s
-
-You will of course want to replace `2.0.5` by whichever version of Cassandra
-you want to test.
-
-### Longer version
-
-ccm works from a Cassandra source tree (not the jars). There are two ways to
-tell ccm how to find the sources:
-  1. If you have downloaded *and* compiled Cassandra sources, you can ask ccm
-     to use those by initiating a new cluster with:
-
-        ccm create test --install-dir=<path/to/cassandra-sources>
-
-     or, from that source tree directory, simply
-
-          ccm create test
-
-  2. You can ask ccm to use a released version of Cassandra. For instance to
-     use Cassandra 2.0.5, run
-
-          ccm create test -v 2.0.5
-
-     ccm will download the binary (from http://archive.apache.org/dist/cassandra),
-     and set the new cluster to use it. This means
-     that this command can take a few minutes the first time you
-     create a cluster for a given version. ccm saves the compiled
-     source in `~/.ccm/repository/`, so creating a cluster for that
-     version will be much faster the second time you run it
-     (note however that if you create a lot of clusters with
-     different versions, this will take up disk space).
-
-Once the cluster is created, you can populate it with 3 nodes with:
-
-    ccm populate -n 3
-
-Note: If you’re running on Mac OSX, create a new interface for every node besides the first, for example if you populated your cluster with 3 nodes, create interfaces for 127.0.0.2 and 127.0.0.3 like so:
-
-    sudo ifconfig lo0 alias 127.0.0.2
-    sudo ifconfig lo0 alias 127.0.0.3
-
-Otherwise you will get the following error message:
-
-    (...) Inet address 127.0.0.1:9042 is not available: [Errno 48] Address already in use
-
-After that execute:
-
-    ccm start
-
-That will start 3 nodes on IP 127.0.0.[1, 2, 3] on port 9042 for native transport, port
-7000 for the internal cluster communication and ports 7100, 7200 and 7300 for JMX.
-You can check that the cluster is correctly set up with
-
-    ccm node1 ring
-
-You can then bootstrap a 4th node with
-
-    ccm add node4 -i 127.0.0.4 -j 7400 -b
-
-(populate is just a shortcut for adding multiple nodes initially)
-
-ccm provides a number of conveniences, like flushing all of the nodes of
-the cluster:
-
-    ccm flush
-
-or only one node:
-
-    ccm node2 flush
-
-You can also easily look at the log file of a given node with:
-
-    ccm node1 showlog
-
-Finally, you can get rid of the whole cluster (which will stop the node and
-remove all the data) with
-
-    ccm remove
-
-The list of other provided commands is available through
-
-    ccm
-
-Each command is then documented through the `-h` (or `--help`) flag. For
-instance `ccm add -h` describes the options for `ccm add`.
-
-### Source Distribution
-
-If you'd like to use a source distribution instead of the default binary each time (for example, for Continuous Integration), you can prefix cassandra version with `source:`, for example:
-
-```
-ccm create test -v source:2.0.5 -n 3 -s
+# Or via UV
+uv run ccm --help
 ```
 
-### Automatic Version Fallback
+### Using Nix
 
-If 'binary:' or 'source:' are not explicitly specified in your version string, then ccm will fallback to building the requested version from git if it cannot access the apache mirrors.
+You can use CCM through Nix without installing:
 
-### Git and GitHub
+```bash
+# Spawn temporary shell with ccm
+nix shell github:scylladb/scylla-ccm
 
-To use the latest version from the [canonical Apache Git repository](https://git-wip-us.apache.org/repos/asf?p=cassandra.git), use the version name `git:branch-name`, e.g.:
+# Install ccm to your profile
+nix profile install github:scylladb/scylla-ccm
 
+# Update or remove (find index first)
+nix profile list
+nix profile upgrade <index>
+nix profile remove <index>
 ```
-ccm create trunk -v git:trunk -n 5
+
+
+Nix Development Environment
+---------------------------
+
+This project features experimental Nix flake support for reproducible development environments.
+
+### Setting up Nix
+
+1. Install Nix: https://nixos.org/download.html
+   - On Fedora, use "Single-user installation" due to SELinux compatibility
+2. Enable experimental features:
+   ```bash
+   mkdir -p ~/.config/nix
+   echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
+   ```
+   - For multi-user installations, restart the Nix daemon after this step
+
+### Using Nix Dev Environment
+
+**Option 1: Using direnv (recommended)**
+```bash
+# Install direnv (see: https://direnv.net/docs/installation.html)
+cd scylla-ccm
+direnv allow .
+# Environment loads automatically in project directory
 ```
 
-and to download a branch from a GitHub fork of Cassandra, you can prefix the repository and branch with `github:`, e.g.:
-
+**Option 2: Manual activation**
+```bash
+nix develop                     # Launches bash with dev environment
+nix develop --command zsh       # Use your preferred shell
 ```
+
+Common CCM Commands
+-------------------
+
+### Cluster Management
+```bash
+ccm create <name> [options]    # Create a new cluster
+ccm list                        # List all clusters
+ccm switch <name>               # Switch to a different cluster
+ccm status                      # Show cluster status
+ccm start                       # Start all nodes
+ccm stop                        # Stop all nodes
+ccm remove                      # Remove current cluster
+ccm clear                       # Clear cluster data but keep config
+```
+
+### Node Management
+```bash
+ccm node1 start                 # Start a specific node
+ccm node1 stop                  # Stop a specific node
+ccm node1 cqlsh                 # Connect to node with cqlsh
+ccm node1 nodetool status       # Run nodetool on a node
+ccm node1 showlog               # View node logs
+```
+
+### Advanced Operations
+```bash
+ccm flush                       # Flush all nodes
+ccm compact                     # Compact all nodes
+ccm node1 ring                  # Show ring information
+ccm add node4 -i 127.0.0.4      # Add a new node to cluster
+```
+
+For complete command reference, run `ccm --help` or `ccm <command> --help`.
+
+Working with Cassandra
+----------------------
+
+While this fork is optimized for Scylla, CCM still supports Cassandra clusters.
+
+### Using Cassandra with Version Download
+```bash
+ccm create cassandra_test -v 4.0.0 -n 3 -s
+```
+
+### Using Local Cassandra Installation
+```bash
+ccm create cassandra_test --install-dir=/path/to/cassandra -n 3 -s
+```
+
+### From Cassandra Source
+```bash
+# From Cassandra source directory after compilation
+cd /path/to/cassandra
+ccm create cassandra_test -n 3 -s
+```
+
+### Git and GitHub Sources
+```bash
+# From Apache Git repository
+ccm create trunk -v git:trunk -n 3
+
+# From GitHub fork
 ccm create patched -v github:jbellis/trunk -n 1
 ```
 
-Remote debugging
------------------------
+### Source vs Binary Distribution
+```bash
+# Force source distribution instead of binary
+ccm create test -v source:4.0.0 -n 3 -s
 
-If you would like to connect to your Cassandra nodes with a remote debugger you have to pass the `-d` (or `--debug`) flag to the populate command:
+# Note: If 'binary:' or 'source:' aren't specified, CCM will
+# fallback to building from git if Apache mirrors are unavailable
+```
 
-    ccm populate -d -n 3
+Remote Debugging
+----------------
 
-That will populate 3 nodes on IP 127.0.0.[1, 2, 3] setting up the remote debugging on ports 2100, 2200 and 2300.
-The main thread will not be suspended so you don't have to connect with a remote debugger to start a node.
+For Cassandra and older Scylla versions that use JMX, you can enable remote debugging:
 
-Alternatively you can also specify a remote port with the `-r` (or `--remote-debug-port`) flag while adding a node
+```bash
+# With populate command
+ccm populate -d -n 3
 
-    ccm add node4 -r 5005 -i 127.0.0.4 -j 7400 -b
+# Or when adding individual nodes
+ccm add node4 -r 5005 -i 127.0.0.4 -j 7400 -b
+```
 
-Where things are stored
------------------------
+This sets up remote debugging on ports 2100, 2200, 2300 for nodes 1, 2, 3 respectively.
+The main thread will not be suspended, so nodes start without requiring a debugger connection.
 
-By default, ccm stores all the node data and configuration files under `~/.ccm/cluster_name/`.
-This can be overridden using the `--config-dir` option with each command.
+Where Things Are Stored
+------------------------
 
-DataStax Enterprise
--------------------
+By default, CCM stores all node data and configuration files under `~/.ccm/cluster_name/`.
 
-CCM 2.0 supports creating and interacting with DSE clusters. The --dse
-option must be used with the `ccm create` command. See the `ccm create -h`
-help for assistance.
+For Scylla relocatable packages, downloaded packages are cached in `~/.ccm/scylla-repository/`.
 
-CCM Lib
--------
+You can override the config directory using the `--config-dir` option with each command.
 
-The ccm facilities are available programmatically through ccmlib. This could
-be used to implement automated tests again Cassandra. A simple example of
-how to use ccmlib follows:
+Using CCMLib Programmatically
+------------------------------
 
-    import ccmlib
+The CCM facilities are available programmatically through ccmlib for automated testing:
 
-    CLUSTER_PATH="."
-    cluster = ccmlib.Cluster(CLUSTER_PATH, 'test', cassandra_version='2.0.5')
-    cluster.populate(3).start()
-    [node1, node2, node3] = cluster.nodelist()
+### Scylla Example
+```python
+from ccmlib.scylla_cluster import ScyllaCluster
 
-    # do some tests on the cluster/nodes. To connect to a node through native protocol,
-    # the host and port to a node is available through
-    #   node.network_interfaces['binary]
+# Create a 3-node Scylla cluster
+cluster = ScyllaCluster('.', 'test_cluster', version='release:2024.2')
+cluster.populate(3).start()
+node1, node2, node3 = cluster.nodelist()
 
-    cluster.flush()
-    node2.compact()
+# Run operations
+cluster.flush()
+node2.compact()
 
-    # do some other tests
+# Connect to nodes via CQL (host and port available at node.network_interfaces['binary'])
+# ...
 
-    # after the test, you can leave the cluster running, you can stop all nodes
-    # using cluster.stop() but keep the data around (in CLUSTER_PATH/test), or
-    # you can remove everything with cluster.remove()
+# Cleanup
+cluster.stop()
+cluster.remove()
+```
 
+### Cassandra Example
+```python
+import ccmlib
+
+# Create a 3-node Cassandra cluster
+cluster = ccmlib.Cluster('.', 'test', cassandra_version='4.0.0')
+cluster.populate(3).start()
+node1, node2, node3 = cluster.nodelist()
+
+# Run operations
+cluster.flush()
+node2.compact()
+
+# Cleanup
+cluster.remove()
+```
 
 --
-Sylvain Lebresne <sylvain@datastax.com>
+Original Author: Sylvain Lebresne <sylvain@datastax.com>
+Scylla Fork Maintained by: ScyllaDB Team
