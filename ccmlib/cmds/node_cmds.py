@@ -6,7 +6,6 @@ import sys
 from ccmlib import common
 from ccmlib.cmds.command import Cmd
 from ccmlib.node import NodeError
-from ccmlib.utils.sni_proxy import get_cluster_info, refresh_certs, configure_sni_proxy, reload_sni_proxy
 
 
 def node_cmds():
@@ -190,8 +189,6 @@ class NodeStartCmd(Cmd):
 
     def run(self):
         try:
-            if getattr(self.cluster, 'sni_proxy_docker_ids', None):
-                self.options.wait_for_binary_proto = True
             self.node.start(not self.options.no_join_ring,
                             no_wait=self.options.no_wait,
                             wait_other_notice=self.options.wait_other_notice,
@@ -200,23 +197,6 @@ class NodeStartCmd(Cmd):
                             replace_address=self.options.replace_address,
                             jvm_args=self.options.jvm_args,
                             quiet_start=self.options.quiet_start)
-
-            if getattr(self.cluster, 'sni_proxy_docker_ids', None):
-                sni_proxy_docker_ids = self.cluster.sni_proxy_docker_ids
-                nodes_info = get_cluster_info(self.cluster, port=9142)
-                if getattr(self.cluster, 'sni_generate_ssl_automatic', False):
-                    refresh_certs(self.cluster, nodes_info)
-                listen_port = getattr(self.cluster, 'sni_proxy_listen_port', None)
-
-                nodes_info_per_dc_map = {}
-                for address, port, host_id, data_center in nodes_info:
-                    nodes_info_per_dc_map.setdefault(data_center, []).append((address, port, host_id, data_center))
-
-                for _, nodes_info_per_dc in nodes_info_per_dc_map.items():
-                    configure_sni_proxy(self.cluster.get_path(), nodes_info_per_dc, listen_port=listen_port)
-
-                for i in sni_proxy_docker_ids:
-                    reload_sni_proxy(self.cluster.sni_proxy_docker_ids[i])
 
         except NodeError as e:
             print(str(e), file=sys.stderr)

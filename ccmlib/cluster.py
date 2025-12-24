@@ -692,10 +692,6 @@ class Cluster(object):
                 'id': self.id,
                 'ipprefix': self.ipprefix
             }
-        if getattr(self, 'sni_proxy_docker_ids', None):
-            cluster_config['sni_proxy_docker_ids'] = self.sni_proxy_docker_ids
-        if getattr(self, 'sni_proxy_listen_port', None):
-            cluster_config['sni_proxy_listen_port'] = self.sni_proxy_listen_port
 
         with open(filename, 'w') as f:
             YAML().dump(cluster_config, f)
