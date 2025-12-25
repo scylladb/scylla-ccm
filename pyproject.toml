@@ -33,17 +33,12 @@ dev = [
   "awscli"
 ]
 [tool.setuptools]
+packages = ["ccmlib", "ccmlib.cmds", "ccmlib.utils", "ccmlib.bin"]
 include-package-data = false
-
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["ccmlib*"]
-exclude = ["ccmlib.resources*", "ccmlib.scylla_test_ssl"]
 
 [tool.setuptools.package-data]
 ccmlib = [
     "resources/bin/*.sh",
-    "resources/docker/sniproxy/*",
     "scylla_test_ssl/scylla-manager-agent.key",
     "scylla_test_ssl/scylla-manager-agent.crt"
 ]
