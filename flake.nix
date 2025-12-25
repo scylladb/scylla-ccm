@@ -16,6 +16,7 @@ localhost.";
         format = "pyproject";
         src = ./. ;
 
+        nativeBuildInputs = with python.pkgs; [ setuptools ];
         checkInputs = with python.pkgs; [ pytestCheckHook ];
         buildInputs = [ pkgs.makeWrapper ];
         propagatedBuildInputs =  [ (prepare_python_requirements python) jdk];
