@@ -113,6 +113,31 @@ The CI runs on push/PR to `master` and `next*` branches:
 - Use type hints where present in existing code
 - Keep imports organized (standard library, third-party, local)
 
+### Test Style Guidelines
+
+When writing tests, follow pytest best practices:
+- Use **function-based tests** (not class-based) with fixtures
+- Create **reusable fixtures** to minimize code duplication between tests
+- Use **pytest.fixture** decorator for setup/teardown and shared test data
+- Use **parametrize** when testing multiple similar cases
+- Prefer pytest fixtures over manual setup/teardown in try/finally blocks
+
+Example:
+```python
+@pytest.fixture
+def mock_cluster():
+    """Create a minimal cluster instance with mocked methods."""
+    cluster = object.__new__(Cluster)
+    cluster.name = 'test_cluster'
+    # ... setup code ...
+    return cluster
+
+def test_add_node(mock_cluster):
+    """Test adding a node to the cluster."""
+    # Test code using the fixture
+    pass
+```
+
 ## Common Issues and Workarounds
 
 1. **Test failures on first run**: Tests download Scylla binaries to `~/.ccm/scylla-repository/`. This can take several minutes.
