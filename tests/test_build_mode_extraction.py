@@ -76,34 +76,32 @@ def test_scylla_cluster_init_extracts_mode_from_install_dir(tmp_path):
         f"Expected timeout 900 for debug mode, got {cluster.default_wait_for_binary_proto}"
 
 
-def test_scylla_cluster_timeout_settings(tmp_path):
+@pytest.mark.parametrize('mode,expected_notice_timeout,expected_binary_timeout', [
+    ('debug', 600, 900),
+    ('release', 120, 420),
+    ('dev', 120, 420),
+])
+def test_scylla_cluster_timeout_settings(tmp_path, mode, expected_notice_timeout, expected_binary_timeout):
     """Test that timeouts are correctly set based on build mode."""
     
-    test_cases = [
-        ('debug', 600, 900),
-        ('release', 120, 420),
-        ('dev', 120, 420),
-    ]
+    install_dir = tmp_path / f"scylla-install-{mode}"
+    core_package_dir = install_dir / CORE_PACKAGE_DIR_NAME
+    core_package_dir.mkdir(parents=True, exist_ok=True)
     
-    for mode, expected_notice_timeout, expected_binary_timeout in test_cases:
-        install_dir = tmp_path / f"scylla-install-{mode}"
-        core_package_dir = install_dir / CORE_PACKAGE_DIR_NAME
-        core_package_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Create source file with appropriate mode
-        source_file = core_package_dir / SOURCE_FILE_NAME
-        mode_suffix = f'-{mode}' if mode != 'release' else ''
-        source_file.write_text(f"url=https://downloads.scylla.com/relocatable/unstable/master/202001192256/scylla{mode_suffix}-package.tar.gz\n")
-        
-        # Extract mode
-        _, extracted_mode = scylla_extract_install_dir_and_mode(str(install_dir))
-        assert extracted_mode == mode, f"Expected mode '{mode}', got '{extracted_mode}'"
-        
-        # Test timeout calculation
-        notice_timeout = 120 if extracted_mode != 'debug' else 600
-        binary_timeout = 420 if extracted_mode != 'debug' else 900
-        
-        assert notice_timeout == expected_notice_timeout, \
-            f"For mode '{mode}', expected notice timeout {expected_notice_timeout}, got {notice_timeout}"
-        assert binary_timeout == expected_binary_timeout, \
-            f"For mode '{mode}', expected binary timeout {expected_binary_timeout}, got {binary_timeout}"
+    # Create source file with appropriate mode
+    source_file = core_package_dir / SOURCE_FILE_NAME
+    mode_suffix = f'-{mode}' if mode != 'release' else ''
+    source_file.write_text(f"url=https://downloads.scylla.com/relocatable/unstable/master/202001192256/scylla{mode_suffix}-package.tar.gz\n")
+    
+    # Extract mode
+    _, extracted_mode = scylla_extract_install_dir_and_mode(str(install_dir))
+    assert extracted_mode == mode, f"Expected mode '{mode}', got '{extracted_mode}'"
+    
+    # Test timeout calculation
+    notice_timeout = 120 if extracted_mode != 'debug' else 600
+    binary_timeout = 420 if extracted_mode != 'debug' else 900
+    
+    assert notice_timeout == expected_notice_timeout, \
+        f"For mode '{mode}', expected notice timeout {expected_notice_timeout}, got {notice_timeout}"
+    assert binary_timeout == expected_binary_timeout, \
+        f"For mode '{mode}', expected binary timeout {expected_binary_timeout}, got {binary_timeout}"
