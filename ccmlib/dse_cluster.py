@@ -3,6 +3,7 @@ import os
 import shutil
 import signal
 import subprocess
+import warnings
 
 
 from ccmlib import common, repository
@@ -28,8 +29,10 @@ class DseCluster(Cluster):
     def hasOpscenter(self):
         return os.path.exists(os.path.join(self.get_path(), 'opscenter'))
 
-    def create_node(self, name, auto_bootstrap, thrift_interface, storage_interface, jmx_port, remote_debug_port, initial_token, save=True, binary_interface=None):
-        return DseNode(name, self, auto_bootstrap, None, storage_interface, jmx_port, remote_debug_port, initial_token, save, binary_interface)
+    def create_node(self, name, auto_bootstrap, storage_interface, jmx_port, remote_debug_port, initial_token, save=True, binary_interface=None, thrift_interface=None):
+        if thrift_interface is not None:
+            warnings.warn("thrift_interface is deprecated and will be removed in a future version", DeprecationWarning, stacklevel=2)
+        return DseNode(name, self, auto_bootstrap, storage_interface, jmx_port, remote_debug_port, initial_token, save, binary_interface)
 
     def start(self, no_wait=False, verbose=False, wait_for_binary_proto=False, wait_other_notice=False, jvm_args=None, profile_options=None, quiet_start=False):
         if jvm_args is None:

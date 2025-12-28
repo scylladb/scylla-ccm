@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import threading
 import time
+import warnings
 from collections import OrderedDict, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Tuple
@@ -339,7 +340,6 @@ class Cluster(object):
         binary = self.get_binary_interface(i)
         node = self.create_node(name=f'node{i}',
                                 auto_bootstrap=auto_bootstrap,
-                                thrift_interface=None,
                                 storage_interface=self.get_storage_interface(i),
                                 jmx_port=str(self.get_node_jmx_port(i)),
                                 remote_debug_port=str(self.get_debug_port(i) if debug else 0),
@@ -349,8 +349,10 @@ class Cluster(object):
             self.add(node, is_seed=is_seed, data_center=data_center, rack=rack)
         return node
 
-    def create_node(self, name, auto_bootstrap, thrift_interface, storage_interface, jmx_port, remote_debug_port, initial_token, save=True, binary_interface=None):
-        return Node(name, self, auto_bootstrap, None, storage_interface, jmx_port, remote_debug_port, initial_token, save, binary_interface)
+    def create_node(self, name, auto_bootstrap, storage_interface, jmx_port, remote_debug_port, initial_token, save=True, binary_interface=None, thrift_interface=None):
+        if thrift_interface is not None:
+            warnings.warn("thrift_interface is deprecated and will be removed in a future version", DeprecationWarning, stacklevel=2)
+        return Node(name, self, auto_bootstrap, storage_interface, jmx_port, remote_debug_port, initial_token, save, binary_interface)
 
     def get_ipprefix(self):
         return self.ipprefix or '127.0.0.'
@@ -363,9 +365,6 @@ class Cluster(object):
 
     def get_binary_interface(self, nodeid):
         return (self.get_node_ip(nodeid), 9042)
-
-    def get_thrift_interface(self, nodeid):
-        raise NotImplementedError('thrift not supported')
 
     def get_storage_interface(self, nodeid):
         return (self.get_node_ip(nodeid), 7000)

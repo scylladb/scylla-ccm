@@ -92,19 +92,19 @@ class Node(object):
     Provides interactions to a Cassandra node.
     """
 
-    def __init__(self, name, cluster, auto_bootstrap, thrift_interface, storage_interface, jmx_port, remote_debug_port, initial_token, save=True, binary_interface=None):
+    def __init__(self, name, cluster, auto_bootstrap, storage_interface, jmx_port, remote_debug_port, initial_token, save=True, binary_interface=None, thrift_interface=None):
         """
         Create a new Node.
           - name: the name for that node
           - cluster: the cluster this node is part of
           - auto_bootstrap: whether or not this node should be set for auto-bootstrap
-          - thrift_interface: the (host, port) tuple for thrift
           - storage_interface: the (host, port) tuple for internal cluster communication
           - jmx_port: the port for JMX to bind to
           - remote_debug_port: the port for remote debugging
           - initial_token: the token for this node. If None, use Cassandra token auto-assignment
           - save: copy all data useful for this node to the right position.  Leaving this true
             is almost always the right choice.
+          - thrift_interface: deprecated, unused
         """
         self.name = name
         self.node_hostid = None
@@ -155,7 +155,7 @@ class Node(object):
             binary_interface = None
             if 'binary' in itf and itf['binary'] is not None:
                 binary_interface = tuple(itf['binary'])
-            node = cluster.create_node(data['name'], data['auto_bootstrap'], None, tuple(itf['storage']), data[
+            node = cluster.create_node(data['name'], data['auto_bootstrap'], tuple(itf['storage']), data[
                                        'jmx_port'], remote_debug_port, initial_token, save=False, binary_interface=binary_interface)
             node.status = data['status']
             if 'pid' in data:
