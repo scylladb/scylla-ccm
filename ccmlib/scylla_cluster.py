@@ -33,7 +33,12 @@ class ScyllaCluster(Cluster):
 
         if cassandra_version:
             self.scylla_reloc = True
-            self.scylla_mode = None
+            # If install_dir is provided (e.g., when loading from disk), extract the mode from it
+            # Otherwise, it will be set later in load_from_repository
+            if install_dir:
+                _, self.scylla_mode = install_func(install_dir)
+            else:
+                self.scylla_mode = None
         elif docker_image:
             self.scylla_reloc = False
             self.scylla_mode = None
@@ -43,18 +48,19 @@ class ScyllaCluster(Cluster):
 
         self.started = False
         self.force_wait_for_cluster_start = force_wait_for_cluster_start
-        self.__set_default_timeouts()
         self._scylla_manager = None
         self.skip_manager_server = skip_manager_server
         self.scylla_version = cassandra_version
-
-        self.debug(f"ScyllaCluster: cassandra_version={cassandra_version} docker_image={docker_image} install_dir={install_dir} scylla_mode={self.scylla_mode} default_wait_other_notice_timeout={self.default_wait_other_notice_timeout} default_wait_for_binary_proto={self.default_wait_for_binary_proto}")
 
         super(ScyllaCluster, self).__init__(path, name, partitioner,
                                             install_dir, create_directory,
                                             version, verbose,
                                             snitch=SNITCH, cassandra_version=cassandra_version,
                                             docker_image=docker_image)
+
+        # Set timeouts after parent init, as scylla_mode may be set in load_from_repository
+        self.__set_default_timeouts()
+        self.debug(f"ScyllaCluster: cassandra_version={cassandra_version} docker_image={docker_image} install_dir={install_dir} scylla_mode={self.scylla_mode} default_wait_other_notice_timeout={self.default_wait_other_notice_timeout} default_wait_for_binary_proto={self.default_wait_for_binary_proto}")
 
         if not manager:
             scylla_ext_opts = os.getenv('SCYLLA_EXT_OPTS', "").split()
