@@ -9,7 +9,17 @@ localhost.";
 
   outputs = { self, nixpkgs, flake-utils }:
     let
-      prepare_python_requirements = python: python.withPackages (ps: with ps; [ pytest ruamel-yaml psutil six requests packaging boto3 tqdm setuptools ]);
+      prepare_python_requirements = python: python.withPackages (ps: with ps; [
+        pytest
+        ruamel-yaml
+        psutil
+        six
+        requests
+        packaging
+        boto3
+        tqdm
+        setuptools
+      ]);
       make_ccm_package = {python, jdk, pkgs}: python.pkgs.buildPythonApplication {
         pname = "scylla_ccm";
         version = "0.1";
@@ -33,7 +43,7 @@ localhost.";
       };
     in
     flake-utils.lib.eachDefaultSystem (system:
-      let 
+      let
         pkgs = nixpkgs.legacyPackages.${system};
       in
       rec {
