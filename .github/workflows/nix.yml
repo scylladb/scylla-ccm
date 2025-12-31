@@ -41,9 +41,9 @@ jobs:
         nix develop --command ./ccm create temp-cas -n 1 --version 3.11.4 > /dev/null
         nix develop --command ./ccm remove
 
-    - name: Test with pytest (python 3.11)
+    - name: Test with pytest (python 3.13)
       run: |
-        nix develop --command python3.11 -m pytest ./tests -x -W ignore
+        nix develop --command python3.13 -m pytest ./tests -x -W ignore
 
     - name: Verify that installation with Nix works
       run: |

@@ -49,11 +49,11 @@ localhost.";
       rec {
         packages = rec {
           scylla_ccm = python: make_ccm_package { inherit python pkgs ; jdk = pkgs.jdk11; };
-          default = scylla_ccm pkgs.python311;
+          default = scylla_ccm pkgs.python313;
         };
         devShell =
           pkgs.mkShell {
-            buildInputs = [ pkgs.poetry pkgs.glibcLocales (prepare_python_requirements pkgs.python311) pkgs.jdk11];
+            buildInputs = [ pkgs.poetry pkgs.glibcLocales (prepare_python_requirements pkgs.python313) pkgs.jdk11];
             shellHook = ''
               set JAVA_HOME ${pkgs.jdk11}
             '';
