@@ -1,5 +1,8 @@
 name: CCM Integration tests
 
+permissions:
+  contents: read
+
 on:
   workflow_call:
     inputs:
