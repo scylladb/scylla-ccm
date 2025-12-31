@@ -53,7 +53,7 @@ localhost.";
         };
         devShell =
           pkgs.mkShell {
-            buildInputs = [ pkgs.poetry pkgs.glibcLocales (prepare_python_requirements pkgs.python39) (prepare_python_requirements pkgs.python311) pkgs.jdk11];
+            buildInputs = [ pkgs.poetry pkgs.glibcLocales (prepare_python_requirements pkgs.python311) pkgs.jdk11];
             shellHook = ''
               set JAVA_HOME ${pkgs.jdk11}
             '';
