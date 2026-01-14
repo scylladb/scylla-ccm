@@ -392,18 +392,26 @@ def make_cassandra_env(install_dir, node_path, update_conf=True, hardcode_java_v
             '8': ['1.8', '8'],
             '11': ['11']
         }
-        jvm_root_path = "/usr/lib/jvm/"
-        assert hardcode_java_version in known_jvm_names, \
-            f"hardcode_java_version={hardcode_java_version} not supported in:\n{known_jvm_names}"
+        if env.get('CUSTOM_JAVA_HOME') is None:
+            jvm_root_path = "/usr/lib/jvm/"
+            assert hardcode_java_version in known_jvm_names, \
+                f"hardcode_java_version={hardcode_java_version} not supported in:\n{known_jvm_names}"
 
-        java_home_path = get_java_home_path(pathlib.Path(jvm_root_path), known_jvm_names[hardcode_java_version])
-        if java_home_path is None:
-            raise ArgumentError(f"java-{hardcode_java_version} wasn't found in {jvm_root_path}")
+            java_home_path = get_java_home_path(pathlib.Path(jvm_root_path), known_jvm_names[hardcode_java_version])
+            if java_home_path is None:
+                raise ArgumentError(f"java-{hardcode_java_version} wasn't found in {jvm_root_path}")
 
-        env['JAVA_HOME'] = str(java_home_path.as_posix())
+            env['JAVA_HOME'] = str(java_home_path.as_posix())
+        else:
+            env['JAVA_HOME'] = env['CUSTOM_JAVA_HOME']
+            version = get_jvm_spec_version(pathlib.Path(env['JAVA_HOME']) / 'bin' / 'java')
+            if version is None:
+                raise ArgumentError(f"Couldn't determine java version from JAVA_HOME: {env['JAVA_HOME']}")
+            if version not in known_jvm_names[hardcode_java_version]:
+                raise ArgumentError(f"Provided JAVA_HOME ({env['JAVA_HOME']}) is set to java with version {version}, expected one of {known_jvm_names[hardcode_java_version]}")
     return env
 
-def get_java_home_path(parent_path: pathlib.Path, hardcode_java_version: List[str]) -> [pathlib.Path]:
+def get_java_home_path(parent_path: pathlib.Path, hardcode_java_version: List[str]) -> Optional[pathlib.Path]:
     for java in pathlib.Path(parent_path).rglob('*/bin/java'):
         if get_jvm_spec_version(java) in hardcode_java_version:
             return java.parent.parent

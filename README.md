@@ -141,6 +141,10 @@ Requirements
     # ... add more as needed
     ```
 
+By default ccm will look for Java in `/usr/lib/jvm` directory. If you have a custom Java installation directory,
+you can provide `CUSTOM_JAVA_HOME` env variable. When this environment, ccm will assume Java binary is available
+under `$CUSTOM_JAVA_HOME/bin/java` path.  
+
 Known Issues
 ------------
 
