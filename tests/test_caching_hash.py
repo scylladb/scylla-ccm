@@ -9,13 +9,10 @@ correctly with local files. The tests cover:
 4. Re-download when hash changes
 """
 import os
-import tempfile
-import time
 from pathlib import Path
-from unittest.mock import patch, MagicMock, Mock
+from unittest.mock import patch, MagicMock
 
 import pytest
-import requests
 import botocore
 
 from ccmlib.utils.download import get_url_hash, save_source_file
