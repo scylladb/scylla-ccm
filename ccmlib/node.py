@@ -363,11 +363,17 @@ class Node(object):
         except Exception:
             raise
 
-    def grep_log(self, expr, filter_expr=None, filename='system.log', from_mark=None):
+    def grep_log(self, expr, filter_expr=None, filename='system.log', from_mark=None, max_matches=None):
         """
         Returns a list of lines matching the regular expression in parameter
-        in the Cassandra log of this node
+        in the Cassandra log of this node.
+        
+        The max_matches parameter limits the number of matches to collect.
+        Default is from DTEST_MAX_LOG_MATCHES env var (1000). Set to 0 for unlimited.
         """
+        if max_matches is None:
+            max_matches = int(os.environ.get('DTEST_MAX_LOG_MATCHES', '1000'))
+        
         matchings = []
         pattern = re.compile(expr)
         if filter_expr:
@@ -381,12 +387,16 @@ class Node(object):
                 m = pattern.search(line)
                 if m and not (filter_pattern and re.search(filter_pattern, line)):
                     matchings.append((line, m))
+                    if max_matches > 0 and len(matchings) >= max_matches:
+                        break
         return matchings
 
-    def grep_log_for_errors(self, filename='system.log', distinct_errors=False, search_str=None, case_sensitive=True, from_mark=None):
+    def grep_log_for_errors(self, filename='system.log', distinct_errors=False, search_str=None, case_sensitive=True, from_mark=None, max_matches=None):
         """
-        Returns a list of errors with stack traces
-        in the Cassandra log of this node
+        Returns a list of errors with stack traces in the Cassandra log of this node.
+        
+        The max_matches parameter limits the number of error matches to collect.
+        Default is from DTEST_MAX_LOG_MATCHES env var (1000). Set to 0 for unlimited.
         """
         if search_str:
             search_str = search_str if case_sensitive else search_str.lower()
@@ -401,7 +411,7 @@ class Node(object):
         with open(log_file) as f:
             if from_mark:
                 f.seek(from_mark)
-            return _grep_log_for_errors(f.read(), distinct_errors=distinct_errors, search_str=search_str, case_sensitive=case_sensitive)
+            return _grep_log_for_errors(f.read(), distinct_errors=distinct_errors, search_str=search_str, case_sensitive=case_sensitive, max_matches=max_matches)
 
     def mark_log_for_errors(self, filename='system.log'):
         """
@@ -2100,7 +2110,16 @@ def _get_row_cache_entries_from_info_output(info):
     return int(row_cache_line[4])
 
 
-def _grep_log_for_errors(log, distinct_errors=False, search_str=None, case_sensitive=True):
+def _grep_log_for_errors(log, distinct_errors=False, search_str=None, case_sensitive=True, max_matches=None):
+    """
+    Helper function to parse log content for errors.
+    
+    The max_matches parameter limits the number of error matches to collect.
+    Default is from DTEST_MAX_LOG_MATCHES env var (1000). Set to 0 for unlimited.
+    """
+    if max_matches is None:
+        max_matches = int(os.environ.get('DTEST_MAX_LOG_MATCHES', '1000'))
+    
     def make_pat_for_log_level(level):
         kwargs = {} if case_sensitive else {'flags': re.IGNORECASE}
         return re.compile(rf'\b{level}\b', **kwargs)
@@ -2127,6 +2146,10 @@ def _grep_log_for_errors(log, distinct_errors=False, search_str=None, case_sensi
                         matchings[-1].append(next(it))
                 except StopIteration:
                     break
+            # Check limit after collecting complete error with stack traces
+            # This ensures we collect complete error messages, not partial ones
+            if max_matches > 0 and len(matchings) >= max_matches:
+                break
     if distinct_errors:
         matchings = list(set(matchings))
     return matchings
