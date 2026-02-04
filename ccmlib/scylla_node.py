@@ -701,19 +701,21 @@ class ScyllaNode(Node):
         if not self._mem_mb_set_during_test and '--memory' in cmd_args:
             self._memory = self.parse_size(cmd_args['--memory'][0])
 
+        # use '--smp' in jvm_args if was not set by the test
+        if not self._smp_set_during_test and '--smp' in cmd_args:
+            self._smp = int(cmd_args['--smp'][0])
+
         ext_args = env_args
         ext_args.update(cmd_args)
         for k, v in ext_args.items():
-            if k == '--smp':
-                # get smp from args if not set by the test
-                if not self._smp_set_during_test:
-                    self._smp = int(v[0])
-            elif k != '--memory':
-                if v and all(v):
-                    for val in v:
-                        args += [k, val]
-                else:
-                    args.append(k)
+            if k in ('--memory', '--smp'):
+                continue
+
+            if v and all(v):
+                for val in v:
+                    args += [k, val]
+            else:
+                args.append(k)
 
         args.extend(translated_args)
 
