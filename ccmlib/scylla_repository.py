@@ -37,6 +37,7 @@ RELOCATABLE_URLS_BASE = ['https://s3.amazonaws.com/downloads.scylladb.com/unstab
                          'https://s3.amazonaws.com/downloads.scylladb.com/enterprise/relocatable/unstable/{0}/{1}']
 RELEASE_RELOCATABLE_URLS_BASE = ['https://s3.amazonaws.com/downloads.scylladb.com/downloads/scylla/relocatable/scylladb-{1}',
                                  'https://s3.amazonaws.com/downloads.scylladb.com/downloads/scylla-enterprise/relocatable/scylladb-{1}']
+HOTFIX_RELOCATABLE_URLS_BASE = ['https://s3.amazonaws.com/downloads.scylladb.com/hotfix/{0}/relocatable/{1}']
 
 
 def run(cmd, cwd=None):
@@ -284,8 +285,11 @@ def setup(version, verbose=True, skip_downloads=False):
 
             packages, type_n_version[1] = release_packages(s3_url=s3_url, version=s3_version, arch=scylla_arch, scylla_product=scylla_product + scylla_mode_suffix)
         else:
-            _, branch = type_n_version[0].split("/")
-            s3_url = get_relocatable_s3_url(branch, s3_version, RELOCATABLE_URLS_BASE)
+            type_prefix, branch = type_n_version[0].split("/", 1)
+            if type_prefix == 'hotfix':
+                s3_url = get_relocatable_s3_url(branch, s3_version, HOTFIX_RELOCATABLE_URLS_BASE)
+            else:
+                s3_url = get_relocatable_s3_url(branch, s3_version, RELOCATABLE_URLS_BASE)
 
             try:
                 build_manifest = read_build_manifest(s3_url)
