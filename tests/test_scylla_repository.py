@@ -145,6 +145,17 @@ class TestScyllaRepositoryRelease:
         assert re.sub(":", "_", expected_cdir) in cdir
         assert packages.scylla_unified_package == f'http://s3.amazonaws.com/downloads.scylladb.com/unstable/scylla-enterprise/enterprise/relocatable/{expected_cdir}/scylla-enterprise{"-debug" if scylla_debug else ""}-unified-2023.3.0~dev-0.20230910.4629201aceec.x86_64.tar.gz'
 
+@pytest.mark.repo_tests
+class TestScyllaRepositoryHotfix:
+    @pytest.mark.parametrize(argnames=['version', 'expected_cdir'], argvalues=[
+        ("hotfix/privateLinkTest.v.0.0.12:2026-01-30T23:27:33Z", "hotfix/privateLinkTest.v.0.0.12/2026-01-30T23_27_33Z"),
+    ])
+    def test_setup_hotfix(self, version, expected_cdir):
+        cdir, packages = scylla_setup(version=version, verbose=True, skip_downloads=True)
+        assert expected_cdir in cdir
+        assert packages.scylla_unified_package or packages.scylla_package
+
+
 class TestReinstallPackages:
     @staticmethod
     def corrupt_hash_value(source_file):
