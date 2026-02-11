@@ -2685,6 +2685,11 @@ class TestCpuPinning:
         cluster.inter_rack_delay_ms = 1
         cluster.inter_dc_delay_ms = 40
         cluster.packet_loss_percent = 0.0
+        cluster.monitoring_enabled = False
+        cluster.monitoring_dir = None
+        cluster.grafana_port = 3000
+        cluster.prometheus_port = 9090
+        cluster.alertmanager_port = 9093
 
         monkeypatch.setattr(cluster, "get_path", lambda: str(tmp_path))
 
@@ -2718,6 +2723,11 @@ class TestCpuPinning:
         cluster.inter_rack_delay_ms = 1
         cluster.inter_dc_delay_ms = 40
         cluster.packet_loss_percent = 0.0
+        cluster.monitoring_enabled = False
+        cluster.monitoring_dir = None
+        cluster.grafana_port = 3000
+        cluster.prometheus_port = 9090
+        cluster.alertmanager_port = 9093
 
         monkeypatch.setattr(cluster, "get_path", lambda: str(tmp_path))
 
