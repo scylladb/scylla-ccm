@@ -812,6 +812,8 @@ class ScyllaNode(Node):
 
         if self.scylla_manager and self.scylla_manager.is_agent_available:
             self.start_scylla_manager_agent()
+
+        self.cluster._notify_topology_change()
         return scylla_process
 
     def start_dse(self,
@@ -1054,6 +1056,7 @@ class ScyllaNode(Node):
         if wait or wait_other_notice:
             self.wait_until_stopped(wait_seconds, marks, dump_core=gently)
 
+        self.cluster._notify_topology_change()
         return was_running
 
     def import_config_files(self):

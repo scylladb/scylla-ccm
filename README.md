@@ -131,7 +131,7 @@ Requirements
 - **Java 8+** - only required for:
   - Using Cassandra clusters
   - Using older Scylla versions (< 6.0)
-- **Docker** (optional) - for Docker-based clusters
+- **Docker** (optional) - for Docker-based clusters and [integrated monitoring](docs/monitoring.md)
 - **Multiple loopback interfaces** - CCM runs nodes on 127.0.0.X addresses
   - On Linux: Usually available by default
   - On Mac OS X: Create aliases manually:
@@ -143,7 +143,17 @@ Requirements
 
 By default ccm will look for Java in `/usr/lib/jvm` directory. If you have a custom Java installation directory,
 you can provide `CUSTOM_JAVA_HOME` env variable. When this environment, ccm will assume Java binary is available
-under `$CUSTOM_JAVA_HOME/bin/java` path.  
+under `$CUSTOM_JAVA_HOME/bin/java` path.
+
+### Environment Variables
+
+| Variable | Description |
+|---|---|
+| `CCM_MONITORING` | When non-empty and not `0`, enable automatic monitoring for all newly created clusters (same as `--monitoring`). |
+| `SCYLLA_MONITORING_DIR` | Path to the [scylla-monitoring](https://github.com/scylladb/scylla-monitoring) checkout. Used as default for `--monitoring-dir`. |
+| `CUSTOM_JAVA_HOME` | Custom Java installation directory. |
+| `SCYLLA_EXT_OPTS` | Extra Scylla command-line options passed to every node. |
+| `SCYLLA_EXT_ENV` | Extra environment variables for Scylla processes. |
 
 Known Issues
 ------------
@@ -237,6 +247,7 @@ ccm start                       # Start all nodes
 ccm stop                        # Stop all nodes
 ccm remove                      # Remove current cluster
 ccm clear                       # Clear cluster data but keep config
+ccm monitoring <subcmd>         # Manage monitoring stack (start/stop/enable/disable/sync/status)
 ```
 
 ### Node Management
@@ -257,6 +268,42 @@ ccm add node4 -i 127.0.0.4      # Add a new node to cluster
 ```
 
 For complete command reference, run `ccm --help` or `ccm <command> --help`.
+
+Integrated Monitoring
+---------------------
+
+CCM can start and maintain a [scylla-monitoring](https://github.com/scylladb/scylla-monitoring) stack
+(Prometheus + Grafana) alongside your cluster. See [docs/monitoring.md](docs/monitoring.md) for full details.
+
+### Quick start — automatic mode
+```bash
+# Create a cluster with monitoring enabled
+ccm create mycluster --scylla -n 3 -v release:2024.2 --monitoring --monitoring-dir=/path/to/scylla-monitoring -s
+
+# Monitoring is now running and auto-updates on topology changes
+ccm monitoring status
+# Grafana:    http://localhost:3000
+# Prometheus: http://localhost:9090
+
+ccm add node4 --scylla   # targets updated automatically
+ccm stop                  # monitoring stops automatically
+```
+
+### Quick start — environment variable
+```bash
+# Enable monitoring for all new clusters without passing --monitoring every time
+export CCM_MONITORING=1
+ccm create mycluster --scylla -n 3 -v release:2024.2 -s
+```
+
+### Quick start — manual mode
+```bash
+ccm create mycluster --scylla -n 3 -v release:2024.2 -s
+ccm monitoring start --monitoring-dir=/path/to/scylla-monitoring
+ccm add node4 --scylla
+ccm monitoring sync      # manually refresh targets
+ccm monitoring stop
+```
 
 Working with Cassandra
 ----------------------

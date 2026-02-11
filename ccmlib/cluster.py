@@ -41,6 +41,18 @@ class Cluster(object):
         self._debug = []
         self._trace = []
 
+        # Monitoring stack integration.
+        # CCM_MONITORING env var: when non-empty and not '0', enables automatic
+        # monitoring for all newly created clusters (equivalent to --monitoring).
+        # See docs/monitoring.md for details.
+        ccm_monitoring = os.environ.get('CCM_MONITORING', '')
+        self.monitoring_enabled = bool(ccm_monitoring and ccm_monitoring != '0')
+        self.monitoring_stack = None  # runtime only, not persisted
+        self.monitoring_dir = None
+        self.grafana_port = 3000
+        self.prometheus_port = 9090
+        self.alertmanager_port = 9093
+
         if self.name.lower() == "current":
             raise RuntimeError("Cannot name a cluster 'current'.")
 
@@ -226,6 +238,17 @@ class Cluster(object):
     def cassandra_version(self):
         return self.version()
 
+    def _notify_topology_change(self):
+        """Called after any operation that changes which nodes are UP.
+
+        Only updates targets if automatic monitoring is enabled AND running.
+        """
+        if self.monitoring_enabled and self.monitoring_stack and self.monitoring_stack.is_running():
+            try:
+                self.monitoring_stack.update_targets()
+            except Exception as e:
+                self.warning(f"Failed to update monitoring targets: {e}")
+
     def add(self, node: ScyllaNode, is_seed, data_center=None, rack=None):
         if node.name in self.nodes:
             raise common.ArgumentError(f'Cannot create existing node {node.name}')
@@ -233,7 +256,7 @@ class Cluster(object):
         if is_seed:
             self.seeds.append(node)
         self._update_config()
-        
+
         # If data_center is not specified, infer it from existing nodes
         if data_center is None and len(self.nodes) > 1:
             # Get datacenter from the first existing node (excluding the one we just added)
@@ -243,7 +266,7 @@ class Cluster(object):
                     if rack is None and existing_node.rack is not None:
                         rack = existing_node.rack
                     break
-        
+
         node.data_center = data_center
         node.rack = rack
         node.set_log_level(self.__log_level)
@@ -257,6 +280,7 @@ class Cluster(object):
             self.debug(f"{node.name}: data_center={node.data_center} rack={node.rack} snitch={self.snitch}")
             self.__update_topology_files()
         node._save()
+        self._notify_topology_change()
         return self
 
     # nodes can be provided in multiple notations, determining the cluster topology:
@@ -420,6 +444,7 @@ class Cluster(object):
                 self.seeds.remove(node)
             self._update_config()
             node.stop(gently=False, wait_other_notice=wait_other_notice, other_nodes=other_nodes)
+            self._notify_topology_change()
         else:
             self.stop(gently=False, wait_other_notice=wait_other_notice, other_nodes=other_nodes)
 
@@ -700,7 +725,12 @@ class Cluster(object):
                 'log_level': self.__log_level,
                 'use_vnodes': self.use_vnodes,
                 'id': self.id,
-                'ipprefix': self.ipprefix
+                'ipprefix': self.ipprefix,
+                'monitoring_enabled': self.monitoring_enabled,
+                'monitoring_dir': self.monitoring_dir,
+                'grafana_port': self.grafana_port,
+                'prometheus_port': self.prometheus_port,
+                'alertmanager_port': self.alertmanager_port,
             }
 
         with open(filename, 'w') as f:

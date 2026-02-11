@@ -55,6 +55,17 @@ class ClusterFactory():
             if 'ipprefix' in data:
                 cluster.ipprefix = data['ipprefix']
 
+            # Restore monitoring settings
+            if 'monitoring_enabled' in data:
+                cluster.monitoring_enabled = data['monitoring_enabled']
+            if 'monitoring_dir' in data:
+                cluster.monitoring_dir = data['monitoring_dir']
+            if 'grafana_port' in data:
+                cluster.grafana_port = data['grafana_port']
+            if 'prometheus_port' in data:
+                cluster.prometheus_port = data['prometheus_port']
+            if 'alertmanager_port' in data:
+                cluster.alertmanager_port = data['alertmanager_port']
 
         except KeyError as k:
             raise common.LoadError("Error Loading " + filename + ", missing property:" + str(k))

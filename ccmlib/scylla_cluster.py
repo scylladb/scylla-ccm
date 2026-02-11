@@ -16,6 +16,7 @@ from ccmlib.cluster import Cluster
 from ccmlib.scylla_node import ScyllaNode
 from ccmlib.node import NodeError
 from ccmlib import scylla_repository
+from ccmlib.scylla_monitoring import MonitoringStack, _resolve_monitoring_dir
 from ccmlib.utils.version import ComparableScyllaVersion
 
 SNITCH = 'org.apache.cassandra.locator.GossipingPropertyFileSnitch'
@@ -174,6 +175,33 @@ class ScyllaCluster(Cluster):
 
         return started
 
+    def _ensure_monitoring_started(self):
+        """Start monitoring if enabled but not yet running. Blocks until ready.
+
+        Called automatically from start() when monitoring_enabled is True.
+        In automatic mode, failures are logged as warnings but do not prevent
+        the cluster from starting. See docs/monitoring.md for details.
+        """
+        if not self.monitoring_enabled:
+            return
+        if self.monitoring_stack and self.monitoring_stack.is_running():
+            return
+        monitoring_dir = _resolve_monitoring_dir(self.monitoring_dir)
+        if not monitoring_dir:
+            warnings.warn("monitoring_enabled but scylla-monitoring directory not found. "
+                          "Set SCYLLA_MONITORING_DIR or pass --monitoring-dir.")
+            return
+        try:
+            self.monitoring_stack = MonitoringStack(
+                self, monitoring_dir,
+                grafana_port=self.grafana_port,
+                prometheus_port=self.prometheus_port,
+                alertmanager_port=self.alertmanager_port,
+            )
+            self.monitoring_stack.start()  # blocks until ready
+        except Exception as e:
+            self.warning(f"Failed to start monitoring stack: {e}")
+
     # override cluster
     def start(self, no_wait=False, verbose=False, wait_for_binary_proto=None,
               wait_other_notice=None, jvm_args=None, profile_options=None,
@@ -183,6 +211,10 @@ class ScyllaCluster(Cluster):
         started = self.start_nodes(**kwargs)
         if self._scylla_manager and not self.skip_manager_server:
             self._scylla_manager.start()
+
+        # Auto-start monitoring if enabled
+        self._ensure_monitoring_started()
+        self._notify_topology_change()
 
         return started
 
@@ -210,6 +242,13 @@ class ScyllaCluster(Cluster):
         return [node for node in nodes if not node.is_running()]
 
     def stop(self, wait=True, gently=True, wait_other_notice=False, other_nodes=None, wait_seconds=None):
+        # Stop monitoring first (before nodes go down)
+        if self.monitoring_stack and self.monitoring_stack.is_running():
+            try:
+                self.monitoring_stack.stop()
+            except Exception as e:
+                self.warning(f"Failed to stop monitoring stack: {e}")
+
         if self._scylla_manager and not self.skip_manager_server:
             self._scylla_manager.stop(gently)
         kwargs = dict(**locals())
