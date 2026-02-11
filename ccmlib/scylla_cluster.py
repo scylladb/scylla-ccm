@@ -1,6 +1,7 @@
 # ccm clusters
 import os
 import shutil
+import sys
 import time
 import subprocess
 import signal
@@ -16,6 +17,7 @@ from ccmlib.cluster import Cluster
 from ccmlib.scylla_node import ScyllaNode
 from ccmlib.node import NodeError
 from ccmlib import scylla_repository
+from ccmlib.scylla_monitoring import MonitoringStack
 from ccmlib.utils.version import ComparableScyllaVersion
 
 SNITCH = 'org.apache.cassandra.locator.GossipingPropertyFileSnitch'
@@ -57,6 +59,11 @@ class ScyllaCluster(Cluster):
                                             version, verbose,
                                             snitch=SNITCH, cassandra_version=cassandra_version,
                                             docker_image=docker_image)
+
+        # CCM_MONITORING env var: enable automatic monitoring for Scylla clusters.
+        ccm_monitoring = os.environ.get('CCM_MONITORING', '')
+        if ccm_monitoring and ccm_monitoring != '0':
+            self.monitoring_enabled = True
 
         # Set timeouts after parent init, as scylla_mode may be set in load_from_repository
         self.__set_default_timeouts()
@@ -174,6 +181,51 @@ class ScyllaCluster(Cluster):
 
         return started
 
+    def _reconnect_monitoring_stack(self):
+        """Reconnect to a monitoring stack that may still be running from a previous process.
+
+        Each ccm invocation is a separate process, so monitoring_stack is always
+        None after loading from disk.  This probes the expected ports and, if
+        monitoring containers are still alive, re-attaches monitoring_stack so
+        that stop() / remove() can tear them down properly.
+        """
+        if self.monitoring_stack and self.monitoring_stack.is_running():
+            return  # already connected
+        stack = MonitoringStack(
+            self,
+            monitoring_dir=self.monitoring_dir,
+            grafana_port=self.grafana_port,
+            prometheus_port=self.prometheus_port,
+            alertmanager_port=self.alertmanager_port,
+        )
+        if stack.is_running():
+            self.monitoring_stack = stack
+
+    def _ensure_monitoring_started(self):
+        """Start monitoring if enabled but not yet running. Blocks until ready.
+
+        Called automatically from start() when monitoring_enabled is True.
+        In automatic mode, failures are logged as warnings but do not prevent
+        the cluster from starting. See docs/monitoring.md for details.
+        """
+        if not self.monitoring_enabled:
+            return
+        # Reconnect to containers left by a previous process
+        self._reconnect_monitoring_stack()
+        if self.monitoring_stack and self.monitoring_stack.is_running():
+            return
+        try:
+            self.monitoring_stack = MonitoringStack(
+                self,
+                monitoring_dir=self.monitoring_dir,
+                grafana_port=self.grafana_port,
+                prometheus_port=self.prometheus_port,
+                alertmanager_port=self.alertmanager_port,
+            )
+            self.monitoring_stack.start()  # blocks until ready
+        except Exception as e:
+            print(f"Warning: Failed to start monitoring stack: {e}", file=sys.stderr)
+
     # override cluster
     def start(self, no_wait=False, verbose=False, wait_for_binary_proto=None,
               wait_other_notice=None, jvm_args=None, profile_options=None,
@@ -183,6 +235,10 @@ class ScyllaCluster(Cluster):
         started = self.start_nodes(**kwargs)
         if self._scylla_manager and not self.skip_manager_server:
             self._scylla_manager.start()
+
+        # Auto-start monitoring if enabled
+        self._ensure_monitoring_started()
+        self._notify_topology_change()
 
         return started
 
@@ -210,6 +266,15 @@ class ScyllaCluster(Cluster):
         return [node for node in nodes if not node.is_running()]
 
     def stop(self, wait=True, gently=True, wait_other_notice=False, other_nodes=None, wait_seconds=None):
+        # Reconnect to monitoring containers left by a previous process,
+        # then stop them before nodes go down.
+        self._reconnect_monitoring_stack()
+        if self.monitoring_stack and self.monitoring_stack.is_running():
+            try:
+                self.monitoring_stack.stop()
+            except Exception as e:
+                print(f"Warning: Failed to stop monitoring stack: {e}", file=sys.stderr)
+
         if self._scylla_manager and not self.skip_manager_server:
             self._scylla_manager.stop(gently)
         kwargs = dict(**locals())

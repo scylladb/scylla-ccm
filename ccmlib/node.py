@@ -1447,6 +1447,7 @@ class Node(object):
         self.nodetool("decommission")
         self.status = Status.DECOMMISSIONED
         self._update_config()
+        self.cluster._notify_topology_change()
 
     def hostid(self, timeout=60, force_refresh=False):
         if self.node_hostid and not force_refresh:

@@ -13,6 +13,7 @@ readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
     "ruamel-yaml",
+    "pyyaml",
     "psutil",
     "requests",
     "packaging",
@@ -64,7 +65,8 @@ markers = [
   "docker: Run tests with docker image",
   "reloc: Run tests with relocatable packages",
   "cassandra: Run tests with cassandra binaries",
-  "repo_tests: Run test for testing get versions"
+  "repo_tests: Run test for testing get versions",
+  "integration: Slow integration tests requiring Docker and real Scylla"
 ]
 filterwarnings = ["error", "ignore::ResourceWarning"]
 
