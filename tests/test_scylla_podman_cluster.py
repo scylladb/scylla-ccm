@@ -1888,6 +1888,14 @@ class TestPodmanClusterFactoryLoad:
 
             assert loaded_data == original_data
 
+            # podman's _update_config() must persist monitoring settings too
+            cluster.monitoring_enabled = True
+            cluster.grafana_port = 3010
+            cluster._update_config()
+            reloaded = ClusterFactory.load(tmpdir, "podman-cluster")
+            assert reloaded.monitoring_enabled is True
+            assert reloaded.grafana_port == 3010
+
 
 # ============================================================================
 # Integration tests (require podman and a ScyllaDB image)
@@ -2343,6 +2351,7 @@ class TestCpuPinning:
         cluster.seeds = []
 
         monkeypatch.setattr(cluster, "get_path", lambda: str(tmp_path))
+        monkeypatch.setattr(cluster, "_monitoring_config", lambda: {})
 
         cluster._update_config()
 
@@ -2371,6 +2380,7 @@ class TestCpuPinning:
         cluster.seeds = []
 
         monkeypatch.setattr(cluster, "get_path", lambda: str(tmp_path))
+        monkeypatch.setattr(cluster, "_monitoring_config", lambda: {})
 
         cluster._update_config()
 
