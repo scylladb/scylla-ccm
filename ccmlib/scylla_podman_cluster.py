@@ -1584,7 +1584,8 @@ class ScyllaPodmanCluster(ScyllaCluster):
             n.clear()
 
     def remove(
-        self, node=None, wait_other_notice=False, other_nodes=None, remove_node_dir=True
+        self, node=None, wait_other_notice=False, other_nodes=None, remove_node_dir=True,
+        keep_monitoring=False,
     ):
         """Remove the cluster or a single node: stop containers, remove networks."""
         if node is not None:
@@ -1631,6 +1632,7 @@ class ScyllaPodmanCluster(ScyllaCluster):
                     wait_other_notice=wait_other_notice,
                     other_nodes=other_nodes,
                     remove_node_dir=remove_node_dir,
+                    keep_monitoring=keep_monitoring,
                 )
             finally:
                 if self.network_topology:
