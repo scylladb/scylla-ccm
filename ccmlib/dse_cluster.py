@@ -41,8 +41,8 @@ class DseCluster(Cluster):
         self.start_opscenter()
         return started
 
-    def stop(self, wait=True, gently=True):
-        not_running = super(DseCluster, self).stop(wait, gently)
+    def stop(self, wait=True, gently=True, keep_monitoring=False):
+        not_running = super(DseCluster, self).stop(wait, gently, keep_monitoring=keep_monitoring)
         self.stop_opscenter()
         return not_running
 
