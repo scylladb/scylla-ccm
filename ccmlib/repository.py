@@ -200,10 +200,11 @@ def download_dse_version(version, username, password, verbose=False):
         __download(url, target, username=username, password=password, show_progress=verbose)
         if verbose:
             print(f"Extracting {target} as version {version} ...")
-        tar = tarfile.open(target)
-        dir = tar.next().name.split("/")[0]
-        tar.extractall(path=__get_dir())
-        tar.close()
+        with tarfile.open(target) as tar:
+            # Get directory name from first member
+            first_member = tar.getmembers()[0]
+            dir = first_member.name.split("/")[0]
+            tar.extractall(path=__get_dir())
         target_dir = os.path.join(__get_dir(), version)
         if os.path.exists(target_dir):
             rmdirs(target_dir)
@@ -223,10 +224,11 @@ def download_opscenter_version(version, target_version, verbose=False):
         __download(url, target, show_progress=verbose)
         if verbose:
             print(f"Extracting {target} as version {target_version} ...")
-        tar = tarfile.open(target)
-        dir = tar.next().name.split("/")[0]
-        tar.extractall(path=__get_dir())
-        tar.close()
+        with tarfile.open(target) as tar:
+            # Get directory name from first member
+            first_member = tar.getmembers()[0]
+            dir = first_member.name.split("/")[0]
+            tar.extractall(path=__get_dir())
         target_dir = os.path.join(__get_dir(), target_version)
         if os.path.exists(target_dir):
             rmdirs(target_dir)
@@ -255,10 +257,11 @@ def download_version(version, url=None, verbose=False, binary=False):
         __download(u, target, show_progress=verbose)
         if verbose:
             print(f"Extracting {target} as version {version} ...")
-        tar = tarfile.open(target)
-        dir = tar.next().name.split("/")[0]
-        tar.extractall(path=__get_dir())
-        tar.close()
+        with tarfile.open(target) as tar:
+            # Get directory name from first member
+            first_member = tar.getmembers()[0]
+            dir = first_member.name.split("/")[0]
+            tar.extractall(path=__get_dir())
         target_dir = os.path.join(__get_dir(), version)
         if os.path.exists(target_dir):
             rmdirs(target_dir)
@@ -415,39 +418,37 @@ def __download(url, target, username=None, password=None, show_progress=False):
         opener = urllib.request.build_opener(handler)
         urllib.request.install_opener(opener)
 
-    u = urllib.request.urlopen(url)
-    f = open(target, 'wb')
-    meta = u.info()
-    file_size = int(meta.get("Content-Length"))
-    if show_progress:
-        print(f"Downloading {url} to {target} ({float(file_size) / (1024 * 1024):.3f}MB)")
-
-    file_size_dl = 0
-    block_sz = 8192
-    status = None
-    attempts = 0
-    while file_size_dl < file_size:
-        buffer = u.read(block_sz)
-        if not buffer:
-            attempts = attempts + 1
-            if attempts >= 5:
-                raise CCMError("Error downloading file (nothing read after %i attempts, downloded only %i of %i bytes)" % (attempts, file_size_dl, file_size))
-            time.sleep(0.5 * attempts)
-            continue
-        else:
-            attempts = 0
-
-        file_size_dl += len(buffer)
-        f.write(buffer)
+    with urllib.request.urlopen(url) as u:
+        meta = u.info()
+        file_size = int(meta.get("Content-Length"))
         if show_progress:
-            status = r"%10d  [%3.2f%%]" % (file_size_dl, file_size_dl * 100. / file_size)
-            status = chr(8) * (len(status) + 1) + status
-            print(status, end='')
+            print(f"Downloading {url} to {target} ({float(file_size) / (1024 * 1024):.3f}MB)")
 
-    if show_progress:
-        print("")
-    f.close()
-    u.close()
+        file_size_dl = 0
+        block_sz = 8192
+        status = None
+        attempts = 0
+        with open(target, 'wb') as f:
+            while file_size_dl < file_size:
+                buffer = u.read(block_sz)
+                if not buffer:
+                    attempts = attempts + 1
+                    if attempts >= 5:
+                        raise CCMError("Error downloading file (nothing read after %i attempts, downloded only %i of %i bytes)" % (attempts, file_size_dl, file_size))
+                    time.sleep(0.5 * attempts)
+                    continue
+                else:
+                    attempts = 0
+
+                file_size_dl += len(buffer)
+                f.write(buffer)
+                if show_progress:
+                    status = r"%10d  [%3.2f%%]" % (file_size_dl, file_size_dl * 100. / file_size)
+                    status = chr(8) * (len(status) + 1) + status
+                    print(status, end='')
+
+        if show_progress:
+            print("")
 
 
 def __get_dir():

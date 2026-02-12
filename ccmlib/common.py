@@ -291,6 +291,7 @@ def replaces_in_files(src, dst, replacement_list):
                     match = r.search(line)
                     if match:
                         line = replace + "\n"
+                        break
                 f_tmp.write(line)
 
 
