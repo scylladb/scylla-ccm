@@ -458,6 +458,7 @@ class Node(object):
         tofind = [re.compile(e) for e in tofind]
         matchings = []
         reads = []
+        max_reads_lines = 100  # Limit memory usage for error messages
         if len(tofind) == 0:
             return None
 
@@ -488,7 +489,10 @@ class Node(object):
 
                 line = f.readline()
                 if line:
+                    # Keep only recent lines for error messages (limit memory usage)
                     reads.append(line)
+                    if len(reads) > max_reads_lines:
+                        reads.pop(0)
                     for e in tofind:
                         m = e.search(line)
                         if m:

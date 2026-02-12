@@ -80,17 +80,17 @@ class TestRegexReplacementOptimization:
     def test_replaces_in_files_early_break(self):
         """Test that only first matching pattern is applied per line."""
         with tempfile.NamedTemporaryFile(mode='w', delete=False) as src:
-            src.write("test_pattern\n")
+            src.write("match_both_patterns\n")
             src_path = src.name
         
         with tempfile.NamedTemporaryFile(delete=False) as dst:
             dst_path = dst.name
         
         try:
-            # Multiple patterns that could match - only first should apply
+            # Two patterns that both match the line
             replacements = [
-                (r'test', 'FIRST'),
-                (r'pattern', 'SECOND'),  # Should not be checked if first matches
+                (r'match', 'FIRST_REPLACEMENT'),
+                (r'both', 'SECOND_REPLACEMENT'),  # Should not be checked due to early break
             ]
             common.replaces_in_files(src_path, dst_path, replacements)
             
@@ -98,8 +98,8 @@ class TestRegexReplacementOptimization:
                 content = f.read()
             
             # With early break, only first replacement should happen
-            assert content == "FIRST\n"
-            # Without early break, it would be "FIRST\n" then "SECOND\n"
+            # The entire line is replaced with the replacement string + newline
+            assert content == "FIRST_REPLACEMENT\n"
         finally:
             os.unlink(src_path)
             os.unlink(dst_path)

@@ -201,8 +201,8 @@ def download_dse_version(version, username, password, verbose=False):
         if verbose:
             print(f"Extracting {target} as version {version} ...")
         with tarfile.open(target) as tar:
-            # Get directory name from first member
-            first_member = tar.getmembers()[0]
+            # Get directory name from first member without loading all members
+            first_member = next(iter(tar))
             dir = first_member.name.split("/")[0]
             tar.extractall(path=__get_dir())
         target_dir = os.path.join(__get_dir(), version)
@@ -225,8 +225,8 @@ def download_opscenter_version(version, target_version, verbose=False):
         if verbose:
             print(f"Extracting {target} as version {target_version} ...")
         with tarfile.open(target) as tar:
-            # Get directory name from first member
-            first_member = tar.getmembers()[0]
+            # Get directory name from first member without loading all members
+            first_member = next(iter(tar))
             dir = first_member.name.split("/")[0]
             tar.extractall(path=__get_dir())
         target_dir = os.path.join(__get_dir(), target_version)
@@ -258,8 +258,8 @@ def download_version(version, url=None, verbose=False, binary=False):
         if verbose:
             print(f"Extracting {target} as version {version} ...")
         with tarfile.open(target) as tar:
-            # Get directory name from first member
-            first_member = tar.getmembers()[0]
+            # Get directory name from first member without loading all members
+            first_member = next(iter(tar))
             dir = first_member.name.split("/")[0]
             tar.extractall(path=__get_dir())
         target_dir = os.path.join(__get_dir(), version)
