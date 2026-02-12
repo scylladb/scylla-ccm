@@ -161,10 +161,15 @@ class ScyllaNode(Node):
         self._process_scylla_waiter = None
         self._process_agent = None
         self._process_agent_waiter = None
-        self._smp = 2
+        # _conf_smp and _conf_mem_mb_per_cpu reflect the default values to be used when starting the node
+        # and they may be overridden by ad-hoc jvm_args.
+        # The default values hard-coded here may may be overridden by options in the SCYLLA_EXT_OPTS environment variable.
+        self._conf_smp = 2
         self._smp_set_during_test = False
-        self._mem_mb_per_cpu = 512
+        self._conf_mem_mb_per_cpu = 512
         self._mem_mb_set_during_test = False
+        # _smp and _memory reflect the current value when the node is running
+        self._smp = None
         self._memory = None
         self.__conf_updated = False
         self.scylla_manager = scylla_manager
@@ -224,14 +229,14 @@ class ScyllaNode(Node):
         return self.cluster.is_scylla_reloc()
 
     def set_smp(self, smp):
-        self._smp = smp
+        self._conf_smp = smp
         self._smp_set_during_test = True
 
     def smp(self):
         return self._smp
 
     def set_mem_mb_per_cpu(self, mem):
-        self._mem_mb_per_cpu = mem
+        self._conf_mem_mb_per_cpu = mem
         self._mem_mb_set_during_test = True
 
     def get_install_cassandra_root(self):
@@ -688,22 +693,27 @@ class ScyllaNode(Node):
         # Lets search for default overrides in SCYLLA_EXT_OPTS
         env_args = process_opts(os.getenv('SCYLLA_EXT_OPTS', "").split())
 
-        # precalculate self._mem_mb_per_cpu if --memory is given in SCYLLA_EXT_OPTS
+        smp = self._conf_smp
+        memory_in_mb = None
+
+        if not self._smp_set_during_test and '--smp' in env_args:
+            smp = int(env_args['--smp'][0])
+
+        # precalculate self._conf_mem_mb_per_cpu if --memory is given in SCYLLA_EXT_OPTS
         # and it wasn't set explicitly by the test
         if not self._mem_mb_set_during_test and '--memory' in env_args:
-            memory = self.parse_size(env_args['--memory'][0])
-            smp = int(env_args['--smp'][0]) if '--smp' in env_args else self._smp
-            self._mem_mb_per_cpu = int((memory / smp) // MB)
+            memory_in_mb = self.parse_size(env_args['--memory'][0]) // MB
+            self._conf_mem_mb_per_cpu = int(memory_in_mb / smp)
 
         cmd_args = process_opts(jvm_args)
 
         # use '--memory' in jmv_args if mem_mb_per_cpu was not set by the test
         if not self._mem_mb_set_during_test and '--memory' in cmd_args:
-            self._memory = self.parse_size(cmd_args['--memory'][0])
+            memory_in_mb = self.parse_size(cmd_args['--memory'][0]) // MB
 
         # use '--smp' in jvm_args if was not set by the test
         if not self._smp_set_during_test and '--smp' in cmd_args:
-            self._smp = int(cmd_args['--smp'][0])
+            smp = int(cmd_args['--smp'][0])
 
         ext_args = env_args
         ext_args.update(cmd_args)
@@ -721,12 +731,16 @@ class ScyllaNode(Node):
 
         # calculate memory from smp * mem_mb_per_cpu
         # if not given in jvm_args
-        if not self._memory:
-            self._memory = int(self._smp * self._mem_mb_per_cpu * MB)
+        if not memory_in_mb:
+            memory_in_mb = smp * self._conf_mem_mb_per_cpu
+
+        # Update the _smp and _memory members that are returned by the respective methods.
+        self._smp = smp
+        self._memory = memory_in_mb * MB
 
         assert '--smp' not in args and '--memory' not in args, args
-        args += ['--smp', str(self._smp)]
-        args += ['--memory', f"{int(self._memory // MB)}M"]
+        args += ['--smp', str(smp)]
+        args += ['--memory', f"{memory_in_mb}M"]
 
         if '--developer-mode' not in args:
             args += ['--developer-mode', 'true']
