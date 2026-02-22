@@ -12,6 +12,7 @@ localhost.";
       prepare_python_requirements = python: python.withPackages (ps: with ps; [
         pytest
         ruamel-yaml
+        pyyaml
         psutil
         six
         requests
