@@ -1,4 +1,5 @@
 import os
+import stat
 import logging
 import shutil
 import subprocess
@@ -34,7 +35,17 @@ def copy_cluster_data(request: FixtureRequest):
     test_name = f'{request.node.name}{scope_id}'
     user = getpass.getuser()
     subprocess.run(["/bin/bash", "-c", f"sudo chown -R {user}:{user} {cluster_dir}"])
-    shutil.copytree(cluster_dir, test_dir / test_name)
+    def _ignore_sockets(directory, entries):
+        ignored = []
+        for entry in entries:
+            full_path = os.path.join(directory, entry)
+            try:
+                if stat.S_ISSOCK(os.lstat(full_path).st_mode):
+                    ignored.append(entry)
+            except OSError:
+                pass  # Entry disappeared between listdir and lstat; skip it.
+        return ignored
+    shutil.copytree(cluster_dir, test_dir / test_name, ignore=_ignore_sockets)
 
 
 @cluster_params

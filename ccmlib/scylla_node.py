@@ -17,6 +17,9 @@ from pathlib import Path
 from collections import OrderedDict
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union, TYPE_CHECKING
 from enum import Enum
+import hashlib
+import sys
+import tempfile
 import uuid
 
 import logging
@@ -135,6 +138,14 @@ def process_opts(opts):
     return ext_args
 
 
+# Maximum length for Unix domain socket paths.
+# Linux: sun_path is 108 bytes (107 usable), macOS: 104 bytes (103 usable).
+if sys.platform == 'darwin':
+    UNIX_SOCKET_PATH_MAX = 103
+else:
+    UNIX_SOCKET_PATH_MAX = 107
+
+
 class ScyllaNode(Node):
 
     """
@@ -239,6 +250,78 @@ class ScyllaNode(Node):
 
     def get_node_cassandra_root(self):
         return os.path.join(self.get_path())
+
+    @staticmethod
+    def _workdir_symlink_path(node_path):
+        """Returns the /tmp symlink path that would be used for *node_path*."""
+        path_hash = hashlib.md5(node_path.encode()).hexdigest()[:12]
+        return os.path.join(tempfile.gettempdir(), f'ccm-{path_hash}')
+
+    def _get_effective_workdir(self):
+        """Returns the effective workdir path for scylla.
+
+        If the node path is too long for Unix domain sockets (the maintenance
+        socket ``cql.m`` would exceed the sun_path limit), a short symlink is
+        created in the system temp directory pointing to the real node
+        directory, and the symlink path is returned instead.
+
+        Symlink creation is atomic (temp symlink + ``os.replace``) to avoid
+        races between concurrent CCM processes.
+        """
+        node_path = self.get_path()
+        maintenance_socket_path = os.path.join(node_path, 'cql.m')
+
+        if len(maintenance_socket_path) <= UNIX_SOCKET_PATH_MAX:
+            return node_path
+
+        symlink_path = self._workdir_symlink_path(node_path)
+
+        # Fast path: symlink already points to the right place.
+        try:
+            if os.readlink(symlink_path) == node_path:
+                self.debug(f"Using workdir symlink {symlink_path} -> {node_path} "
+                           f"to keep maintenance socket path under {UNIX_SOCKET_PATH_MAX} chars")
+                return symlink_path
+        except OSError:
+            pass  # Symlink missing or broken; fall through to create it.
+
+        # Create atomically: make a temp symlink, then os.replace() it into
+        # place.  This avoids the check-then-act race (islink → unlink →
+        # symlink) that could occur with concurrent CCM processes.
+        tmp_link = f'{symlink_path}.{os.getpid()}.tmp'
+        try:
+            os.symlink(node_path, tmp_link)
+        except FileExistsError:
+            os.unlink(tmp_link)
+            os.symlink(node_path, tmp_link)
+        try:
+            os.replace(tmp_link, symlink_path)
+        except OSError:
+            try:
+                os.unlink(tmp_link)
+            except OSError:
+                pass  # Best-effort cleanup; RuntimeError is raised below.
+            raise RuntimeError(
+                f"Cannot create workdir symlink at {symlink_path}: "
+                f"path exists and cannot be replaced"
+            )
+
+        self.debug(f"Using workdir symlink {symlink_path} -> {node_path} "
+                   f"to keep maintenance socket path under {UNIX_SOCKET_PATH_MAX} chars")
+        return symlink_path
+
+    def _cleanup_workdir_symlink(self):
+        """Remove the workdir symlink from /tmp if one was created for this node."""
+        node_path = self.get_path()
+        maintenance_socket_path = os.path.join(node_path, 'cql.m')
+        if len(maintenance_socket_path) <= UNIX_SOCKET_PATH_MAX:
+            return
+        symlink_path = self._workdir_symlink_path(node_path)
+        try:
+            if os.path.islink(symlink_path) and os.readlink(symlink_path) == node_path:
+                os.unlink(symlink_path)
+        except OSError:
+            pass  # Best-effort cleanup; not fatal if the symlink can't be removed.
 
     def get_conf_dir(self):
         """
@@ -1269,7 +1352,9 @@ class ScyllaNode(Node):
 
         # Use "workdir,W" instead of "workdir", because scylla defines this option this way
         # and dtests compares names of used options with the names defined in scylla.
-        data['workdir,W'] = self.get_path()
+        # Use _get_effective_workdir() to create a short symlink when the path is too long
+        # for Unix domain sockets (maintenance socket cql.m has a 108-byte path limit).
+        data['workdir,W'] = self._get_effective_workdir()
         # This option is set separately from the workdir to keep backward compatibility with scylla java tools
         # such as sstablelevelreset which needs this option to get the path to the data directory.
         data['data_file_directories'] = [os.path.join(self.get_path(), 'data')]
