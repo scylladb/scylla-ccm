@@ -420,7 +420,12 @@ class Cluster(object):
                 self.seeds.remove(node)
             self._update_config()
             node.stop(gently=False, wait_other_notice=wait_other_notice, other_nodes=other_nodes)
+            if hasattr(node, '_cleanup_workdir_symlink'):
+                node._cleanup_workdir_symlink()
         else:
+            for n in list(self.nodes.values()):
+                if hasattr(n, '_cleanup_workdir_symlink'):
+                    n._cleanup_workdir_symlink()
             self.stop(gently=False, wait_other_notice=wait_other_notice, other_nodes=other_nodes)
 
         if remove_node_dir:
