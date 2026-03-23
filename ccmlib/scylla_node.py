@@ -1986,12 +1986,14 @@ class ScyllaNode(Node):
     def wait_for_compactions(self,
                              keyspace=None,
                              column_family=None,
-                             idle_timeout=None):
-        if idle_timeout is None:
-            idle_timeout = 300 if self.scylla_mode() != 'debug' else 900
+                             timeout=None,
+                             quiesce_timeout_millis=500):
+        if timeout is None:
+            timeout = 300 if self.scylla_mode() != 'debug' else 900
         super().wait_for_compactions(keyspace=keyspace,
                                      column_family=column_family,
-                                     idle_timeout=idle_timeout)
+                                     timeout=timeout,
+                                     quiesce_timeout_millis=quiesce_timeout_millis)
 
     def run_scylla_types(self, action: str, scylla_type: ScyllaType, *values: Tuple[Any], extra_args: Optional[List[Any]]=None):
         """Invoke scylla-types command, with the specified action and extra_args.

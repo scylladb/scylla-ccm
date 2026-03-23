@@ -794,35 +794,43 @@ class Node(object):
         elif keyspace is not None and column_family is not None:
             return tasks.get((keyspace, column_family), 0)
 
-    def wait_for_compactions(self, keyspace: str=None, column_family: str=None, idle_timeout=300):
+    def wait_for_compactions(self, keyspace: str=None, column_family: str=None, timeout=300, quiesce_timeout_millis=500):
         """Wait for all compactions to finish on this node.
 
         :param keyspace: only wait for the compactions performed for specified keyspace.
             If not specified, all keyspaces are waited.
-            Must be provided if collumn_family is provided.
+            Must be provided if column_family is provided.
         :param column_family: only wait for the compactions performed for specified column family.
             If not specified, all column families are waited.
-        :param idle_timeout: the time in seconds to wait for progress.
-            Total time to wait is undeteremined, as long as we observe forward progress.
+        :param timeout: the time in seconds to wait for forward progress when compactions are
+            active. Raises TimeoutError if no progress is observed within this window.
+        :param quiesce_timeout_millis: the time in milliseconds to keep observing zero active tasks
+            before declaring completion. Guards against the scheduling gap between consecutive
+            compaction tasks where compactionstats momentarily reports 0 active tasks.
         """
         if column_family is not None and keyspace is None:
             raise ValueError("Cannot search only by column family, need also keyspace")
         pending_tasks = -1
         last_change = None
-        while not last_change or time.time() - last_change < idle_timeout:
+        idle_since = None
+        while not last_change or time.time() - last_change < timeout:
             output, err = self.nodetool("compactionstats", capture_output=True)
             n = self._parse_tasks(output, keyspace, column_family)
-            # no active tasks, good!
             if n == 0:
-                return
-            if n != pending_tasks:
-                last_change = time.time()
-                if 0 < pending_tasks < n:
-                    # background progress
-                    self.warning(f"Pending compaction tasks increased from {pending_tasks} to {n} while waiting for compactions.")
-                pending_tasks = n
-            time.sleep(1)
-        raise TimeoutError(f"Waiting for compactions timed out after {idle_timeout} seconds with pending tasks remaining: {output}.")
+                if idle_since is None:
+                    idle_since = time.time()
+                elif (time.time() - idle_since) * 1000 >= quiesce_timeout_millis:
+                    return
+            else:
+                idle_since = None
+                if n != pending_tasks:
+                    last_change = time.time()
+                    if 0 < pending_tasks < n:
+                        # background progress
+                        self.warning(f"Pending compaction tasks increased from {pending_tasks} to {n} while waiting for compactions.")
+                    pending_tasks = n
+            time.sleep(0.1)
+        raise TimeoutError(f"Waiting for compactions timed out after {timeout} seconds with pending tasks remaining: {output}.")
 
     def _do_run_nodetool(self, nodetool, capture_output=True, wait=True, timeout=None, verbose=True):
         if capture_output and not wait:
