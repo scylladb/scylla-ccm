@@ -2158,6 +2158,28 @@ class NodeUpgrader:
             self.node.node_install_dir = self.orig_install_dir
             raise NodeUpgradeError(f"Failed to import executables files. {exc}")
 
+    def _merge_new_config_defaults(self, install_dir):
+        """Replace the node's scylla.yaml with the target version's defaults,
+        then re-apply all cluster and node config overrides.
+
+        During upgrade, binaries are swapped but scylla.yaml is kept from the
+        old version. Config defaults that change between versions (e.g.,
+        sstable_format from 'me' to 'ms') would be missed, causing the upgraded
+        node to behave differently from a freshly-installed node.
+
+        This copies the new version's scylla.yaml (picking up all new defaults)
+        and then calls update_yaml() which re-applies cluster-level and
+        node-level config overrides on top, so any config explicitly set by
+        the test or CLI is preserved.
+        """
+        new_conf_file = os.path.join(install_dir, 'conf', common.SCYLLA_CONF)
+        if not os.path.exists(new_conf_file):
+            return
+
+        node_conf_file = os.path.join(self.node.get_conf_dir(), common.SCYLLA_CONF)
+        shutil.copy(new_conf_file, node_conf_file)
+        self.node.update_yaml()
+
     def _recover_system_tables(self):
         """
         Part of the rollback procedure is to restore system tables.
@@ -2220,6 +2242,7 @@ class NodeUpgrader:
             raise NodeUpgradeError(f"Node {self.node.name} failed to stop before upgrade")
 
         self._import_executables(cdir)
+        self._merge_new_config_defaults(cdir)
         self.node.clean_runtime_file()
 
         if recover_system_tables:
