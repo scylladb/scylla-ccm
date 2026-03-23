@@ -457,7 +457,8 @@ class Node(object):
         tofind = [exprs] if isinstance(exprs, str) else exprs
         tofind = [re.compile(e) for e in tofind]
         matchings = []
-        reads = ""
+        reads = []
+        max_reads_lines = 100  # Limit memory usage for error messages
         if len(tofind) == 0:
             return None
 
@@ -488,7 +489,10 @@ class Node(object):
 
                 line = f.readline()
                 if line:
-                    reads = reads + line
+                    # Keep only recent lines for error messages (limit memory usage)
+                    reads.append(line)
+                    if len(reads) > max_reads_lines:
+                        reads.pop(0)
                     for e in tofind:
                         m = e.search(line)
                         if m:
@@ -507,8 +511,9 @@ class Node(object):
                     # FIXME: consider using inotify with IN_MODIFY to monitor the file
                     time.sleep(polling_interval)
                     if time.time() > deadline:
+                        reads_str = "".join(reads)
                         raise TimeoutError(time.strftime("%d %b %Y %H:%M:%S", time.gmtime()) + " [" + self.name + "] Missing: " + str(
-                            [e.pattern for e in tofind]) + ":\n" + reads[:50] + f".....\nSee {filename} for remainder")
+                            [e.pattern for e in tofind]) + ":\n" + reads_str[:50] + f".....\nSee {filename} for remainder")
 
                 if process:
                     if common.is_win():
@@ -650,26 +655,26 @@ class Node(object):
         self._delete_old_pid()
 
         process = None
-        FNULL = open(os.devnull, 'w')
-        stdout_sink = subprocess.PIPE if verbose else FNULL
-        if common.is_win():
-            # clean up any old dirty_pid files from prior runs
-            if (os.path.isfile(self.get_path() + "/dirty_pid.tmp")):
-                os.remove(self.get_path() + "/dirty_pid.tmp")
+        with open(os.devnull, 'w') as FNULL:
+            stdout_sink = subprocess.PIPE if verbose else FNULL
+            if common.is_win():
+                # clean up any old dirty_pid files from prior runs
+                if (os.path.isfile(self.get_path() + "/dirty_pid.tmp")):
+                    os.remove(self.get_path() + "/dirty_pid.tmp")
 
-            if quiet_start and self.cluster.version() >= '2.2.4':
-                args.append('-q')
+                if quiet_start and self.cluster.version() >= '2.2.4':
+                    args.append('-q')
 
-            process = subprocess.Popen(args, cwd=self.get_bin_dir(), env=env, stdout=stdout_sink, stderr=subprocess.PIPE, universal_newlines=True)
-        else:
-            process = subprocess.Popen(args, env=env, stdout=stdout_sink, stderr=subprocess.PIPE, universal_newlines=True)
-        # Our modified batch file writes a dirty output with more than just the pid - clean it to get in parity
-        # with *nix operation here.
+                process = subprocess.Popen(args, cwd=self.get_bin_dir(), env=env, stdout=stdout_sink, stderr=subprocess.PIPE, universal_newlines=True)
+            else:
+                process = subprocess.Popen(args, env=env, stdout=stdout_sink, stderr=subprocess.PIPE, universal_newlines=True)
+            # Our modified batch file writes a dirty output with more than just the pid - clean it to get in parity
+            # with *nix operation here.
 
-        if verbose:
-            stdout, stderr = process.communicate()
-            print(stdout)
-            print(stderr)
+            if verbose:
+                stdout, stderr = process.communicate()
+                print(stdout)
+                print(stderr)
 
         if common.is_win():
             self.__clean_win_pid()
@@ -809,6 +814,7 @@ class Node(object):
             raise ValueError("Cannot search only by column family, need also keyspace")
         pending_tasks = -1
         last_change = None
+        sleep_time = 0.1  # Start with 100ms
         while not last_change or time.time() - last_change < idle_timeout:
             output, err = self.nodetool("compactionstats", capture_output=True)
             n = self._parse_tasks(output, keyspace, column_family)
@@ -817,11 +823,15 @@ class Node(object):
                 return
             if n != pending_tasks:
                 last_change = time.time()
+                sleep_time = 0.1  # Reset to 100ms on progress
                 if 0 < pending_tasks < n:
                     # background progress
                     self.warning(f"Pending compaction tasks increased from {pending_tasks} to {n} while waiting for compactions.")
                 pending_tasks = n
-            time.sleep(1)
+            else:
+                # No progress, use exponential backoff up to 1 second
+                sleep_time = min(sleep_time * 1.5, 1.0)
+            time.sleep(sleep_time)
         raise TimeoutError(f"Waiting for compactions timed out after {idle_timeout} seconds with pending tasks remaining: {output}.")
 
     def _do_run_nodetool(self, nodetool, capture_output=True, wait=True, timeout=None, verbose=True):
