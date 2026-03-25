@@ -466,7 +466,7 @@ class ScyllaDockerNode(ScyllaNode):
         if self.workload is not None:
             values['workload'] = self.workload
         with open(filename, 'w') as f:
-            yaml.safe_dump(values, f)
+            YAML().dump(values, f)
 
     @staticmethod
     def filter_args(args):
