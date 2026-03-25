@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: ScyllaDB Issue Tracker (Jira)
+    url: https://scylladb.atlassian.net/jira/software/c/projects/DTEST/issues
+    about: Please report issues on the ScyllaDB Jira issue tracker
