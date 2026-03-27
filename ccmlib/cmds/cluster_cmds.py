@@ -74,7 +74,10 @@ class ClusterCreateCmd(Cmd):
         parser.add_option('-v', "--version", type="string", dest="version",
                           help="Download and use provided cassandra or dse version. If version is of the form 'git:<branch name>', then the specified cassandra branch will be downloaded from the git repo and compiled. (takes precedence over --install-dir)", default=None)
         parser.add_option('--docker-image', type="string", dest="docker_image",
-                          help="The dockerhub image to deploy as Scylla nodes")
+                          help="The Docker/Podman image to deploy as Scylla nodes (e.g., scylladb/scylla:latest)")
+        parser.add_option('--container-runtime', type="string", dest="container_runtime",
+                          help="Container runtime to use: 'docker' or 'podman' (default: auto-detect)", 
+                          choices=['docker', 'podman'], default=None)
         parser.add_option('-o', "--opsc", type="string", dest="opscenter",
                           help="Download and use provided opscenter version to install with DSE. Will have no effect on cassandra installs)", default=None)
         parser.add_option("--dse", action="store_true", dest="dse",
@@ -155,14 +158,26 @@ class ClusterCreateCmd(Cmd):
         ccm create scylla-reloc-1 -n 1 --scylla --version unstable/master:380 \\
             --scylla-core-package-uri=../scylla/build/dev/scylla-package.tar.gz
 
+        Examples of using Docker/Podman:
+        
+        # create a 3-node cluster using Docker with latest Scylla
+        ccm create scylla-docker-1 -n 3 --scylla --docker-image scylladb/scylla:latest
+        
+        # create a cluster using Podman
+        ccm create scylla-podman-1 -n 3 --scylla --docker-image scylladb/scylla:5.4 --container-runtime podman
+        
+        # create and start a cluster in one command
+        ccm create scylla-docker-2 -n 3 --scylla --docker-image scylladb/scylla-nightly:latest -s
+
         """
 
 
         return parser
 
     def validate(self, parser, options, args):
-        if options.scylla and not options.install_dir:
-            parser.error("must specify install_dir using scylla")
+        # Docker-based clusters don't need install_dir
+        if options.scylla and not options.install_dir and not options.docker_image:
+            parser.error("must specify install_dir or --docker-image when using scylla")
         Cmd.validate(self, parser, options, args, cluster_name=True)
         if options.ipprefix and options.ipformat:
             parser.print_help()
@@ -208,7 +223,13 @@ class ClusterCreateCmd(Cmd):
         try:
             if self.options.scylla:
                 if self.options.docker_image:
-                    cluster = ScyllaDockerCluster(self.path, self.name, docker_image=self.options.docker_image)
+                    # Create Docker-based Scylla cluster
+                    cluster = ScyllaDockerCluster(
+                        self.path, 
+                        self.name, 
+                        docker_image=self.options.docker_image,
+                        container_runtime=self.options.container_runtime
+                    )
                 else:
                     if self.options.scylla_manager_package:
                         from ccmlib.scylla_repository import setup_scylla_manager
