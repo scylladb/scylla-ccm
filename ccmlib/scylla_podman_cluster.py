@@ -9,6 +9,7 @@ import subprocess
 import threading
 import warnings
 from collections import OrderedDict
+from multiprocessing import cpu_count as host_cpu_count
 from shutil import copyfile
 from subprocess import run, PIPE, DEVNULL, STDOUT, Popen
 
@@ -642,8 +643,10 @@ class ScyllaPodmanCluster(ScyllaCluster):
         self.inter_rack_delay_ms = kwargs.pop("inter_rack_delay_ms", 1)
         self.inter_dc_delay_ms = kwargs.pop("inter_dc_delay_ms", 50)
         self.packet_loss_percent = kwargs.pop("packet_loss_percent", 0.0)
+        self.pinning = kwargs.pop("pinning", False)
         self.network_topology = None
         self._client_container_id = None
+        self._cpu_assignments = {}
         # Pass docker_image to parent so it skips install_dir validation
         kwargs["docker_image"] = self.podman_image
         super(ScyllaPodmanCluster, self).__init__(*args, **kwargs)
@@ -766,7 +769,66 @@ class ScyllaPodmanCluster(ScyllaCluster):
             raise
 
         self.cluster_cleanup()
+        if self.pinning:
+            self._compute_cpu_assignments()
         return self
+
+    def _compute_cpu_assignments(self):
+        """Compute non-overlapping CPU assignments for each node.
+
+        When pinning is enabled and there are enough host CPUs
+        (total_nodes * smp <= host_cpus), each node is assigned a
+        contiguous block of ``smp`` CPUs.  If there are not enough
+        host CPUs, pinning is disabled with a warning.
+
+        The assignments are stored in ``self._cpu_assignments`` as
+        ``{node_name: [cpu_id, ...]}``.  The map is intentionally NOT
+        persisted in cluster.conf -- it is recomputed on every populate()
+        so that a cluster loaded on a different machine (or after a CPU
+        hotplug) gets a valid assignment.
+        """
+        nodes = list(self.nodes.values())
+        if not nodes:
+            self._cpu_assignments = {}
+            return
+
+        smp = nodes[0].smp()
+        total_cores_needed = len(nodes) * smp
+        try:
+            available = host_cpu_count()
+        except NotImplementedError:
+            LOGGER.warning("Cannot determine host CPU count; disabling CPU pinning")
+            self.pinning = False
+            self._cpu_assignments = {}
+            return
+
+        if total_cores_needed > available:
+            LOGGER.warning(
+                "CPU pinning requires %d cores (%d nodes x %d smp) but host "
+                "has only %d; disabling CPU pinning for this cluster",
+                total_cores_needed,
+                len(nodes),
+                smp,
+                available,
+            )
+            self.pinning = False
+            self._cpu_assignments = {}
+            return
+
+        LOGGER.info(
+            "CPU pinning enabled: %d nodes x %d smp = %d cores (host has %d)",
+            len(nodes),
+            smp,
+            total_cores_needed,
+            available,
+        )
+        assignments = {}
+        cpu_offset = 0
+        for node in nodes:
+            core_list = list(range(cpu_offset, cpu_offset + smp))
+            assignments[node.name] = core_list
+            cpu_offset += smp
+        self._cpu_assignments = assignments
 
     def _parse_topology(self, nodes):
         """Parse the nodes argument into an OrderedDict topology, same as base class."""
@@ -1119,6 +1181,7 @@ class ScyllaPodmanCluster(ScyllaCluster):
             "id": self.id,
             "ipprefix": self.ipprefix,
             "docker_image": self.podman_image,
+            "pinning": self.pinning,
         }
         if self.network_topology:
             cluster_config["network_topology"] = self.network_topology.to_dict()
@@ -1316,6 +1379,101 @@ class ScyllaPodmanNode(ScyllaNode):
                         f"Failed to chmod {host_path} to a+rwX via podman unshare: {res.stderr}"
                     )
                 _make_path_container_writable(host_path)
+
+    def _pinning_container_args(self):
+        """Return podman run flags for CPU pinning, or empty list if not pinned."""
+        assignments = getattr(self.cluster, "_cpu_assignments", {})
+        cpus = assignments.get(self.name)
+        if not cpus:
+            return []
+        cpuset_str = ",".join(str(c) for c in cpus)
+        return ["--cpuset-cpus", cpuset_str]
+
+    def _pinning_scylla_args(self, args):
+        """Adjust Scylla command-line args for CPU pinning.
+
+        When pinning is active for this node:
+        - Inject ``--cpuset`` so Scylla binds to the assigned cores.
+        - Remove ``--overprovisioned`` (the whole point of pinning is
+          dedicated cores, so overprovisioned mode is wrong).
+        - Add ``--io-setup 0`` to skip iotune and provide an
+          ``io_properties.yaml`` file with tuning appropriate for the
+          number of pinned cores.
+
+        Returns a new args list (the original is not mutated).
+        """
+        assignments = getattr(self.cluster, "_cpu_assignments", {})
+        cpus = assignments.get(self.name)
+        if not cpus:
+            return args
+
+        args = list(args)  # don't mutate caller
+
+        cpuset_str = ",".join(str(c) for c in cpus)
+        # Add --cpuset if not already present
+        if "--cpuset" not in args:
+            args.extend(["--cpuset", cpuset_str])
+
+        # Remove --overprovisioned (may appear as "--overprovisioned 1"
+        # after filter_args conversion)
+        while "--overprovisioned" in args:
+            idx = args.index("--overprovisioned")
+            # Remove flag and its value if the next element looks like
+            # a value (not a flag)
+            if idx + 1 < len(args) and not args[idx + 1].startswith("--"):
+                del args[idx : idx + 2]
+            else:
+                del args[idx]
+
+        # Write io_properties.yaml and tell Scylla to use it
+        io_props_path = self._write_io_properties(len(cpus))
+        # Replace any existing --io-setup value or add it
+        if "--io-setup" in args:
+            idx = args.index("--io-setup")
+            if idx + 1 < len(args) and not args[idx + 1].startswith("--"):
+                args[idx + 1] = "0"
+            else:
+                args.insert(idx + 1, "0")
+        else:
+            args.extend(["--io-setup", "0"])
+
+        # Add --io-properties-file pointing to our generated file.
+        # The file sits in the bind-mounted /etc/scylla inside the container.
+        if "--io-properties-file" not in args:
+            args.extend(["--io-properties-file", "/etc/scylla/io_properties.yaml"])
+
+        return args
+
+    def _write_io_properties(self, num_cpus):
+        """Write an io_properties.yaml tuned for *num_cpus* pinned cores.
+
+        The file is written into the node's conf directory which is
+        bind-mounted to ``/etc/scylla`` inside the container.  The
+        values are deliberately generous so that Scylla does not
+        throttle itself unnecessarily in a test/dev environment.
+
+        Returns the host-side path to the file.
+        """
+        # Use generous values: 100k IOPS per core, 1 GB/s bandwidth per core.
+        # These are intentionally high to prevent Scylla from throttling I/O
+        # in a test environment where we want maximum throughput.
+        io_props = {
+            "disks": [
+                {
+                    "mountpoint": "/var/lib/scylla",
+                    "read_iops": 100000 * num_cpus,
+                    "read_bandwidth": 1073741824 * num_cpus,
+                    "write_iops": 100000 * num_cpus,
+                    "write_bandwidth": 1073741824 * num_cpus,
+                }
+            ]
+        }
+        io_props_path = os.path.join(self.local_yaml_path, "io_properties.yaml")
+        yaml = YAML()
+        yaml.default_flow_style = False
+        with open(io_props_path, "w") as f:
+            yaml.dump(io_props, f)
+        return io_props_path
 
     def _get_directories(self):
         dirs = {}
@@ -1521,6 +1679,7 @@ class ScyllaPodmanNode(ScyllaNode):
             f"{PODMAN_RESOURCE_OWNER_LABEL}={os.getpid()}",
             "--cap-add",
             "NET_ADMIN",
+            *self._pinning_container_args(),
             "-d",
             self.cluster.podman_image,
             *seed_args,
@@ -1818,6 +1977,38 @@ class ScyllaPodmanNode(ScyllaNode):
         # Work on a copy to avoid mutating the caller's list
         args = list(args)
         cleaned_args = []
+        boolean_args = {"--experimental", "--disable-version-check"}
+        whitelist = {
+            "--experimental",
+            "--seeds",
+            "--cpuset",
+            "--smp",
+            "--memory",
+            "--reserve-memory",
+            "--overprovisioned",
+            "--io-setup",
+            "--io-properties-file",
+            "--developer-mode",
+            "--listen-address",
+            "--rpc-address",
+            "--broadcast-address",
+            "--broadcast-rpc-address",
+            "--api-address",
+            "--alternator-address",
+            "--alternator-port",
+            "--alternator-https-port",
+            "--alternator-write-isolation",
+            "--disable-version-check",
+            "--authenticator",
+            "--authorizer",
+            "--cluster-name",
+            "--endpoint-snitch",
+            "--replace-address-first-boot",
+            "--replace-node-first-boot",
+            "--blocked-reactor-notify-ms",
+            "--prometheus-address",
+            "--unsafe-bypass-fsync",
+        }
         if "--overprovisioned" in args:
             args.remove("--overprovisioned")
             args += ["--overprovisioned", "1"]
@@ -1831,43 +2022,29 @@ class ScyllaPodmanNode(ScyllaNode):
                 flag_start = i
                 break
 
-        for arg, value in common.grouper(2, args[flag_start:], padvalue=""):
+        i = flag_start
+        while i < len(args):
+            arg = args[i]
+            if not arg.startswith("--"):
+                i += 1
+                continue
+            if arg in boolean_args:
+                value = ""
+                i += 1
+            elif i + 1 < len(args) and not args[i + 1].startswith("--"):
+                value = args[i + 1]
+                i += 2
+            else:
+                value = ""
+                i += 1
             if arg == "--developer-mode" and value == "true":
                 value = "1"
             if arg in ["--log-to-stdout", "--default-log-level", "--options-file"]:
                 continue
-            if arg in [
-                "--experimental",
-                "--seeds",
-                "--cpuset",
-                "--smp",
-                "--memory",
-                "--reserve-memory",
-                "--overprovisioned",
-                "--io-setup",
-                "--developer-mode",
-                "--listen-address",
-                "--rpc-address",
-                "--broadcast-address",
-                "--broadcast-rpc-address",
-                "--api-address",
-                "--alternator-address",
-                "--alternator-port",
-                "--alternator-https-port",
-                "--alternator-write-isolation",
-                "--disable-version-check",
-                "--authenticator",
-                "--authorizer",
-                "--cluster-name",
-                "--endpoint-snitch",
-                "--replace-address-first-boot",
-                "--replace-node-first-boot",
-                "--blocked-reactor-notify-ms",
-                "--prometheus-address",
-                "--unsafe-bypass-fsync",
-            ]:
+            if arg in whitelist:
                 cleaned_args.append(arg)
-                cleaned_args.append(value)
+                if value:
+                    cleaned_args.append(value)
         return cleaned_args
 
     def _start_scylla(
@@ -1881,6 +2058,7 @@ class ScyllaPodmanNode(ScyllaNode):
         ext_env,
     ):
         args = self.filter_args(args)
+        args = self._pinning_scylla_args(args)
         if ext_env:
             LOGGER.warning(
                 "ext_env (SCYLLA_EXT_ENV) is not supported for podman clusters; "

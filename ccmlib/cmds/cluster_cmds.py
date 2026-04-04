@@ -147,6 +147,8 @@ class ClusterCreateCmd(Cmd):
                           help="Simulated latency in ms between DCs (podman only)", default=50)
         parser.add_option("--packet-loss", type="float", dest="packet_loss",
                           help="Simulated packet loss percentage for cross-DC traffic (podman only)", default=0.0)
+        parser.add_option("--pinning", action="store_true", dest="pinning",
+                          help="Pin each podman node to dedicated CPU cores (podman only, requires enough host CPUs)", default=False)
 
         parser.epilog = """
         
@@ -233,6 +235,7 @@ class ClusterCreateCmd(Cmd):
                         inter_rack_delay_ms=self.options.inter_rack_delay,
                         inter_dc_delay_ms=self.options.inter_dc_delay,
                         packet_loss_percent=self.options.packet_loss,
+                        pinning=self.options.pinning,
                     )
                 elif self.options.docker_image:
                     cluster = ScyllaDockerCluster(self.path, self.name, docker_image=self.options.docker_image)
