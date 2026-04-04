@@ -127,6 +127,9 @@ def _prune_stale_ccm_podman_resources():
 @pytest.fixture(scope="session", autouse=True)
 def prune_stale_podman_resources():
     """Auto-use fixture: prune stale CCM podman containers/networks before and after the session."""
+    if not shutil.which("podman"):
+        yield
+        return
     _prune_stale_ccm_podman_resources()
     yield
     _prune_stale_ccm_podman_resources()
@@ -157,7 +160,7 @@ def test_dir(test_id, results_dir):
 
     if dir_count >= max_test_dirs:
         LOGGER.critical(f"Number of test directories is '{dir_count}'. Max allowed: '{max_test_dirs}'")
-        assert dir_count >= max_test_dirs
+        assert dir_count < max_test_dirs
     test_dir = os.getcwd() / test_dir
     test_dir.mkdir()
     LOGGER.info(f"Test directory '{test_dir}' created.")
