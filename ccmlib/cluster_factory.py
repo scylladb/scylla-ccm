@@ -8,6 +8,7 @@ from ccmlib.cluster import Cluster
 from ccmlib.dse_cluster import DseCluster
 from ccmlib.scylla_cluster import ScyllaCluster
 from ccmlib.scylla_docker_cluster import ScyllaDockerCluster
+from ccmlib.scylla_podman_cluster import ScyllaPodmanCluster, PodmanNetworkTopology
 from ccmlib.node import Node
 
 
@@ -28,7 +29,21 @@ class ClusterFactory():
             if install_dir is None and 'cassandra_dir' in data:
                 install_dir = data['cassandra_dir']
                 repository.validate(install_dir)
-            if 'docker_image' in data and data['docker_image']:
+            # The podman check MUST precede 'docker_image' (podman clusters save it
+            # too). 'podman_cluster' is persisted before populate() adds a topology.
+            if 'network_topology' in data or data.get('podman_cluster'):
+                net_topo_data = data.get('network_topology') or {}
+                cluster = ScyllaPodmanCluster(
+                    path, data['name'],
+                    docker_image=data.get('docker_image'),
+                    inter_rack_delay_ms=net_topo_data.get('inter_rack_delay_ms', 1),
+                    inter_dc_delay_ms=net_topo_data.get('inter_dc_delay_ms', 50),
+                    packet_loss_percent=net_topo_data.get('packet_loss_percent', 0.0),
+                    create_directory=False,
+                )
+                if net_topo_data:
+                    cluster.network_topology = PodmanNetworkTopology.from_dict(cluster.network_cluster_name(), net_topo_data)
+            elif 'docker_image' in data and data['docker_image']:
                 cluster = ScyllaDockerCluster(path, data['name'], docker_image=data['docker_image'],
                                               container_runtime=data.get('container_runtime'),
                                               install_dir=install_dir, create_directory=False)
