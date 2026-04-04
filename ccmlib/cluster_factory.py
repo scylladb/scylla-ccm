@@ -49,7 +49,7 @@ class ClusterFactory():
             if 'config_options' in data:
                 cluster._config_options = data['config_options']
             if 'log_level' in data:
-                cluster.__log_level = data['log_level']
+                cluster._Cluster__log_level = data['log_level']
             if 'use_vnodes' in data:
                 cluster.use_vnodes = data['use_vnodes']
             if 'ipprefix' in data:
