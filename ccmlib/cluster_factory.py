@@ -37,6 +37,7 @@ class ClusterFactory():
                     inter_rack_delay_ms=net_topo_data.get('inter_rack_delay_ms', 1),
                     inter_dc_delay_ms=net_topo_data.get('inter_dc_delay_ms', 50),
                     packet_loss_percent=net_topo_data.get('packet_loss_percent', 0.0),
+                    pinning=data.get('pinning', False),
                     create_directory=False,
                 )
                 cluster.network_topology = PodmanNetworkTopology.from_dict(data['name'], net_topo_data)

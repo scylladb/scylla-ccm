@@ -418,6 +418,33 @@ class TestFilterArgs:
         idx = result.index("--developer-mode")
         assert result[idx + 1] == "1"
 
+    def test_filter_args_preserves_boolean_flags(self):
+        """Boolean flags should not consume the following flag as their value."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
+
+        args = [
+            "/path/to/scylla",
+            "--options-file",
+            "/path/to/scylla.yaml",
+            "--experimental",
+            "--smp",
+            "2",
+            "--disable-version-check",
+            "--memory",
+            "512M",
+        ]
+
+        result = ScyllaPodmanNode.filter_args(args)
+
+        assert result == [
+            "--experimental",
+            "--smp",
+            "2",
+            "--disable-version-check",
+            "--memory",
+            "512M",
+        ]
+
 
 class TestPodmanNodeBehavior:
     def test_wait_for_binary_interface_checks_inside_container(self, monkeypatch):
@@ -518,6 +545,8 @@ class TestPodmanClusterBehavior:
         cluster.use_vnodes = False
         cluster._config_options = {}
         cluster._scylla_manager = None
+        cluster.pinning = False
+        cluster._cpu_assignments = {}
 
         monkeypatch.setattr(
             cluster,
@@ -582,6 +611,8 @@ class TestPodmanClusterBehavior:
         cluster.use_vnodes = False
         cluster._config_options = {}
         cluster._scylla_manager = None
+        cluster.pinning = False
+        cluster._cpu_assignments = {}
 
         monkeypatch.setattr(
             cluster,
@@ -1393,3 +1424,306 @@ class TestScyllaPodmanCluster:
         assert podman_cluster.is_docker()  # is_docker() returns True for compat
         for node in podman_cluster.nodelist():
             assert node.is_podman()
+
+
+# ============================================================================
+# Unit tests for CPU pinning feature (no podman required)
+# ============================================================================
+
+
+class TestCpuPinning:
+    """Unit tests for CPU pinning assignment, Scylla arg injection,
+    podman arg injection, and io_properties generation."""
+
+    def _make_cluster_with_nodes(
+        self, monkeypatch, num_nodes=3, smp=2, pinning=True, host_cpus=16
+    ):
+        """Helper: build a ScyllaPodmanCluster with mocked nodes for pinning tests."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanCluster
+
+        cluster = object.__new__(ScyllaPodmanCluster)
+        cluster.name = "test-pinning"
+        cluster.podman_image = "scylladb/scylla:latest"
+        cluster.pinning = pinning
+        cluster._cpu_assignments = {}
+        cluster.network_topology = None
+        cluster._client_container_id = None
+        cluster.inter_rack_delay_ms = 1
+        cluster.inter_dc_delay_ms = 50
+        cluster.packet_loss_percent = 0.0
+
+        # Build fake nodes
+        nodes = OrderedDict()
+        for i in range(1, num_nodes + 1):
+            node = SimpleNamespace(
+                name=f"node{i}",
+                smp=lambda _smp=smp: _smp,
+            )
+            nodes[f"node{i}"] = node
+        cluster.nodes = nodes
+
+        monkeypatch.setattr(
+            "ccmlib.scylla_podman_cluster.host_cpu_count",
+            lambda: host_cpus,
+        )
+        return cluster
+
+    def test_compute_assignments_basic(self, monkeypatch):
+        """3 nodes x 2 smp on a 16-core host -> 3 non-overlapping pairs."""
+        cluster = self._make_cluster_with_nodes(
+            monkeypatch, num_nodes=3, smp=2, host_cpus=16
+        )
+        cluster._compute_cpu_assignments()
+        assert cluster.pinning is True
+        assert cluster._cpu_assignments == {
+            "node1": [0, 1],
+            "node2": [2, 3],
+            "node3": [4, 5],
+        }
+
+    def test_compute_assignments_exact_fit(self, monkeypatch):
+        """4 nodes x 4 smp on a 16-core host -> exact fit, still valid."""
+        cluster = self._make_cluster_with_nodes(
+            monkeypatch, num_nodes=4, smp=4, host_cpus=16
+        )
+        cluster._compute_cpu_assignments()
+        assert cluster.pinning is True
+        assert len(cluster._cpu_assignments) == 4
+        # Verify no overlap
+        all_cpus = []
+        for cpus in cluster._cpu_assignments.values():
+            all_cpus.extend(cpus)
+        assert len(all_cpus) == len(set(all_cpus)) == 16
+
+    def test_compute_assignments_insufficient_cpus(self, monkeypatch):
+        """5 nodes x 4 smp on a 16-core host -> pinning disabled."""
+        cluster = self._make_cluster_with_nodes(
+            monkeypatch, num_nodes=5, smp=4, host_cpus=16
+        )
+        cluster._compute_cpu_assignments()
+        assert cluster.pinning is False
+        assert cluster._cpu_assignments == {}
+
+    def test_compute_assignments_not_implemented(self, monkeypatch):
+        """If host_cpu_count() raises NotImplementedError, pinning disabled."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanCluster
+
+        cluster = self._make_cluster_with_nodes(
+            monkeypatch, num_nodes=2, smp=2, host_cpus=8
+        )
+        monkeypatch.setattr(
+            "ccmlib.scylla_podman_cluster.host_cpu_count",
+            lambda: (_ for _ in ()).throw(NotImplementedError),
+        )
+        cluster._compute_cpu_assignments()
+        assert cluster.pinning is False
+        assert cluster._cpu_assignments == {}
+
+    def test_compute_assignments_empty_cluster(self, monkeypatch):
+        """No nodes -> empty assignments, pinning remains True."""
+        cluster = self._make_cluster_with_nodes(
+            monkeypatch, num_nodes=0, smp=2, host_cpus=16
+        )
+        cluster._compute_cpu_assignments()
+        assert cluster._cpu_assignments == {}
+
+    def test_pinning_container_args_when_pinned(self, monkeypatch):
+        """Node returns --cpuset-cpus flag when it has a CPU assignment."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
+
+        node = object.__new__(ScyllaPodmanNode)
+        node.name = "node1"
+        node.cluster = SimpleNamespace(_cpu_assignments={"node1": [0, 1, 2, 3]})
+
+        result = node._pinning_container_args()
+        assert result == ["--cpuset-cpus", "0,1,2,3"]
+
+    def test_pinning_container_args_when_not_pinned(self, monkeypatch):
+        """Node returns empty list when no CPU assignment."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
+
+        node = object.__new__(ScyllaPodmanNode)
+        node.name = "node1"
+        node.cluster = SimpleNamespace(_cpu_assignments={})
+
+        result = node._pinning_container_args()
+        assert result == []
+
+    def test_pinning_scylla_args_injects_cpuset_removes_overprovisioned(
+        self, monkeypatch, tmp_path
+    ):
+        """When pinned, --cpuset is added, --overprovisioned is removed."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
+
+        node = object.__new__(ScyllaPodmanNode)
+        node.name = "node1"
+        node.cluster = SimpleNamespace(_cpu_assignments={"node1": [4, 5]})
+        node.local_yaml_path = str(tmp_path)
+
+        input_args = [
+            "--smp",
+            "2",
+            "--memory",
+            "1G",
+            "--overprovisioned",
+            "1",
+            "--developer-mode",
+            "1",
+        ]
+        result = node._pinning_scylla_args(input_args)
+
+        assert "--cpuset" in result
+        cpuset_idx = result.index("--cpuset")
+        assert result[cpuset_idx + 1] == "4,5"
+        assert "--overprovisioned" not in result
+        assert "--io-setup" in result
+        io_idx = result.index("--io-setup")
+        assert result[io_idx + 1] == "0"
+        assert "--io-properties-file" in result
+
+    def test_pinning_scylla_args_does_not_mutate_input(self, monkeypatch, tmp_path):
+        """The original args list is not modified."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
+
+        node = object.__new__(ScyllaPodmanNode)
+        node.name = "node1"
+        node.cluster = SimpleNamespace(_cpu_assignments={"node1": [0, 1]})
+        node.local_yaml_path = str(tmp_path)
+
+        original = ["--smp", "2", "--overprovisioned", "1"]
+        original_copy = list(original)
+        node._pinning_scylla_args(original)
+        assert original == original_copy
+
+    def test_pinning_scylla_args_noop_when_not_pinned(self, monkeypatch):
+        """When not pinned, args pass through unchanged."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
+
+        node = object.__new__(ScyllaPodmanNode)
+        node.name = "node1"
+        node.cluster = SimpleNamespace(_cpu_assignments={})
+
+        input_args = ["--smp", "2", "--overprovisioned", "1"]
+        result = node._pinning_scylla_args(input_args)
+        assert result is input_args  # same object, not a copy
+
+    def test_pinning_scylla_args_replaces_existing_io_setup(
+        self, monkeypatch, tmp_path
+    ):
+        """If --io-setup is already in args, its value is replaced with 0."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
+
+        node = object.__new__(ScyllaPodmanNode)
+        node.name = "node1"
+        node.cluster = SimpleNamespace(_cpu_assignments={"node1": [0]})
+        node.local_yaml_path = str(tmp_path)
+
+        input_args = ["--io-setup", "1", "--overprovisioned", "1"]
+        result = node._pinning_scylla_args(input_args)
+        io_idx = result.index("--io-setup")
+        assert result[io_idx + 1] == "0"
+
+    def test_write_io_properties(self, tmp_path):
+        """io_properties.yaml is written with correct structure and values."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
+
+        node = object.__new__(ScyllaPodmanNode)
+        node.local_yaml_path = str(tmp_path)
+
+        path = node._write_io_properties(4)
+
+        assert os.path.exists(path)
+        yaml = YAML()
+        with open(path) as f:
+            data = yaml.load(f)
+        assert "disks" in data
+        assert len(data["disks"]) == 1
+        disk = data["disks"][0]
+        assert disk["mountpoint"] == "/var/lib/scylla"
+        assert disk["read_iops"] == 400000  # 100k * 4
+        assert disk["write_iops"] == 400000
+        assert disk["read_bandwidth"] == 1073741824 * 4
+        assert disk["write_bandwidth"] == 1073741824 * 4
+
+    def test_write_io_properties_single_cpu(self, tmp_path):
+        """io_properties.yaml for a single CPU has base values."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
+
+        node = object.__new__(ScyllaPodmanNode)
+        node.local_yaml_path = str(tmp_path)
+
+        path = node._write_io_properties(1)
+        yaml = YAML()
+        with open(path) as f:
+            data = yaml.load(f)
+        disk = data["disks"][0]
+        assert disk["read_iops"] == 100000
+        assert disk["write_iops"] == 100000
+
+    def test_pinning_persisted_in_config(self, monkeypatch, tmp_path):
+        """The pinning flag is saved in cluster.conf."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanCluster
+
+        cluster = object.__new__(ScyllaPodmanCluster)
+        cluster.name = "test-pinning"
+        cluster.podman_image = "scylladb/scylla:latest"
+        cluster.pinning = True
+        cluster._cpu_assignments = {}
+        cluster.network_topology = None
+        cluster._client_container_id = None
+        cluster.partitioner = None
+        cluster._config_options = {}
+        cluster._dse_config_options = {}
+        cluster.use_vnodes = False
+        cluster.id = 0
+        cluster.ipprefix = "127.0.0."
+        cluster.nodes = OrderedDict()
+        cluster.seeds = []
+
+        monkeypatch.setattr(cluster, "get_path", lambda: str(tmp_path))
+
+        cluster._update_config()
+
+        yaml = YAML()
+        with open(tmp_path / "cluster.conf") as f:
+            data = yaml.load(f)
+        assert data["pinning"] is True
+
+    def test_pinning_false_persisted_in_config(self, monkeypatch, tmp_path):
+        """Pinning=False is also saved (not omitted)."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanCluster
+
+        cluster = object.__new__(ScyllaPodmanCluster)
+        cluster.name = "test-no-pinning"
+        cluster.podman_image = "scylladb/scylla:latest"
+        cluster.pinning = False
+        cluster._cpu_assignments = {}
+        cluster.network_topology = None
+        cluster._client_container_id = None
+        cluster.partitioner = None
+        cluster._config_options = {}
+        cluster._dse_config_options = {}
+        cluster.use_vnodes = False
+        cluster.id = 0
+        cluster.ipprefix = "127.0.0."
+        cluster.nodes = OrderedDict()
+        cluster.seeds = []
+
+        monkeypatch.setattr(cluster, "get_path", lambda: str(tmp_path))
+
+        cluster._update_config()
+
+        yaml = YAML()
+        with open(tmp_path / "cluster.conf") as f:
+            data = yaml.load(f)
+        assert data["pinning"] is False
+
+    def test_filter_args_passes_io_properties_file(self):
+        """--io-properties-file is in the whitelist and passes through filter_args."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
+
+        args = ["--smp", "2", "--io-properties-file", "/etc/scylla/io_properties.yaml"]
+        result = ScyllaPodmanNode.filter_args(args)
+        assert "--io-properties-file" in result
+        idx = result.index("--io-properties-file")
+        assert result[idx + 1] == "/etc/scylla/io_properties.yaml"

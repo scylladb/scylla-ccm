@@ -57,6 +57,39 @@ Each container's `eth0` gets a classful `prio` qdisc with `u32` filters:
 - **Band 2**: inter-rack same DC — configurable (default: 1ms)
 - **Band 3**: inter-DC — configurable (default: 50ms) + optional packet loss
 
+## CPU Pinning (Optional)
+
+When the `--pinning` flag is passed (or `pinning=True` in the Python API),
+CCM assigns each node a dedicated, non-overlapping set of host CPU cores.
+This is disabled by default.
+
+### How it works
+
+1. At `populate()` time, CCM checks: `total_nodes * smp <= host_cpu_count`.
+2. If there are enough CPUs, each node gets a contiguous block of `smp` cores
+   (e.g. node1 gets CPUs 0-1, node2 gets 2-3, node3 gets 4-5 for smp=2).
+3. If there are **not** enough CPUs, pinning is automatically disabled with a
+   warning and the cluster falls back to overprovisioned mode.
+
+### What changes when pinning is active
+
+| Aspect | Without pinning (default) | With pinning |
+|--------|--------------------------|--------------|
+| `--overprovisioned` | Always set | **Removed** |
+| `--cpuset` | Not set | Set to assigned cores |
+| `podman --cpuset-cpus` | Not set | Set to assigned cores |
+| IO tuning | Skipped (overprovisioned) | `io_properties.yaml` generated |
+| `--io-setup` | Not set | Set to `0` (skip iotune) |
+
+The generated `io_properties.yaml` uses generous per-core values (100k IOPS,
+1 GB/s bandwidth per core) to prevent Scylla from throttling I/O in
+test/development environments.
+
+### Requirements
+
+- Host must have at least `total_nodes * smp` CPUs available
+- `smp` defaults to 2 (set via `node.set_smp()` or `SCYLLA_EXT_OPTS="--smp N"`)
+
 ## Usage
 
 ### CLI
@@ -72,6 +105,13 @@ ccm create mycluster --podman-image scylladb/scylla:2026.1 \
     --packet-loss 0.1
 
 ccm start
+
+# Same but with CPU pinning (each node gets dedicated cores):
+ccm create mycluster --podman-image scylladb/scylla:2026.1 \
+    -n 4:1 \
+    --inter-rack-delay 2 \
+    --inter-dc-delay 100 \
+    --pinning
 ```
 
 The `-n` argument uses colon-separated notation for multi-DC. For multi-rack
@@ -90,6 +130,7 @@ cluster = ScyllaPodmanCluster(
     inter_rack_delay_ms=1,
     inter_dc_delay_ms=50,
     packet_loss_percent=0.5,
+    # pinning=True,  # uncomment to pin each node to dedicated CPU cores
 )
 
 # Multi-DC, multi-rack topology:
@@ -142,6 +183,7 @@ Key classes:
 Podman clusters save their state to `cluster.conf` with these keys:
 
 - `docker_image` — the container image (same key as Docker clusters)
+- `pinning` — whether CPU pinning is enabled (default: `false`)
 - `network_topology` — serialized topology including rack assignments, delays,
   and packet loss settings
 
