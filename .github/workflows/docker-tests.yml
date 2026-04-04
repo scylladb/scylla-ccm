@@ -125,6 +125,12 @@ jobs:
         sudo sysctl -w fs.aio-max-nr=1048576
         uv run python -m pytest ./tests/test_docker_integration.py -x -m docker -v --timeout=300
 
+    - name: Run Podman network topology tests
+      env:
+        SCYLLA_DOCKER_IMAGE: docker.io/scylladb/scylla:latest
+      run: |
+        uv run python -m pytest ./tests/test_scylla_podman_cluster.py -x -m network_topology -v --timeout=600
+
     - name: Collect diagnostics
       if: always()
       run: |
