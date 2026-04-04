@@ -207,6 +207,10 @@ class Node(object):
     def is_docker():
         return False
 
+    @staticmethod
+    def is_podman():
+        return False
+
     def get_node_cassandra_root(self):
         return self.get_path()
 
