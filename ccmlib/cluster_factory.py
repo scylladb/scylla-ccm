@@ -33,16 +33,18 @@ class ClusterFactory():
             # too). 'podman_cluster' is persisted before populate() adds a topology.
             if 'network_topology' in data or data.get('podman_cluster'):
                 net_topo_data = data.get('network_topology') or {}
+                # top-level shaping options win, so cluster and topology never disagree
+                shaping = {k: data.get(k, net_topo_data.get(k, default)) for k, default in
+                           (('inter_rack_delay_ms', 1), ('inter_dc_delay_ms', 50), ('packet_loss_percent', 0.0))}
                 cluster = ScyllaPodmanCluster(
                     path, data['name'],
                     docker_image=data.get('docker_image'),
-                    inter_rack_delay_ms=net_topo_data.get('inter_rack_delay_ms', 1),
-                    inter_dc_delay_ms=net_topo_data.get('inter_dc_delay_ms', 50),
-                    packet_loss_percent=net_topo_data.get('packet_loss_percent', 0.0),
+                    **shaping,
+                    pinning=data.get('pinning', False),
                     create_directory=False,
                 )
                 if net_topo_data:
-                    cluster.network_topology = PodmanNetworkTopology.from_dict(cluster.network_cluster_name(), net_topo_data)
+                    cluster.network_topology = PodmanNetworkTopology.from_dict(cluster.network_cluster_name(), {**net_topo_data, **shaping})
             elif 'docker_image' in data and data['docker_image']:
                 cluster = ScyllaDockerCluster(path, data['name'], docker_image=data['docker_image'],
                                               container_runtime=data.get('container_runtime'),
