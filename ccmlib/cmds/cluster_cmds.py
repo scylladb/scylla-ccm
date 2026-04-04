@@ -150,6 +150,8 @@ class ClusterCreateCmd(Cmd):
                           help="Simulated latency in ms between DCs (podman only)", default=50)
         parser.add_option("--packet-loss", type="float", dest="packet_loss",
                           help="Simulated packet loss percentage for cross-DC traffic (podman only)", default=0.0)
+        parser.add_option("--pinning", action="store_true", dest="pinning",
+                          help="Pin each podman node to dedicated CPU cores (podman only, requires enough host CPUs)", default=False)
 
         parser.epilog = """
         
@@ -188,9 +190,11 @@ class ClusterCreateCmd(Cmd):
         # Docker/Podman-based clusters don't need install_dir
         if options.scylla and not options.install_dir and not options.docker_image and not options.podman_image:
             parser.error("must specify install_dir, --docker-image, or --podman-image when using scylla")
-        Cmd.validate(self, parser, options, args, cluster_name=True)
+        if options.podman_image and not options.scylla:
+            parser.error("--podman-image requires --scylla")
         if options.podman_image and options.docker_image:
             parser.error("--podman-image and --docker-image cannot be used together")
+        Cmd.validate(self, parser, options, args, cluster_name=True)
         if options.inter_rack_delay is not None and options.inter_rack_delay < 0:
             parser.error("--inter-rack-delay must be non-negative")
         if options.inter_dc_delay is not None and options.inter_dc_delay < 0:
@@ -248,6 +252,7 @@ class ClusterCreateCmd(Cmd):
                         inter_rack_delay_ms=self.options.inter_rack_delay,
                         inter_dc_delay_ms=self.options.inter_dc_delay,
                         packet_loss_percent=self.options.packet_loss,
+                        pinning=self.options.pinning,
                     )
                 elif self.options.docker_image:
                     # Create Docker-based Scylla cluster
@@ -297,7 +302,7 @@ class ClusterCreateCmd(Cmd):
             common.switch_cluster(self.path, self.name)
             print(f'Current cluster is now: {self.name}')
 
-        if not (self.options.ipprefix or self.options.ipformat):
+        if not cluster.is_podman() and not (self.options.ipprefix or self.options.ipformat):
             self.options.ipformat = '127.0.0.%d'
 
         if self.options.ssl_path:
@@ -459,7 +464,7 @@ class ClusterPopulateCmd(Cmd):
             if self.cluster.cassandra_version() >= "1.2" and self.options.vnodes:
                 self.cluster.set_configuration_options({'num_tokens': 256})
 
-            if not (self.options.ipprefix or self.options.ipformat):
+            if not self.cluster.is_podman() and not (self.options.ipprefix or self.options.ipformat):
                 self.options.ipformat = '127.0.0.%d'
 
             self.cluster.populate(self.nodes, self.options.debug, use_vnodes=self.options.vnodes, ipprefix=self.options.ipprefix, ipformat=self.options.ipformat)

@@ -10,8 +10,10 @@ Run with: pytest tests/test_scylla_podman_cluster.py -v -m network_topology
 
 import re
 import os
+import signal
 import subprocess
 import tempfile
+import threading
 import pytest
 from collections import OrderedDict
 from types import SimpleNamespace
@@ -19,8 +21,14 @@ from unittest.mock import patch
 
 from ruamel.yaml import YAML
 
-from ccmlib.scylla_podman_cluster import PodmanNetworkTopology
-from ccmlib.scylla_podman_cluster import PodmanProcess
+from ccmlib.scylla_podman_cluster import (
+    PodmanNetworkTopology,
+    PodmanProcess,
+    ScyllaPodmanCluster,
+    ScyllaPodmanNode,
+    _copy_conf_dir,
+)
+from ccmlib.scylla_node import ScyllaNode
 from ccmlib import common
 
 
@@ -75,6 +83,23 @@ class TestPodmanNetworkTopology:
         )
         net = topo.get_node_network("node1")
         assert net == "ccm-my-cluster-v2-dc-1-us-east-rac-1"
+
+    def test_network_naming_uses_stable_fallback_for_empty_components(self):
+        """All-invalid names should still yield non-empty, distinct podman-safe names."""
+        topology = OrderedDict(
+            [
+                ("___", OrderedDict([("!!!", 1)])),
+                ("---", OrderedDict([("@@@", 1)])),
+            ]
+        )
+        topo = PodmanNetworkTopology(
+            cluster_name="...",
+            topology=topology,
+        )
+
+        names = [entry["network_name"] for entry in topo.rack_networks.values()]
+        assert all("ccm-unnamed-" in name for name in names)
+        assert names[0] != names[1]
 
     def test_custom_subnet_prefix(self):
         topology = OrderedDict([("DC1", OrderedDict([("RAC1", 2)]))])
@@ -155,6 +180,26 @@ class TestPodmanNetworkTopology:
         assert len(cmds) == 1
         assert "prio bands 4" in cmds[0]
 
+    def test_tc_commands_packet_loss_without_delay(self):
+        """Packet loss should be applied even when inter-DC delay is 0."""
+        topology = OrderedDict(
+            [
+                ("DC1", OrderedDict([("RAC1", 1)])),
+                ("DC2", OrderedDict([("RAC1", 1)])),
+            ]
+        )
+        topo = PodmanNetworkTopology(
+            cluster_name="test",
+            topology=topology,
+            inter_rack_delay_ms=0,
+            inter_dc_delay_ms=0,
+            packet_loss_percent=5.0,
+        )
+        cmds = topo.build_tc_commands("node1")
+        # Should have: root qdisc + netem with loss (no delay) + filter
+        assert any("loss 5.0%" in c for c in cmds), f"Missing packet loss in tc commands: {cmds}"
+        assert not any("delay" in c for c in cmds), f"Unexpected delay in tc commands: {cmds}"
+
     def test_client_ip(self, multi_dc_topology):
         topo = multi_dc_topology
         assert topo.get_client_ip() == "10.89.1.100"
@@ -229,6 +274,14 @@ class TestPodmanNetworkTopology:
         """First rack with >= 100 nodes should fail (client container IP collision)."""
         topology = OrderedDict([("dc1", OrderedDict([("RAC1", 100)]))])
         with pytest.raises(ValueError, match="client container"):
+            PodmanNetworkTopology(cluster_name="test", topology=topology)
+
+    def test_validation_first_rack_must_have_nodes(self):
+        """First rack with 0 nodes should fail (client container needs a co-located node)."""
+        topology = OrderedDict(
+            [("dc1", OrderedDict([("RAC1", 0), ("RAC2", 2)]))]
+        )
+        with pytest.raises(ValueError, match="at least 1 node"):
             PodmanNetworkTopology(cluster_name="test", topology=topology)
 
     def test_validation_too_many_nodes_gateway_collision(self):
@@ -366,6 +419,22 @@ class TestPodmanProcess:
         p.returncode = 42
         assert p.poll() == 42
 
+    def test_poll_treats_paused_container_as_alive(self, monkeypatch):
+        """A paused container should not be treated as an exited process."""
+        p = PodmanProcess("paused-container-id")
+
+        monkeypatch.setattr(
+            "ccmlib.scylla_podman_cluster.run",
+            lambda *args, **kwargs: SimpleNamespace(
+                returncode=0,
+                stdout="paused:0\n",
+                stderr="",
+            ),
+        )
+
+        assert p.poll() is None
+        assert p.returncode is None
+
 
 class TestFilterArgs:
     """Unit tests for ScyllaPodmanNode.filter_args."""
@@ -418,6 +487,80 @@ class TestFilterArgs:
         idx = result.index("--developer-mode")
         assert result[idx + 1] == "1"
 
+    def test_filter_args_preserves_boolean_flags(self):
+        """Boolean flags should not consume the following flag as their value."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
+
+        args = [
+            "/path/to/scylla",
+            "--options-file",
+            "/path/to/scylla.yaml",
+            "--experimental",
+            "--smp",
+            "2",
+            "--disable-version-check",
+            "--memory",
+            "512M",
+        ]
+
+        result = ScyllaPodmanNode.filter_args(args)
+
+        assert result == [
+            "--experimental",
+            "--smp",
+            "2",
+            "--disable-version-check",
+            "--memory",
+            "512M",
+            "--io-setup",
+            "0",
+        ]
+
+    def test_filter_args_preserves_unknown_flags_for_forward_compatibility(self):
+        """Unknown Scylla flags should pass through rather than being dropped."""
+
+        args = [
+            "/path/to/scylla",
+            "--options-file",
+            "/path/to/scylla.yaml",
+            "--kernel-page-cache",
+            "1",
+            "--max-networking-io-control-blocks",
+            "1000",
+            "--log-to-stdout",
+            "1",
+        ]
+
+        result = ScyllaPodmanNode.filter_args(args)
+
+        assert result == [
+            "--kernel-page-cache",
+            "1",
+            "--max-networking-io-control-blocks",
+            "1000",
+            "--io-setup",
+            "0",
+        ]
+
+    def test_filter_args_always_injects_io_setup_0(self):
+        """--io-setup 0 is always present in output so iotune never runs."""
+
+        # Not present in input → injected
+        result = ScyllaPodmanNode.filter_args(["--smp", "2"])
+        assert "--io-setup" in result
+        assert result[result.index("--io-setup") + 1] == "0"
+
+        # Already present as 1 → overridden to 0
+        result = ScyllaPodmanNode.filter_args(["--smp", "2", "--io-setup", "1"])
+        assert result.count("--io-setup") == 1
+        assert result[result.index("--io-setup") + 1] == "0"
+
+        # Present as --io-setup=1 → replaced
+        result = ScyllaPodmanNode.filter_args(["--smp", "2", "--io-setup=1"])
+        assert "--io-setup=1" not in result
+        assert "--io-setup" in result
+        assert result[result.index("--io-setup") + 1] == "0"
+
 
 class TestPodmanNodeBehavior:
     def test_wait_for_binary_interface_checks_inside_container(self, monkeypatch):
@@ -464,11 +607,47 @@ class TestPodmanNodeBehavior:
                 "podman",
                 "exec",
                 "container-id",
-                "python3",
+                "bash",
                 "-c",
-                "import socket; sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM); sock.settimeout(1.0); sock.connect(('10.90.1.1', 9042)); sock.close()",
+                "echo > /dev/tcp/10.90.1.1/9042",
             ]
         ]
+
+    def test_wait_for_binary_interface_uses_remaining_timeout_after_log_wait(
+        self, monkeypatch
+    ):
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
+
+        node = object.__new__(ScyllaPodmanNode)
+        node.cluster = SimpleNamespace(version=lambda: "2026.1")
+        node.network_interfaces = {"binary": ("10.90.1.1", 9042)}
+        node.pid = "container-id"
+        node.name = "node1"
+
+        timeline = iter([100.0, 101.25, 101.25])
+        observed = {}
+
+        monkeypatch.setattr(
+            "ccmlib.scylla_podman_cluster.time.time",
+            lambda: next(timeline),
+        )
+        monkeypatch.setattr(node, "watch_log_for", lambda *args, **kwargs: True)
+        monkeypatch.setattr(
+            "ccmlib.scylla_podman_cluster.run",
+            lambda *args, **kwargs: SimpleNamespace(returncode=0),
+        )
+
+        def fake_wait_for(func, timeout, first=0.0, step=1.0):
+            observed["timeout"] = timeout
+            return func()
+
+        monkeypatch.setattr(
+            "ccmlib.scylla_podman_cluster.common.wait_for", fake_wait_for
+        )
+
+        node.wait_for_binary_interface(timeout=5)
+
+        assert observed["timeout"] == pytest.approx(3.75)
 
     def test_wait_for_binary_interface_times_out_when_container_probe_fails(
         self, monkeypatch
@@ -499,6 +678,94 @@ class TestPodmanNodeBehavior:
         with pytest.raises(TimeoutError, match="10.90.1.1:9042"):
             node.wait_for_binary_interface(timeout=5)
 
+    def test_get_tool_raises_when_pid_is_none(self):
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
+
+        node = object.__new__(ScyllaPodmanNode)
+        node.name = "node1"
+        node.pid = None
+
+        with pytest.raises(RuntimeError, match="no running container"):
+            node.get_tool("cqlsh")
+
+    def test_setup_routes_raises_on_failure(self, monkeypatch):
+        """Node-level _setup_routes() should raise RuntimeError on route failures."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
+
+        node = object.__new__(ScyllaPodmanNode)
+        node.name = "node1"
+        node.pid = "container-id"
+        node.cluster = SimpleNamespace(
+            network_topology=SimpleNamespace(
+                get_routes_for_node=lambda node_name: [
+                    ("10.89.2.0/24", "10.89.1.254"),
+                    ("10.89.3.0/24", "10.89.1.254"),
+                ]
+            )
+        )
+
+        call_count = {"n": 0}
+
+        def fake_nsenter(container_id, command):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return SimpleNamespace(returncode=0, stderr="")
+            return SimpleNamespace(returncode=1, stderr="RTNETLINK: File exists")
+
+        monkeypatch.setattr(
+            "ccmlib.scylla_podman_cluster._nsenter_net_run", fake_nsenter
+        )
+
+        with pytest.raises(RuntimeError, match=r"1 route\(s\).*node1"):
+            node._setup_routes()
+
+    def test_start_scylla_refreshes_cpu_assignments_before_pinning(self, monkeypatch):
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
+
+        node = object.__new__(ScyllaPodmanNode)
+        node.name = "node1"
+        node.pid = None
+        node.log_thread = None
+        node.mark = 0
+
+        cluster = SimpleNamespace(pinning=True, _cpu_assignments={})
+
+        def refresh_cpu_assignments():
+            cluster._cpu_assignments = {"node1": [4, 5]}
+
+        cluster._refresh_cpu_assignments = refresh_cpu_assignments
+        node.cluster = cluster
+
+        observed = {}
+
+        monkeypatch.setattr(node, "filter_args", lambda args: args)
+
+        def fake_pinning(args):
+            observed["assignments"] = dict(cluster._cpu_assignments)
+            return args
+
+        monkeypatch.setattr(node, "_pinning_scylla_args", fake_pinning)
+        monkeypatch.setattr(
+            node,
+            "create_container",
+            lambda args: setattr(node, "pid", "container123"),
+        )
+        monkeypatch.setattr(node, "service_status", lambda service_name: "RUNNING")
+        monkeypatch.setattr(node, "_scylla_service_name", lambda: "scylla")
+        monkeypatch.setattr(node, "get_path", lambda: "/tmp/node1")
+        monkeypatch.setattr(
+            "ccmlib.scylla_podman_cluster.PodmanLogger",
+            lambda node_obj, log_path: SimpleNamespace(
+                start=lambda: None,
+                stop=lambda: None,
+            ),
+        )
+
+        process = node._start_scylla([], [], False, False, False, False, {})
+
+        assert observed["assignments"] == {"node1": [4, 5]}
+        assert process.pid == "container123"
+
 
 class TestPodmanClusterBehavior:
     def test_populate_retries_with_another_subnet_prefix_on_collision(
@@ -518,6 +785,8 @@ class TestPodmanClusterBehavior:
         cluster.use_vnodes = False
         cluster._config_options = {}
         cluster._scylla_manager = None
+        cluster.pinning = False
+        cluster._cpu_assignments = {}
 
         monkeypatch.setattr(
             cluster,
@@ -582,6 +851,8 @@ class TestPodmanClusterBehavior:
         cluster.use_vnodes = False
         cluster._config_options = {}
         cluster._scylla_manager = None
+        cluster.pinning = False
+        cluster._cpu_assignments = {}
 
         monkeypatch.setattr(
             cluster,
@@ -644,9 +915,11 @@ class TestPodmanClusterBehavior:
 
         cluster = object.__new__(ScyllaPodmanCluster)
         cluster.name = "testcluster"
+        cluster.path = "/tmp/.ccm"
         cluster.podman_image = "docker.io/scylladb/scylla:2026.1"
         cluster._client_container_id = None
         cluster.network_topology = SimpleNamespace(
+            node_assignments={"node1": {}},
             get_client_ip=lambda: "10.89.1.100",
             get_client_network=lambda: "ccm-testcluster-dc1-rack1",
             build_tc_commands=lambda node_name: [],
@@ -679,6 +952,42 @@ class TestPodmanClusterBehavior:
         assert f"{PODMAN_RESOURCE_OWNER_LABEL}={os.getpid()}" in run_cmd
         assert not any(":ip=" in part for part in run_cmd)
 
+    def test_start_client_container_sanitizes_client_name(self, monkeypatch):
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanCluster
+
+        cluster = object.__new__(ScyllaPodmanCluster)
+        cluster.name = "test cluster/2026"
+        cluster.path = "/tmp/.ccm"
+        cluster.podman_image = "docker.io/scylladb/scylla:2026.1"
+        cluster._client_container_id = None
+        cluster.network_topology = SimpleNamespace(
+            node_assignments={"node1": {}},
+            get_client_ip=lambda: "10.89.1.100",
+            get_client_network=lambda: "ccm-testcluster-dc1-rack1",
+            build_tc_commands=lambda node_name: [],
+        )
+
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            if cmd[:3] == ["podman", "run", "-d"]:
+                return SimpleNamespace(returncode=0, stdout="client123\n", stderr="")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("ccmlib.scylla_podman_cluster.run", fake_run)
+        monkeypatch.setattr(
+            cluster,
+            "_setup_container_routes",
+            lambda client_name, node_name: None,
+        )
+
+        cluster.start_client_container()
+
+        run_cmd = next(cmd for cmd in calls if cmd[:3] == ["podman", "run", "-d"])
+        name_idx = run_cmd.index("--name")
+        assert run_cmd[name_idx + 1] == "ccm-test-cluster-test-cluster-2026-client"
+
     def test_setup_container_routes_logs_failures(self, monkeypatch):
         from ccmlib.scylla_podman_cluster import ScyllaPodmanCluster
 
@@ -687,24 +996,83 @@ class TestPodmanClusterBehavior:
             get_routes_for_node=lambda node_name: [("10.89.2.0/24", "10.89.1.254")]
         )
 
-        warnings = []
-
         monkeypatch.setattr(
             "ccmlib.scylla_podman_cluster._nsenter_net_run",
             lambda container_id, command: SimpleNamespace(
                 returncode=1, stderr="route failed"
             ),
         )
-        monkeypatch.setattr(
-            "ccmlib.scylla_podman_cluster.LOGGER.warning",
-            lambda *args: warnings.append(args[0] if len(args) == 1 else args[0] % args[1:]),
+
+        with pytest.raises(RuntimeError, match=r"1 route\(s\).*client123"):
+            cluster._setup_container_routes("client123", "node1")
+
+    def test_start_client_container_refuses_live_foreign_name_collision(self, monkeypatch):
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanCluster
+
+        cluster = object.__new__(ScyllaPodmanCluster)
+        cluster.name = "testcluster"
+        cluster.path = "/tmp/.ccm"
+        cluster.podman_image = "docker.io/scylladb/scylla:2026.1"
+        cluster._client_container_id = None
+        cluster.network_topology = SimpleNamespace(
+            get_client_ip=lambda: "10.89.1.100",
+            get_client_network=lambda: "ccm-testcluster-dc1-rack1",
+            node_assignments={"node1": {}},
         )
 
-        cluster._setup_container_routes("client123", "node1")
+        monkeypatch.setattr(
+            "ccmlib.scylla_podman_cluster._inspect_container",
+            lambda name: {
+                "Id": "client-123",
+                "State": {"Status": "running"},
+                "Config": {
+                    "Labels": {"org.scylladb.ccm-owner-pid": str(os.getpid() + 1)}
+                },
+            },
+        )
+        monkeypatch.setattr(
+            "ccmlib.scylla_podman_cluster._pid_is_alive", lambda pid: True
+        )
 
-        assert warnings == [
-            "Failed to add route 10.89.2.0/24 via 10.89.1.254 in client123: route failed"
-        ]
+        with pytest.raises(RuntimeError, match="owned by live process"):
+            cluster.start_client_container()
+
+    def test_clear_preserves_topology_for_restart(self, monkeypatch):
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanCluster
+
+        cluster = object.__new__(ScyllaPodmanCluster)
+        cluster.network_topology = SimpleNamespace(destroy_networks=lambda: None)
+        cluster.nodes = OrderedDict(
+            node1=SimpleNamespace(name="node1", remove=lambda: None, clear=lambda: None)
+        )
+        cluster.stop_client_container = lambda: None
+
+        topology = cluster.network_topology
+        cluster.clear()
+
+        assert cluster.network_topology is topology
+
+    def test_create_networks_refuses_live_foreign_owner_collision(self, monkeypatch):
+        from ccmlib.scylla_podman_cluster import PodmanNetworkTopology
+
+        topo = PodmanNetworkTopology(
+            cluster_name="testcluster",
+            topology=OrderedDict([("dc1", OrderedDict([("rack1", 1)]))]),
+        )
+
+        monkeypatch.setattr(
+            "ccmlib.scylla_podman_cluster._inspect_network",
+            lambda name: {
+                "labels": {"org.scylladb.ccm-owner-pid": str(os.getpid() + 1)},
+                "containers": {},
+            },
+        )
+        monkeypatch.setattr(
+            "ccmlib.scylla_podman_cluster._pid_is_alive", lambda pid: True
+        )
+
+        with pytest.raises(RuntimeError, match="owned by live process"):
+            topo.create_networks()
 
 
 class TestPodmanContainerCreate:
@@ -727,6 +1095,7 @@ class TestPodmanContainerCreate:
         node.cluster = SimpleNamespace(
             podman_image="docker.io/scylladb/scylla:2026.1",
             network_topology=SimpleNamespace(
+                create_networks=lambda: None,
                 get_node_network=lambda node_name: "ccm-testcluster-dc1-rack1"
             ),
             nodelist=lambda: [
@@ -777,6 +1146,151 @@ class TestPodmanContainerCreate:
         assert run_cmd[ip_idx + 1] == "10.89.1.1"
         assert f"{PODMAN_RESOURCE_OWNER_LABEL}={os.getpid()}" in run_cmd
         assert not any(":ip=" in part for part in run_cmd)
+
+    def test_create_container_clears_supervisor_cache_when_recreating(self, monkeypatch):
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
+
+        node = object.__new__(ScyllaPodmanNode)
+        node.name = "node1"
+        node.pid = "dead-container"
+        node.podman_name = "ccm-test-node1"
+        node.base_data_path = "/usr/lib/scylla"
+        node.local_yaml_path = "/tmp/node1-conf"
+        node.share_directories = []
+        node.log_thread = None
+        node.network_interfaces = {
+            "storage": ("127.0.0.1", 7000),
+            "binary": ("127.0.0.1", 9042),
+        }
+        node._cached_supervisor_programs = {"scylla-server"}
+        node.cluster = SimpleNamespace(
+            podman_image="docker.io/scylladb/scylla:2026.1",
+            network_topology=SimpleNamespace(
+                create_networks=lambda: None,
+                get_node_network=lambda node_name: "ccm-testcluster-dc1-rack1"
+            ),
+            nodelist=lambda: [
+                SimpleNamespace(
+                    name="node1", network_interfaces={"storage": ("10.89.1.1", 7000)}
+                )
+            ],
+        )
+
+        def fake_run(cmd, **kwargs):
+            if cmd[:3] == ["podman", "inspect", "--format"]:
+                return SimpleNamespace(returncode=0, stdout="exited\n", stderr="")
+            if cmd[:2] == ["podman", "run"]:
+                return SimpleNamespace(returncode=0, stdout="container123\n", stderr="")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("ccmlib.scylla_podman_cluster.run", fake_run)
+        monkeypatch.setattr(
+            "ccmlib.scylla_podman_cluster.common.wait_for",
+            lambda func, timeout, step: True,
+        )
+        monkeypatch.setattr(node, "_prepare_bind_mounts", lambda: None)
+        monkeypatch.setattr(node, "_get_rack_ip", lambda: "10.89.1.1")
+        monkeypatch.setattr(node, "read_scylla_yaml", lambda: {})
+        monkeypatch.setattr(node, "get_path", lambda: "/tmp/node1")
+        monkeypatch.setattr(node, "_scylla_service_name", lambda: "scylla")
+        monkeypatch.setattr(node, "_jmx_service_name", lambda: None)
+        monkeypatch.setattr(node, "service_stop", lambda service_name: None)
+        monkeypatch.setattr(node, "_setup_routes", lambda: None)
+        monkeypatch.setattr(
+            "ccmlib.scylla_podman_cluster.PodmanLogger",
+            lambda node_obj, log_path: SimpleNamespace(
+                start=lambda: None, stop=lambda: None
+            ),
+        )
+
+        node.create_container([])
+
+        assert node._cached_supervisor_programs is None
+
+    def test_create_container_reuses_live_current_process_container(self, monkeypatch):
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
+
+        node = object.__new__(ScyllaPodmanNode)
+        node.name = "node1"
+        node.pid = None
+        node.podman_name = "ccm-test-node1"
+        node.base_data_path = "/usr/lib/scylla"
+        node.local_yaml_path = "/tmp/node1-conf"
+        node.share_directories = []
+        node.log_thread = None
+        node.network_interfaces = {
+            "storage": ("127.0.0.1", 7000),
+            "binary": ("127.0.0.1", 9042),
+        }
+        create_networks_calls = []
+        node.cluster = SimpleNamespace(
+            podman_image="docker.io/scylladb/scylla:2026.1",
+            network_topology=SimpleNamespace(
+                create_networks=lambda: create_networks_calls.append(True),
+                get_node_network=lambda node_name: "ccm-testcluster-dc1-rack1",
+            ),
+            nodelist=lambda: [
+                SimpleNamespace(
+                    name="node1", network_interfaces={"storage": ("10.89.1.1", 7000)}
+                )
+            ],
+        )
+
+        monkeypatch.setattr(node, "_get_rack_ip", lambda: "10.89.1.1")
+        monkeypatch.setattr(node, "read_scylla_yaml", lambda: {})
+        monkeypatch.setattr(
+            "ccmlib.scylla_podman_cluster._remove_named_container_if_safe",
+            lambda name, allow_reuse_current_running=False: {
+                "Id": "container123",
+                "State": {"Status": "running"},
+            },
+        )
+
+        node.create_container([])
+
+        assert create_networks_calls == [True]
+        assert node.pid == "container123"
+        assert node.network_interfaces["storage"] == ("10.89.1.1", 7000)
+
+    def test_create_container_refuses_live_foreign_name_collision(self, monkeypatch):
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
+
+        node = object.__new__(ScyllaPodmanNode)
+        node.name = "node1"
+        node.pid = None
+        node.podman_name = "ccm-test-node1"
+        node.base_data_path = "/usr/lib/scylla"
+        node.local_yaml_path = "/tmp/node1-conf"
+        node.share_directories = []
+        node.log_thread = None
+        node.network_interfaces = {
+            "storage": ("127.0.0.1", 7000),
+            "binary": ("127.0.0.1", 9042),
+        }
+        node.cluster = SimpleNamespace(
+            podman_image="docker.io/scylladb/scylla:2026.1",
+            network_topology=SimpleNamespace(
+                create_networks=lambda: None,
+                get_node_network=lambda node_name: "ccm-testcluster-dc1-rack1",
+            ),
+            nodelist=lambda: [
+                SimpleNamespace(
+                    name="node1", network_interfaces={"storage": ("10.89.1.1", 7000)}
+                )
+            ],
+        )
+
+        monkeypatch.setattr(node, "_get_rack_ip", lambda: "10.89.1.1")
+        monkeypatch.setattr(node, "read_scylla_yaml", lambda: {})
+        monkeypatch.setattr(
+            "ccmlib.scylla_podman_cluster._remove_named_container_if_safe",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                RuntimeError("owned by live process 4242")
+            ),
+        )
+
+        with pytest.raises(RuntimeError, match="owned by live process 4242"):
+            node.create_container([])
 
 
 class TestPodmanConftestCleanup:
@@ -897,6 +1411,7 @@ class TestPodmanNodeRemoveAndStatus:
         node.log_thread = None
         node.status = SimpleNamespace()  # placeholder
         node._cached_nodetool_support = {}
+        node._cached_supervisor_programs = None
         return node
 
     def test_remove_clears_pid_before_podman_rm(self, monkeypatch):
@@ -1033,6 +1548,27 @@ class TestPodmanNodeRemoveAndStatus:
         assert "-c" in calls[1]
         kill_arg = calls[1][-1]
         assert "kill" in kill_arg
+        assert "-15" in kill_arg
+        assert "42" in kill_arg
+
+    def test_kill_handles_signal_enum(self, monkeypatch):
+        """Verify kill() works with signal.Signals enum values (Python 3.11+ compat)."""
+        node = self._make_node()
+        calls = []
+
+        def fake_run(cmd, stdout=None, stderr=None, text=False):
+            calls.append(cmd)
+            if "supervisorctl" in cmd and "pid" in cmd:
+                return SimpleNamespace(returncode=0, stdout="42\n", stderr="")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("ccmlib.scylla_podman_cluster.run", fake_run)
+        monkeypatch.setattr(node, "_scylla_service_name", lambda: "scylla")
+
+        node.kill(signal.SIGTERM)
+
+        kill_arg = calls[1][-1]
+        # Must produce "kill -15 42", not "kill -Signals.SIGTERM 42"
         assert "-15" in kill_arg
         assert "42" in kill_arg
 
@@ -1211,6 +1747,36 @@ class TestPodmanNodeRemoveAndStatus:
         # Should not raise, and should not try os.kill on a string pid
         node.wait_until_stopped(wait_seconds=5)
         assert not node.is_running()
+
+    def test_update_config_persists_zero_initial_token(self, tmp_path):
+        """A valid token value of 0 must survive node.conf persistence."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
+        from ccmlib.node import Status
+
+        node = object.__new__(ScyllaPodmanNode)
+        node.name = "node1"
+        node.status = Status.DOWN
+        node.auto_bootstrap = False
+        node.network_interfaces = {
+            "storage": ("10.0.0.1", 7000),
+            "binary": ("10.0.0.1", 9042),
+        }
+        node.jmx_port = "7199"
+        node.pid = "container123"
+        node.podman_name = "ccm-test-node1"
+        node.initial_token = 0
+        node.remote_debug_port = "0"
+        node.data_center = None
+        node.rack = None
+        node.workload = None
+        node.get_path = lambda: str(tmp_path)
+
+        node._update_config()
+
+        with open(tmp_path / "node.conf") as f:
+            data = YAML().load(f)
+
+        assert data["initial_token"] == 0
 
 
 class TestPodmanClusterFactoryLoad:
@@ -1393,3 +1959,476 @@ class TestScyllaPodmanCluster:
         assert podman_cluster.is_docker()  # is_docker() returns True for compat
         for node in podman_cluster.nodelist():
             assert node.is_podman()
+
+
+
+# ============================================================================
+# Unit tests for CPU pinning feature (no podman required)
+# ============================================================================
+
+
+class TestCpuPinning:
+    """Unit tests for CPU pinning assignment, Scylla arg injection,
+    podman arg injection, and io_properties generation."""
+
+    def _make_cluster_with_nodes(
+        self, monkeypatch, num_nodes=3, smp=2, pinning=True, host_cpus=16
+    ):
+        """Helper: build a ScyllaPodmanCluster with mocked nodes for pinning tests."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanCluster
+
+        cluster = object.__new__(ScyllaPodmanCluster)
+        cluster.name = "test-pinning"
+        cluster.podman_image = "scylladb/scylla:latest"
+        cluster.pinning = pinning
+        cluster._cpu_assignments = {}
+        cluster.network_topology = None
+        cluster._client_container_id = None
+        cluster.inter_rack_delay_ms = 1
+        cluster.inter_dc_delay_ms = 50
+        cluster.packet_loss_percent = 0.0
+
+        # Build fake nodes
+        nodes = OrderedDict()
+        for i in range(1, num_nodes + 1):
+            node = SimpleNamespace(
+                name=f"node{i}",
+                smp=lambda _smp=smp: _smp,
+            )
+            nodes[f"node{i}"] = node
+        cluster.nodes = nodes
+
+        monkeypatch.setattr(
+            "ccmlib.scylla_podman_cluster.host_cpu_count",
+            lambda: host_cpus,
+        )
+        return cluster
+
+    def test_compute_assignments_basic(self, monkeypatch):
+        """3 nodes x 2 smp on a 16-core host -> 3 non-overlapping pairs."""
+        cluster = self._make_cluster_with_nodes(
+            monkeypatch, num_nodes=3, smp=2, host_cpus=16
+        )
+        cluster._compute_cpu_assignments()
+        assert cluster.pinning is True
+        assert cluster._cpu_assignments == {
+            "node1": [0, 1],
+            "node2": [2, 3],
+            "node3": [4, 5],
+        }
+
+    def test_compute_assignments_exact_fit(self, monkeypatch):
+        """4 nodes x 4 smp on a 16-core host -> exact fit, still valid."""
+        cluster = self._make_cluster_with_nodes(
+            monkeypatch, num_nodes=4, smp=4, host_cpus=16
+        )
+        cluster._compute_cpu_assignments()
+        assert cluster.pinning is True
+        assert len(cluster._cpu_assignments) == 4
+        # Verify no overlap
+        all_cpus = []
+        for cpus in cluster._cpu_assignments.values():
+            all_cpus.extend(cpus)
+        assert len(all_cpus) == len(set(all_cpus)) == 16
+
+    def test_compute_assignments_uses_each_node_smp(self, monkeypatch):
+        """Assignments must follow each node's actual smp(), not node1's only."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanCluster
+
+        cluster = object.__new__(ScyllaPodmanCluster)
+        cluster.name = "test-pinning"
+        cluster.podman_image = "scylladb/scylla:latest"
+        cluster.pinning = True
+        cluster._cpu_assignments = {}
+        cluster.network_topology = None
+        cluster._client_container_id = None
+        cluster.inter_rack_delay_ms = 1
+        cluster.inter_dc_delay_ms = 50
+        cluster.packet_loss_percent = 0.0
+        cluster.nodes = OrderedDict(
+            [
+                ("node1", SimpleNamespace(name="node1", smp=lambda: 1)),
+                ("node2", SimpleNamespace(name="node2", smp=lambda: 3)),
+                ("node3", SimpleNamespace(name="node3", smp=lambda: 2)),
+            ]
+        )
+
+        monkeypatch.setattr(
+            "ccmlib.scylla_podman_cluster.host_cpu_count",
+            lambda: 16,
+        )
+
+        cluster._compute_cpu_assignments()
+
+        assert cluster._cpu_assignments == {
+            "node1": [0],
+            "node2": [1, 2, 3],
+            "node3": [4, 5],
+        }
+
+    def test_compute_assignments_insufficient_cpus(self, monkeypatch):
+        """5 nodes x 4 smp on a 16-core host -> pinning disabled."""
+        cluster = self._make_cluster_with_nodes(
+            monkeypatch, num_nodes=5, smp=4, host_cpus=16
+        )
+        cluster._compute_cpu_assignments()
+        assert cluster.pinning is False
+        assert cluster._cpu_assignments == {}
+
+    def test_compute_assignments_not_implemented(self, monkeypatch):
+        """If host_cpu_count() raises NotImplementedError, pinning disabled."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanCluster
+
+        cluster = self._make_cluster_with_nodes(
+            monkeypatch, num_nodes=2, smp=2, host_cpus=8
+        )
+        monkeypatch.setattr(
+            "ccmlib.scylla_podman_cluster.host_cpu_count",
+            lambda: (_ for _ in ()).throw(NotImplementedError),
+        )
+        cluster._compute_cpu_assignments()
+        assert cluster.pinning is False
+        assert cluster._cpu_assignments == {}
+
+    def test_compute_assignments_empty_cluster(self, monkeypatch):
+        """No nodes -> empty assignments, pinning remains True."""
+        cluster = self._make_cluster_with_nodes(
+            monkeypatch, num_nodes=0, smp=2, host_cpus=16
+        )
+        cluster._compute_cpu_assignments()
+        assert cluster._cpu_assignments == {}
+
+    def test_pinning_container_args_when_pinned(self, monkeypatch):
+        """Node returns --cpuset-cpus flag when it has a CPU assignment."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
+
+        node = object.__new__(ScyllaPodmanNode)
+        node.name = "node1"
+        node.cluster = SimpleNamespace(_cpu_assignments={"node1": [0, 1, 2, 3]})
+
+        result = node._pinning_container_args()
+        assert result == ["--cpuset-cpus", "0,1,2,3"]
+
+    def test_pinning_container_args_when_not_pinned(self, monkeypatch):
+        """Node returns empty list when no CPU assignment."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
+
+        node = object.__new__(ScyllaPodmanNode)
+        node.name = "node1"
+        node.cluster = SimpleNamespace(_cpu_assignments={})
+
+        result = node._pinning_container_args()
+        assert result == []
+
+    def test_pinning_scylla_args_injects_cpuset_removes_overprovisioned(
+        self, monkeypatch, tmp_path
+    ):
+        """When pinned, --cpuset is added, --overprovisioned is removed."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
+
+        node = object.__new__(ScyllaPodmanNode)
+        node.name = "node1"
+        node.cluster = SimpleNamespace(_cpu_assignments={"node1": [4, 5]})
+        node.local_yaml_path = str(tmp_path)
+
+        input_args = [
+            "--smp",
+            "2",
+            "--memory",
+            "1G",
+            "--overprovisioned",
+            "1",
+            "--developer-mode",
+            "1",
+        ]
+        result = node._pinning_scylla_args(input_args)
+
+        assert "--cpuset" in result
+        cpuset_idx = result.index("--cpuset")
+        assert result[cpuset_idx + 1] == "4,5"
+        assert "--overprovisioned" not in result
+        assert "--io-setup" in result
+        io_idx = result.index("--io-setup")
+        assert result[io_idx + 1] == "0"
+        assert "--io-properties-file" in result
+
+    def test_pinning_scylla_args_does_not_mutate_input(self, monkeypatch, tmp_path):
+        """The original args list is not modified."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
+
+        node = object.__new__(ScyllaPodmanNode)
+        node.name = "node1"
+        node.cluster = SimpleNamespace(_cpu_assignments={"node1": [0, 1]})
+        node.local_yaml_path = str(tmp_path)
+
+        original = ["--smp", "2", "--overprovisioned", "1"]
+        original_copy = list(original)
+        node._pinning_scylla_args(original)
+        assert original == original_copy
+
+    def test_pinning_scylla_args_noop_when_not_pinned(self, monkeypatch):
+        """When not pinned, args pass through unchanged."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
+
+        node = object.__new__(ScyllaPodmanNode)
+        node.name = "node1"
+        node.cluster = SimpleNamespace(_cpu_assignments={})
+
+        input_args = ["--smp", "2", "--overprovisioned", "1"]
+        result = node._pinning_scylla_args(input_args)
+        assert result is input_args  # same object, not a copy
+
+    def test_pinning_scylla_args_replaces_existing_io_setup(
+        self, monkeypatch, tmp_path
+    ):
+        """If --io-setup is already in args, its value is replaced with 0."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
+
+        node = object.__new__(ScyllaPodmanNode)
+        node.name = "node1"
+        node.cluster = SimpleNamespace(_cpu_assignments={"node1": [0]})
+        node.local_yaml_path = str(tmp_path)
+
+        input_args = ["--io-setup", "1", "--overprovisioned", "1"]
+        result = node._pinning_scylla_args(input_args)
+        io_idx = result.index("--io-setup")
+        assert result[io_idx + 1] == "0"
+
+    def test_write_io_properties(self, tmp_path):
+        """io_properties.yaml is written with correct structure and values."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
+
+        node = object.__new__(ScyllaPodmanNode)
+        node.local_yaml_path = str(tmp_path)
+        node.base_data_path = "/usr/lib/scylla"
+
+        path = node._write_io_properties(4)
+
+        assert os.path.exists(path)
+        yaml = YAML()
+        with open(path) as f:
+            data = yaml.load(f)
+        assert "disks" in data
+        assert len(data["disks"]) == 1
+        disk = data["disks"][0]
+        assert disk["mountpoint"] == "/usr/lib/scylla"
+        assert disk["read_iops"] == 400000  # 100k * 4
+        assert disk["write_iops"] == 400000
+        assert disk["read_bandwidth"] == 1073741824 * 4
+        assert disk["write_bandwidth"] == 1073741824 * 4
+
+    def test_write_io_properties_single_cpu(self, tmp_path):
+        """io_properties.yaml for a single CPU has base values."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
+
+        node = object.__new__(ScyllaPodmanNode)
+        node.local_yaml_path = str(tmp_path)
+        node.base_data_path = "/usr/lib/scylla"
+
+        path = node._write_io_properties(1)
+        yaml = YAML()
+        with open(path) as f:
+            data = yaml.load(f)
+        disk = data["disks"][0]
+        assert disk["mountpoint"] == "/usr/lib/scylla"
+        assert disk["read_iops"] == 100000
+        assert disk["write_iops"] == 100000
+
+    def test_pinning_persisted_in_config(self, monkeypatch, tmp_path):
+        """The pinning flag is saved in cluster.conf."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanCluster
+
+        cluster = object.__new__(ScyllaPodmanCluster)
+        cluster.name = "test-pinning"
+        cluster.podman_image = "scylladb/scylla:latest"
+        cluster.pinning = True
+        cluster._cpu_assignments = {}
+        cluster.network_topology = None
+        cluster._client_container_id = None
+        cluster.partitioner = None
+        cluster._config_options = {}
+        cluster._dse_config_options = {}
+        cluster.use_vnodes = False
+        cluster.id = 0
+        cluster.ipprefix = "127.0.0."
+        cluster.nodes = OrderedDict()
+        cluster.seeds = []
+
+        monkeypatch.setattr(cluster, "get_path", lambda: str(tmp_path))
+
+        cluster._update_config()
+
+        yaml = YAML()
+        with open(tmp_path / "cluster.conf") as f:
+            data = yaml.load(f)
+        assert data["pinning"] is True
+
+    def test_pinning_false_persisted_in_config(self, monkeypatch, tmp_path):
+        """Pinning=False is also saved (not omitted)."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanCluster
+
+        cluster = object.__new__(ScyllaPodmanCluster)
+        cluster.name = "test-no-pinning"
+        cluster.podman_image = "scylladb/scylla:latest"
+        cluster.pinning = False
+        cluster._cpu_assignments = {}
+        cluster.network_topology = None
+        cluster._client_container_id = None
+        cluster.partitioner = None
+        cluster._config_options = {}
+        cluster._dse_config_options = {}
+        cluster.use_vnodes = False
+        cluster.id = 0
+        cluster.ipprefix = "127.0.0."
+        cluster.nodes = OrderedDict()
+        cluster.seeds = []
+
+        monkeypatch.setattr(cluster, "get_path", lambda: str(tmp_path))
+
+        cluster._update_config()
+
+        yaml = YAML()
+        with open(tmp_path / "cluster.conf") as f:
+            data = yaml.load(f)
+        assert data["pinning"] is False
+
+    def test_filter_args_passes_io_properties_file(self):
+        """--io-properties-file is in the whitelist and passes through filter_args."""
+        from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
+
+        args = ["--smp", "2", "--io-properties-file", "/etc/scylla/io_properties.yaml"]
+        result = ScyllaPodmanNode.filter_args(args)
+        assert "--io-properties-file" in result
+        idx = result.index("--io-properties-file")
+        assert result[idx + 1] == "/etc/scylla/io_properties.yaml"
+
+
+class TestImageConfCache:
+    """Unit tests for the cluster-level image config cache.
+
+    Verifies that _get_image_conf_cache_dir() triggers _extract_image_conf
+    exactly once regardless of how many nodes call update_yaml(), and that
+    each node gets its own populated conf directory copied from the cache.
+    """
+
+    def test_extract_called_once_for_multiple_nodes(self, monkeypatch, tmp_path):
+        """_extract_image_conf is called once even when N nodes call the real update_yaml().
+
+        Drives the actual ScyllaPodmanNode.update_yaml() rather than reimplementing
+        its guard inline, so a regression in the wiring would be caught here.
+        """
+        # Build a minimal cluster stub
+        cluster_dir = str(tmp_path / "cluster")
+        os.makedirs(cluster_dir, exist_ok=True)
+        cluster = object.__new__(ScyllaPodmanCluster)
+        cluster.podman_image = "docker.io/scylladb/scylla:test"
+        cluster._image_conf_cache_lock = threading.Lock()
+        cluster.get_path = lambda: cluster_dir
+        cluster.network_topology = None
+
+        extract_calls = []
+
+        def fake_extract(image, dest_dir):
+            extract_calls.append(image)
+            os.makedirs(dest_dir, exist_ok=True)
+            with open(os.path.join(dest_dir, "scylla.yaml"), "w") as f:
+                f.write("cluster_name: test\n")
+
+        monkeypatch.setattr(
+            "ccmlib.scylla_podman_cluster._extract_image_conf", fake_extract
+        )
+        # Stub out the parent's update_yaml and the per-node yaml customisation
+        # that needs a full ScyllaNode setup (seeds, tokens, data dirs, etc.).
+        # We only want to exercise the cache-lookup wiring inside
+        # ScyllaPodmanNode.update_yaml.
+        monkeypatch.setattr(ScyllaNode, "update_yaml", lambda self: None)
+        monkeypatch.setattr(ScyllaPodmanNode, "read_scylla_yaml", lambda self: {})
+        monkeypatch.setattr(ScyllaPodmanNode, "_get_rack_ip", lambda self: "127.0.0.1")
+
+        # Drive the real update_yaml() for three nodes.
+        for i in range(1, 4):
+            node_dir = str(tmp_path / f"node{i}")
+            node_conf_dir = os.path.join(node_dir, "conf")
+            os.makedirs(node_conf_dir, exist_ok=True)
+
+            node = object.__new__(ScyllaPodmanNode)
+            node.cluster = cluster
+            node.local_yaml_path = node_conf_dir
+            node.name = f"node{i}"
+            node.base_data_path = "/usr/lib/scylla"
+            node.network_interfaces = {
+                "storage": ("127.0.0.1", 7000),
+                "binary": ("127.0.0.1", 9042),
+            }
+            node.get_path = lambda nd=node_dir: nd
+
+            node.update_yaml()
+
+        assert len(extract_calls) == 1, (
+            f"_extract_image_conf should be called exactly once, got {len(extract_calls)}"
+        )
+
+    def test_each_node_gets_own_copy_of_conf(self, monkeypatch, tmp_path):
+        """Each node's conf dir is populated independently from the cache."""
+        cluster = object.__new__(ScyllaPodmanCluster)
+        cluster.podman_image = "docker.io/scylladb/scylla:test"
+        cluster._image_conf_cache_lock = threading.Lock()
+        cluster.get_path = lambda: str(tmp_path / "cluster")
+        os.makedirs(str(tmp_path / "cluster"), exist_ok=True)
+
+        def fake_extract(image, dest_dir):
+            os.makedirs(dest_dir, exist_ok=True)
+            with open(os.path.join(dest_dir, "scylla.yaml"), "w") as f:
+                f.write("cluster_name: shared-template\n")
+            with open(os.path.join(dest_dir, "cassandra-rackdc.properties"), "w") as f:
+                f.write("dc=dc1\nrack=RAC1\n")
+
+        monkeypatch.setattr(
+            "ccmlib.scylla_podman_cluster._extract_image_conf", fake_extract
+        )
+
+        node_conf_dirs = []
+        for i in range(1, 4):
+            node_conf_dir = str(tmp_path / f"node{i}" / "conf")
+            os.makedirs(node_conf_dir, exist_ok=True)
+            cache = cluster._get_image_conf_cache_dir()
+            _copy_conf_dir(cache, node_conf_dir)
+            node_conf_dirs.append(node_conf_dir)
+
+        # Every node should have its own scylla.yaml
+        for conf_dir in node_conf_dirs:
+            assert os.path.exists(os.path.join(conf_dir, "scylla.yaml"))
+            assert os.path.exists(os.path.join(conf_dir, "cassandra-rackdc.properties"))
+
+        # They must be separate files (mutating one shouldn't affect another)
+        with open(os.path.join(node_conf_dirs[0], "scylla.yaml"), "w") as f:
+            f.write("cluster_name: modified-by-node1\n")
+        with open(os.path.join(node_conf_dirs[1], "scylla.yaml")) as f:
+            content = f.read()
+        assert "shared-template" in content, "node2's yaml was unexpectedly modified"
+
+    def test_cache_is_not_repopulated_on_second_populate(self, monkeypatch, tmp_path):
+        """If the cache already has scylla.yaml, _extract_image_conf is not called again."""
+        cluster = object.__new__(ScyllaPodmanCluster)
+        cluster.podman_image = "docker.io/scylladb/scylla:test"
+        cluster._image_conf_cache_lock = threading.Lock()
+        cluster_dir = str(tmp_path / "cluster")
+        os.makedirs(cluster_dir, exist_ok=True)
+        cluster.get_path = lambda: cluster_dir
+
+        # Pre-populate the cache (simulates a prior populate() run)
+        cache_dir = os.path.join(cluster_dir, "_image_conf_cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        with open(os.path.join(cache_dir, "scylla.yaml"), "w") as f:
+            f.write("cluster_name: pre-existing\n")
+
+        extract_calls = []
+        monkeypatch.setattr(
+            "ccmlib.scylla_podman_cluster._extract_image_conf",
+            lambda image, dest_dir: extract_calls.append(image),
+        )
+
+        result = cluster._get_image_conf_cache_dir()
+
+        assert extract_calls == [], "_extract_image_conf must not be called when cache exists"
+        assert result == cache_dir

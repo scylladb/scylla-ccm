@@ -894,7 +894,8 @@ class ScyllaNode(Node):
                 raise NodeError(e_msg, scylla_process)
 
         self._update_pid(scylla_process)
-        wait_for(func=lambda: self.is_running(), timeout=10, step=0.01)
+        if not wait_for(func=lambda: self.is_running(), timeout=30, first=5, step=0.5):
+            raise NodeError(f"{self.name} did not become UP within 30 s")
 
         if self.scylla_manager and self.scylla_manager.is_agent_available:
             self.start_scylla_manager_agent()
@@ -970,7 +971,7 @@ class ScyllaNode(Node):
             nodetool.extend(['-h', host, '-p', str(self.api_port)])
             nodetool.extend(cmd.split())
             return self._do_run_nodetool(nodetool, capture_output, wait, timeout, verbose)
-        except subprocess.CalledProcessError:
+        except (subprocess.CalledProcessError, FileNotFoundError):
             pass
 
         # the java nodetool depends on JMX
