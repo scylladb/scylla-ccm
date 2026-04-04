@@ -281,6 +281,23 @@ class ContainerClient(ABC):
         else:
             LOGGER.info(f"Removed container: {container_id[:12]}")
     
+    def running_container_cpusets(self) -> Dict[str, str]:
+        """Return {container name: --cpuset-cpus value} for running containers with pinning."""
+        returncode, stdout, _ = self._run_command([self.runtime_name, 'ps', '-q'], check=False)
+        ids = stdout.split()
+        if returncode != 0 or not ids:
+            return {}
+        cmd = [self.runtime_name, 'inspect', '--format', '{{.Name}} {{.HostConfig.CpusetCpus}}', *ids]
+        returncode, stdout, _ = self._run_command(cmd, check=False)
+        if returncode != 0:
+            return {}
+        cpusets = {}
+        for line in stdout.splitlines():
+            name, _, cpuset = line.partition(' ')
+            if cpuset.strip():
+                cpusets[name.lstrip('/')] = cpuset.strip()
+        return cpusets
+
     def inspect_container(self, container_id: str) -> Optional[Dict]:
         """
         Inspect a container and return its metadata.
