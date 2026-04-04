@@ -10,6 +10,7 @@ from ccmlib.common import ArgumentError
 from ccmlib.dse_cluster import DseCluster
 from ccmlib.scylla_cluster import ScyllaCluster
 from ccmlib.scylla_docker_cluster import ScyllaDockerCluster, ScyllaDockerNode
+from ccmlib.scylla_podman_cluster import ScyllaPodmanCluster
 from ccmlib.scylla_node import ScyllaNode
 from ccmlib.dse_node import DseNode
 from ccmlib.node import Node, NodeError
@@ -138,6 +139,15 @@ class ClusterCreateCmd(Cmd):
         parser.add_option('--scylla-unified-package-uri', type="string", dest="scylla_unified_package_uri",
                           help="The path scylla relocatable unified package", default=None)
 
+        parser.add_option("--podman-image", type="string", dest="podman_image",
+                          help="Create a podman-based Scylla cluster using this container image", default=None)
+        parser.add_option("--inter-rack-delay", type="float", dest="inter_rack_delay",
+                          help="Simulated latency in ms between racks in the same DC (podman only)", default=1)
+        parser.add_option("--inter-dc-delay", type="float", dest="inter_dc_delay",
+                          help="Simulated latency in ms between DCs (podman only)", default=50)
+        parser.add_option("--packet-loss", type="float", dest="packet_loss",
+                          help="Simulated packet loss percentage for cross-DC traffic (podman only)", default=0.0)
+
         parser.epilog = """
         
         Examples of using relocatable packages:
@@ -161,9 +171,18 @@ class ClusterCreateCmd(Cmd):
         return parser
 
     def validate(self, parser, options, args):
-        if options.scylla and not options.install_dir:
+        if options.scylla and not options.install_dir and not options.podman_image:
             parser.error("must specify install_dir using scylla")
         Cmd.validate(self, parser, options, args, cluster_name=True)
+        if options.podman_image and options.docker_image:
+            parser.error("--podman-image and --docker-image cannot be used together")
+        if options.inter_rack_delay is not None and options.inter_rack_delay < 0:
+            parser.error("--inter-rack-delay must be non-negative")
+        if options.inter_dc_delay is not None and options.inter_dc_delay < 0:
+            parser.error("--inter-dc-delay must be non-negative")
+        if options.packet_loss is not None:
+            if options.packet_loss < 0 or options.packet_loss > 100:
+                parser.error("--packet-loss must be between 0 and 100")
         if options.ipprefix and options.ipformat:
             parser.print_help()
             parser.error(f"{parser.get_option('-i')} and {parser.get_option('-I')} may not be used together")
@@ -179,7 +198,7 @@ class ClusterCreateCmd(Cmd):
             parser.print_help()
             sys.exit(1)
 
-        if not options.version and not options.docker_image:
+        if not options.version and not options.docker_image and not options.podman_image:
             try:
                 common.validate_install_dir(options.install_dir)
             except ArgumentError:
@@ -207,7 +226,15 @@ class ClusterCreateCmd(Cmd):
     def run(self):
         try:
             if self.options.scylla:
-                if self.options.docker_image:
+                if self.options.podman_image:
+                    cluster = ScyllaPodmanCluster(
+                        self.path, self.name,
+                        podman_image=self.options.podman_image,
+                        inter_rack_delay_ms=self.options.inter_rack_delay,
+                        inter_dc_delay_ms=self.options.inter_dc_delay,
+                        packet_loss_percent=self.options.packet_loss,
+                    )
+                elif self.options.docker_image:
                     cluster = ScyllaDockerCluster(self.path, self.name, docker_image=self.options.docker_image)
                 else:
                     if self.options.scylla_manager_package:
@@ -352,6 +379,11 @@ class ClusterAddCmd(Cmd):
         self.initial_token = options.initial_token
 
     def run(self):
+        if self.cluster.is_podman():
+            print("ccm add is not supported for podman clusters yet; "
+                  "recreate the cluster with the full topology instead",
+                  file=sys.stderr)
+            sys.exit(1)
         try:
             if self.options.scylla_node:
                 if self.cluster.is_docker():
