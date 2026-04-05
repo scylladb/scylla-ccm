@@ -338,6 +338,10 @@ def setup(version, verbose=True, skip_downloads=False):
     if skip_downloads:
         return directory_name(version), packages
 
+    # Packages may also come from environment variables (e.g. SCYLLA_UNIFIED_PACKAGE).
+    if packages is None:
+        packages = packages_from_env()
+
     if validate_by_hash and packages:
         # Validate if packages hash was changed and the new package(s) have to be downloaded
         map_field_to_dir_name = {"scylla_unified_package": CORE_PACKAGE_DIR_NAME,
@@ -421,14 +425,20 @@ def setup(version, verbose=True, skip_downloads=False):
     return version_dir, get_scylla_version(version_dir)
 
 
+def packages_from_env():
+    """Read package locations from environment variables."""
+    packages = RelocatablePackages(scylla_jmx_package=os.environ.get('SCYLLA_JMX_PACKAGE'),
+                                   scylla_tools_package=os.environ.get("SCYLLA_TOOLS_JAVA_PACKAGE") or
+                                                        os.environ.get("SCYLLA_JAVA_TOOLS_PACKAGE"),
+                                   scylla_package=os.environ.get('SCYLLA_CORE_PACKAGE'),
+                                   scylla_unified_package=os.environ.get('SCYLLA_UNIFIED_PACKAGE')
+                                   )
+    return packages if packages else None
+
+
 def download_packages(version_dir, packages, s3_url, version, verbose):
     if not packages and not s3_url:
-        packages = RelocatablePackages(scylla_jmx_package=os.environ.get('SCYLLA_JMX_PACKAGE'),
-                                       scylla_tools_package=os.environ.get("SCYLLA_TOOLS_JAVA_PACKAGE") or
-                                                            os.environ.get("SCYLLA_JAVA_TOOLS_PACKAGE"),
-                                       scylla_package=os.environ.get('SCYLLA_CORE_PACKAGE'),
-                                       scylla_unified_package=os.environ.get('SCYLLA_UNIFIED_PACKAGE')
-                                       )
+        packages = packages_from_env()
 
         if not packages:
             raise EnvironmentError("Not found environment parameters: 'SCYLLA_JMX_PACKAGE' and "
