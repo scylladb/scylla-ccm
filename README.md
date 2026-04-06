@@ -5,7 +5,7 @@ CCM is a script/library to create, launch and remove an Apache Cassandra or Scyl
 localhost. This is ScyllaDB's fork with enhanced support for Scylla, including:
 
 - **Relocatable packages** - Download and use pre-built Scylla packages from S3
-- **Docker support** - Run Scylla clusters using Docker images
+- **Docker/Podman support** - Run Scylla clusters using Docker or Podman containers
 - **Unified packages** - Simplified installation with all-in-one packages
 
 The goal of ccm is to make it easy to create, manage and destroy a
@@ -14,7 +14,26 @@ small Scylla cluster on a local box for testing purposes.
 Quick Start
 -----------
 
-### Creating a 3-node Scylla cluster (using relocatable packages):
+### Option 1: Using Docker (Recommended for Quick Testing)
+```bash
+# Create and start a 3-node cluster using Docker
+$ ccm create my_cluster --scylla -n 3 --docker-image scylladb/scylla:latest -s
+
+# Check cluster status
+$ ccm status
+Cluster: 'my_cluster'
+-----------------
+node1: UP
+node2: UP
+node3: UP
+
+# Run CQL commands
+$ ccm node1 cqlsh
+```
+
+**See [Docker Usage Guide](docs/DOCKER_USAGE_GUIDE.md) for complete Docker/Podman documentation.**
+
+### Option 2: Using Relocatable Packages
 ```bash
 # Create cluster with a released version
 $ ccm create my_cluster --scylla -n 3 -v release:2024.2 -s
@@ -43,7 +62,39 @@ $ ccm create nightly_cluster --scylla -n 3 -v unstable/master:380 -s
 ```bash
 # 3 nodes in dc1, 4 nodes in dc2, 5 nodes in dc3
 $ ccm create my_multi_dc_cluster --scylla -n 3:4:5 -v release:2024.2 -s
+
+# Or with Docker
+$ ccm create my_multi_dc_cluster --scylla -n 3:4:5 --docker-image scylladb/scylla:latest -s
 ```
+
+Using Docker/Podman
+-------------------
+
+CCM supports running Scylla clusters in Docker or Podman containers, which is the fastest way to get started:
+
+### Quick Docker Examples
+```bash
+# Create a simple 1-node cluster
+ccm create dev --scylla -n 1 --docker-image scylladb/scylla:latest -s
+
+# Create a 3-node cluster with specific version
+ccm create test --scylla -n 3 --docker-image scylladb/scylla:5.4 -s
+
+# Use Podman instead of Docker
+ccm create test --scylla -n 3 --docker-image scylladb/scylla:latest --container-runtime podman -s
+
+# Use nightly builds
+ccm create nightly --scylla -n 3 --docker-image scylladb/scylla-nightly:latest -s
+```
+
+### Advantages of Docker/Podman
+- **No compilation required** - Just pull and run
+- **Quick setup** - Clusters start in seconds
+- **Easy version switching** - Test different Scylla versions instantly
+- **Isolation** - Each cluster gets its own network
+- **Reproducibility** - Same environment everywhere
+
+**For complete Docker/Podman documentation, see [Docker Usage Guide](docs/DOCKER_USAGE_GUIDE.md)**
 
 Using Relocatable Packages
 ---------------------------
