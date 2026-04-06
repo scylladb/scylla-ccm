@@ -31,6 +31,7 @@ class ClusterFactory():
                 repository.validate(install_dir)
             if 'docker_image' in data and data['docker_image']:
                 cluster = ScyllaDockerCluster(path, data['name'], docker_image=data['docker_image'],
+                                              container_runtime=data.get('container_runtime'),
                                               install_dir=install_dir, create_directory=False)
             elif common.isScylla(install_dir):
                 cluster = ScyllaCluster(path, data['name'], install_dir=install_dir, create_directory=False,
