@@ -3,7 +3,6 @@ import pytest
 
 
 @pytest.mark.docker
-@pytest.mark.skip(reason="ccm docker support broke in master, need to fix")
 class TestScyllaDockerCluster:
     @staticmethod
     def parse_nodetool_status(lines):
@@ -47,12 +46,13 @@ class TestScyllaDockerCluster:
 
         node1.run_cqlsh(
             '''
-            CREATE KEYSPACE ks WITH replication = { 'class' :'SimpleStrategy', 'replication_factor': 3};
-            USE ks;
-            CREATE TABLE test (key int PRIMARY KEY);
-            INSERT INTO test (key) VALUES (1);
+            CREATE KEYSPACE IF NOT EXISTS docker_cqlsh_ks
+            WITH replication = { 'class' :'NetworkTopologyStrategy', 'replication_factor': 3}
+            AND tablets = {'enabled': false};
+            CREATE TABLE IF NOT EXISTS docker_cqlsh_ks.test (key int PRIMARY KEY);
+            INSERT INTO docker_cqlsh_ks.test (key) VALUES (1);
             ''')
-        rv = node1.run_cqlsh('SELECT * from ks.test', return_output=True)
+        rv = node1.run_cqlsh('SELECT * from docker_cqlsh_ks.test', return_output=True)
         for s in ['(1 rows)', 'key', '1']:
             assert s in rv[0]
         assert rv[1] == ''
@@ -70,6 +70,7 @@ class TestScyllaDockerCluster:
         node3.stop(gently=False)
         node3.start()
 
+    @pytest.mark.skip(reason="cassandra-stress not available in scylladb/scylla Docker images")
     def test_node_stress(self, docker_cluster):
         node1, *_ = docker_cluster.nodelist()
         ret = node1.stress(['write', 'n=1000'])
