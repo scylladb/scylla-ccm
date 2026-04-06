@@ -1,0 +1,160 @@
+name: Docker/Podman Integration tests
+
+permissions:
+  contents: read
+
+on:
+  workflow_call: {}
+
+jobs:
+  docker-tests:
+    name: Docker Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+        python-version: "3.12"
+
+    - name: Install dependencies
+      run: uv sync
+
+    - name: Cache Docker image
+      id: cache-docker-image
+      uses: actions/cache@v4
+      with:
+        path: /tmp/scylla-docker-image.tar
+        key: docker-image-scylladb-scylla-latest
+
+    - name: Load or pull Docker image
+      run: |
+        if [ -f /tmp/scylla-docker-image.tar ]; then
+          docker load < /tmp/scylla-docker-image.tar
+        else
+          docker pull scylladb/scylla:latest
+          docker save scylladb/scylla:latest > /tmp/scylla-docker-image.tar
+        fi
+
+    - name: Run Docker integration tests
+      env:
+        SCYLLA_DOCKER_IMAGE: scylladb/scylla:latest
+      run: |
+        sudo sysctl -w fs.aio-max-nr=1048576
+        uv run python -m pytest ./tests/test_docker_integration.py -x -m docker -v --timeout=300
+
+    - name: Collect diagnostics
+      if: always()
+      run: |
+        mkdir -p tests/test_results/diagnostics
+        echo "=== Docker containers ===" > tests/test_results/diagnostics/docker-state.txt
+        docker ps -a >> tests/test_results/diagnostics/docker-state.txt 2>&1
+        echo "" >> tests/test_results/diagnostics/docker-state.txt
+        echo "=== Docker networks ===" >> tests/test_results/diagnostics/docker-state.txt
+        docker network ls >> tests/test_results/diagnostics/docker-state.txt 2>&1
+        echo "" >> tests/test_results/diagnostics/docker-state.txt
+        echo "=== Docker version ===" >> tests/test_results/diagnostics/docker-state.txt
+        docker version >> tests/test_results/diagnostics/docker-state.txt 2>&1
+
+        for cid in $(docker ps -aq); do
+          echo "=== Logs for $cid ===" > "tests/test_results/diagnostics/container-${cid}.log"
+          docker logs "$cid" >> "tests/test_results/diagnostics/container-${cid}.log" 2>&1 || true
+          echo "" >> "tests/test_results/diagnostics/container-${cid}.log"
+          echo "=== Inspect ===" >> "tests/test_results/diagnostics/container-${cid}.log"
+          docker inspect "$cid" >> "tests/test_results/diagnostics/container-${cid}.log" 2>&1 || true
+        done
+
+        if [ -d tests/test_results ]; then
+          find tests/test_results -name "*.log" -exec ls -la {} \; > tests/test_results/diagnostics/log-files.txt 2>&1
+          find tests/test_results -name "*.yaml" -exec ls -la {} \; >> tests/test_results/diagnostics/log-files.txt 2>&1
+        fi
+
+    - name: Upload test artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: docker-test-logs
+        path: tests/test_results/
+        if-no-files-found: ignore
+
+  podman-tests:
+    name: Podman Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+        python-version: "3.12"
+
+    - name: Install Podman
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y podman
+
+    - name: Install dependencies
+      run: uv sync
+
+    - name: Cache Podman image
+      id: cache-podman-image
+      uses: actions/cache@v4
+      with:
+        path: /tmp/scylla-podman-image.tar
+        key: podman-image-scylladb-scylla-latest
+
+    - name: Load or pull Podman image
+      run: |
+        if [ -f /tmp/scylla-podman-image.tar ]; then
+          podman load < /tmp/scylla-podman-image.tar
+        else
+          podman pull docker.io/scylladb/scylla:latest
+          podman save docker.io/scylladb/scylla:latest > /tmp/scylla-podman-image.tar
+        fi
+
+    - name: Run Podman integration tests
+      env:
+        SCYLLA_DOCKER_IMAGE: docker.io/scylladb/scylla:latest
+        CCM_CONTAINER_RUNTIME: podman
+      run: |
+        sudo sysctl -w fs.aio-max-nr=1048576
+        uv run python -m pytest ./tests/test_docker_integration.py -x -m docker -v --timeout=300
+
+    - name: Collect diagnostics
+      if: always()
+      run: |
+        mkdir -p tests/test_results/diagnostics
+        echo "=== Podman containers ===" > tests/test_results/diagnostics/podman-state.txt
+        podman ps -a >> tests/test_results/diagnostics/podman-state.txt 2>&1
+        echo "" >> tests/test_results/diagnostics/podman-state.txt
+        echo "=== Podman networks ===" >> tests/test_results/diagnostics/podman-state.txt
+        podman network ls >> tests/test_results/diagnostics/podman-state.txt 2>&1
+        echo "" >> tests/test_results/diagnostics/podman-state.txt
+        echo "=== Podman version ===" >> tests/test_results/diagnostics/podman-state.txt
+        podman version >> tests/test_results/diagnostics/podman-state.txt 2>&1
+
+        for cid in $(podman ps -aq); do
+          echo "=== Logs for $cid ===" > "tests/test_results/diagnostics/container-${cid}.log"
+          podman logs "$cid" >> "tests/test_results/diagnostics/container-${cid}.log" 2>&1 || true
+          echo "" >> "tests/test_results/diagnostics/container-${cid}.log"
+          echo "=== Inspect ===" >> "tests/test_results/diagnostics/container-${cid}.log"
+          podman inspect "$cid" >> "tests/test_results/diagnostics/container-${cid}.log" 2>&1 || true
+        done
+
+        if [ -d tests/test_results ]; then
+          find tests/test_results -name "*.log" -exec ls -la {} \; > tests/test_results/diagnostics/log-files.txt 2>&1
+          find tests/test_results -name "*.yaml" -exec ls -la {} \; >> tests/test_results/diagnostics/log-files.txt 2>&1
+        fi
+
+    - name: Upload test artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: podman-test-logs
+        path: tests/test_results/
+        if-no-files-found: ignore
