@@ -5,6 +5,7 @@ This module provides a unified interface for container operations,
 supporting both Docker and Podman as container runtimes.
 """
 
+import json
 import logging
 import os
 import shutil
@@ -290,8 +291,6 @@ class ContainerClient(ABC):
         Returns:
             Container metadata as dictionary, or None if not found
         """
-        import json
-        
         cmd = [self.runtime_name, 'inspect', container_id]
         returncode, stdout, stderr = self._run_command(cmd, check=False)
         

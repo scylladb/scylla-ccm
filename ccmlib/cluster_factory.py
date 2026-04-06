@@ -8,7 +8,6 @@ from ccmlib.cluster import Cluster
 from ccmlib.dse_cluster import DseCluster
 from ccmlib.scylla_cluster import ScyllaCluster
 from ccmlib.scylla_docker_cluster import ScyllaDockerCluster
-from ccmlib import repository
 from ccmlib.node import Node
 
 

@@ -204,10 +204,6 @@ class ScyllaDockerNode(ScyllaNode):
             dirs[dir_name] = os.path.join(self.get_path(), dir_name)
         return dirs
 
-    @staticmethod
-    def get_docker_name():
-        # Deprecated - keeping for backwards compatibility
-        return run(["docker", "ps", "-a"], stdout=PIPE).stdout.decode('utf-8').split()[-1]
 
     def is_scylla(self):
         return True
