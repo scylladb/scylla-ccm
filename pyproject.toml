@@ -30,6 +30,7 @@ ccm = "ccmlib.bin:main"
 [dependency-groups]
 dev = [
   "pytest",
+  "pytest-timeout",
   "awscli"
 ]
 [tool.setuptools]
