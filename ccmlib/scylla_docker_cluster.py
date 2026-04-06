@@ -1,4 +1,5 @@
 import os
+import types
 import warnings
 from shutil import copyfile
 from subprocess import check_call, run, PIPE
@@ -10,6 +11,11 @@ from ccmlib.scylla_cluster import ScyllaCluster
 from ccmlib.scylla_node import ScyllaNode
 from ccmlib.node import Status
 from ccmlib import common
+from ccmlib.container_client import (
+    get_container_client,
+    ContainerClientError,
+    ContainerImageNotFoundError,
+)
 
 LOGGER = logging.getLogger("ccm")
 
@@ -18,6 +24,65 @@ class ScyllaDockerCluster(ScyllaCluster):
     def __init__(self, *args, **kwargs):
         super(ScyllaDockerCluster, self).__init__(*args, **kwargs)
         self.docker_image = kwargs['docker_image']
+        self.container_runtime = kwargs.get('container_runtime', None)
+        self._container_client = None
+        self.cluster_network = None
+
+        # Podman requires fully-qualified image names (no short names)
+        if '/' in self.docker_image and '.' not in self.docker_image.split('/')[0]:
+            client = self.get_container_client()
+            if client.runtime_name == 'podman':
+                self.docker_image = f'docker.io/{self.docker_image}'
+
+        # Validate Docker image
+        self._validate_docker_image()
+        
+        # Setup cluster network for isolation
+        self._setup_cluster_network()
+    
+    def get_container_client(self):
+        """Get or create the container client instance."""
+        if self._container_client is None:
+            try:
+                self._container_client = get_container_client(self.container_runtime)
+                LOGGER.info(f"Using container runtime: {self._container_client.runtime_name}")
+            except ContainerClientError as e:
+                LOGGER.error(f"Failed to initialize container client: {e}")
+                raise
+        return self._container_client
+    
+    def _validate_docker_image(self):
+        """Validate that the Docker image exists or can be pulled."""
+        try:
+            client = self.get_container_client()
+            if not client.image_exists(self.docker_image):
+                LOGGER.info(f"Docker image '{self.docker_image}' not found locally, attempting to pull...")
+                if not client.pull_image(self.docker_image):
+                    raise ContainerImageNotFoundError(
+                        f"Failed to pull Docker image '{self.docker_image}'. "
+                        "Please check the image name and your network connection."
+                    )
+        except ContainerClientError as e:
+            LOGGER.warning(f"Could not validate Docker image: {e}")
+            # Continue anyway - the error will surface when trying to run containers
+    
+    def _setup_cluster_network(self):
+        """Create an isolated network for this cluster."""
+        try:
+            client = self.get_container_client()
+            # Use cluster name as network name (sanitized)
+            network_name = f"ccm-{self.name}"
+            # Replace invalid characters
+            network_name = network_name.replace('_', '-').lower()
+            
+            if client.create_network(network_name):
+                self.cluster_network = network_name
+                LOGGER.info(f"Created cluster network: {network_name}")
+            else:
+                LOGGER.warning(f"Could not create cluster network, will use default network")
+        except ContainerClientError as e:
+            LOGGER.warning(f"Failed to setup cluster network: {e}")
+            # Continue without custom network
 
     def get_install_dir(self):
         return None
@@ -32,9 +97,20 @@ class ScyllaDockerCluster(ScyllaCluster):
             return super().get_node_ip(nodeid)
 
     def remove(self, node=None, wait_other_notice=False, other_nodes=None):
+        # Remove containers first, before super().remove() deletes node dirs
+        # and before removing the network (containers must disconnect first)
+        for n in list(self.nodes.values()):
+            n.remove()
+
         super(ScyllaDockerCluster, self).remove(node=node, wait_other_notice=wait_other_notice, other_nodes=other_nodes)
-        for node in list(self.nodes.values()):
-            node.remove()
+
+        # Clean up cluster network after containers are gone
+        if self.cluster_network:
+            try:
+                client = self.get_container_client()
+                client.remove_network(self.cluster_network)
+            except ContainerClientError as e:
+                LOGGER.warning(f"Failed to remove cluster network: {e}")
 
     def create_node(self, name, auto_bootstrap,
                     storage_interface, jmx_port, remote_debug_port,
@@ -52,8 +128,9 @@ class ScyllaDockerCluster(ScyllaCluster):
         seed_list = [node.name for node in self.seeds]
         filename = os.path.join(self.get_path(), 'cluster.conf')
         docker_image = self.docker_image
+        yaml = YAML()
         with open(filename, 'w') as f:
-            yaml.safe_dump({
+            config_data = {
                 'name': self.name,
                 'nodes': node_list,
                 'seeds': seed_list,
@@ -62,10 +139,34 @@ class ScyllaDockerCluster(ScyllaCluster):
                 'id': self.id,
                 'ipprefix': self.ipprefix,
                 'docker_image': docker_image
-            }, f)
+            }
+            # Save container runtime if specified
+            if self.container_runtime:
+                config_data['container_runtime'] = self.container_runtime
+            if self.cluster_network:
+                config_data['cluster_network'] = self.cluster_network
+            yaml.dump(config_data, f)
 
     def remove_dir_with_retry(self, path):
-        run(['bash', '-c', f'docker run --rm -v {path}:/node busybox chmod -R 777 /node'], stdout=PIPE, stderr=PIPE)
+        """Remove directory with retry, handling Docker file permissions."""
+        try:
+            client = self.get_container_client()
+            # Use busybox container to fix permissions
+            client.run_container(
+                image='busybox',
+                name=f'ccm-chmod-{os.path.basename(path)}',
+                volumes={path: '/node'},
+                command=['chmod', '-R', '777', '/node'],
+                detach=False,
+                remove=True,
+            )
+        except ContainerClientError as e:
+            LOGGER.warning(f"Failed to fix permissions using container: {e}")
+            # Fallback to old method
+            runtime = self.get_container_client().runtime_name
+            run(['bash', '-c', f'{runtime} run --rm -v {path}:/node busybox chmod -R 777 /node'],
+                stdout=PIPE, stderr=PIPE)
+
         super(ScyllaDockerCluster, self).remove_dir_with_retry(path)
 
     @staticmethod
@@ -86,6 +187,16 @@ class ScyllaDockerNode(ScyllaNode):
         self.docker_name = f'{dir_name}-{self.cluster.name}-{self.name}'
         self.jmx_port = "7199"  # The old CCM code expected to get a string and not int
         self.log_thread = None
+        self._has_jmx = None  # Detected during create_docker
+
+    @property
+    def has_jmx(self):
+        """Whether this Docker image has scylla-jmx. Detected during create_docker."""
+        return bool(self._has_jmx)
+
+    def get_container_client(self):
+        """Get the container client from the cluster."""
+        return self.cluster.get_container_client()
 
     def _get_directories(self):
         dirs = {}
@@ -95,6 +206,7 @@ class ScyllaDockerNode(ScyllaNode):
 
     @staticmethod
     def get_docker_name():
+        # Deprecated - keeping for backwards compatibility
         return run(["docker", "ps", "-a"], stdout=PIPE).stdout.decode('utf-8').split()[-1]
 
     def is_scylla(self):
@@ -106,17 +218,47 @@ class ScyllaDockerNode(ScyllaNode):
 
     def read_scylla_yaml(self):
         conf_file = os.path.join(self.get_conf_dir(), common.SCYLLA_CONF)
+        yaml = YAML()
         with open(conf_file, 'r') as f:
-            return yaml.safe_load(f)
+            return yaml.load(f)
 
     def update_yaml(self):
+        """Extract and update scylla.yaml configuration."""
         if not os.path.exists(f'{self.local_yaml_path}/scylla.yaml'):
-            # copy all the content of /etc/scylla out of the image without actually running it
-            run(['bash', '-c', f"""
-                    ID=$(docker run --rm -d {self.cluster.docker_image} tail -f /dev/null) ; 
-                    docker container cp -a "${{ID}}:/etc/scylla/" - | tar --keep-old-files -x --strip-components=1 -C {self.local_yaml_path} ;
-                    docker stop ${{ID}}
-                """], stdout=PIPE, stderr=PIPE, universal_newlines=True)
+            # Copy all the content of /etc/scylla out of the image using container client
+            try:
+                client = self.get_container_client()
+                
+                # Start a temporary container to extract config
+                temp_name = f'ccm-extract-config-{self.docker_name}'
+                container_id = client.run_container(
+                    image=self.cluster.docker_image,
+                    name=temp_name,
+                    command=['tail', '-f', '/dev/null'],
+                    detach=True,
+                )
+                
+                # Copy config files from container
+                runtime = client.runtime_name
+                run(['bash', '-c',
+                     f'{runtime} container cp -a "{container_id}:/etc/scylla/" - | '
+                     f'tar --keep-old-files -x --strip-components=1 -C {self.local_yaml_path}'],
+                    stdout=PIPE, stderr=PIPE, universal_newlines=True)
+                
+                # Stop and remove temporary container
+                client.stop_container(container_id)
+                client.remove_container(container_id)
+                
+            except ContainerClientError as e:
+                LOGGER.error(f"Failed to extract config from Docker image: {e}")
+                # Fallback to old method
+                runtime = self.get_container_client().runtime_name
+                run(['bash', '-c', f"""
+                        ID=$({runtime} run --rm -d {self.cluster.docker_image} tail -f /dev/null) ;
+                        {runtime} container cp -a "${{ID}}:/etc/scylla/" - | tar --keep-old-files -x --strip-components=1 -C {self.local_yaml_path} ;
+                        {runtime} stop ${{ID}}
+                    """], stdout=PIPE, stderr=PIPE, universal_newlines=True)
+        
         super(ScyllaDockerNode, self).update_yaml()
 
         conf_file = os.path.join(self.get_conf_dir(), common.SCYLLA_CONF)
@@ -127,9 +269,11 @@ class ScyllaDockerNode(ScyllaNode):
             data['alternator_address'] = "0.0.0.0"
 
         data['data_file_directories'] = [os.path.join(self.base_data_path, 'data')]
-        data[f'commitlog_directory'] = os.path.join(self.base_data_path, 'commitlogs')
+        data['commitlog_directory'] = os.path.join(self.base_data_path, 'commitlogs')
+        data['schema_commitlog_directory'] = os.path.join(self.base_data_path, 'commitlogs', 'schema')
         for directory in ['hints', 'view_hints', 'saved_caches']:
             data[f'{directory}_directory'] = os.path.join(self.base_data_path, directory)
+
 
         server_encryption_options = data.get("server_encryption_options", {})
         if server_encryption_options:
@@ -143,97 +287,197 @@ class ScyllaDockerNode(ScyllaNode):
             YAML().dump(data, f)
 
     def create_docker(self, args):
-        # TODO: handle smp correctly via the correct param/api (or only via commandline params)
-        # TODO: mount of the data dir
-        # TODO: pass down the full command line params, since the docker ones doesn't support all of them ?
-        # TODO: pass down a unique tag, with the cluster name, or id, if we have such in ccm, like test_id in SCT ?
-        # TODO: add volume map to: hints, ...
-        # TODO: improve support for passing args to scylla docker.
-
+        """Create and start the Docker container for this node."""
         if not self.pid:
-            node1 = self.cluster.nodelist()[0]
-            if not self.name == node1.name:
-                seeds = f"--seeds {node1.network_interfaces['storage'][0]}"
-            else:
-                seeds = ''
-            scylla_yaml = self.read_scylla_yaml()
-            ports = ""
-            if 'alternator_port' in scylla_yaml:
-                ports += f" -v {scylla_yaml['alternator_port']}"
-            if 'alternator_https_port' in scylla_yaml:
-                ports += f" -v {scylla_yaml['alternator_https_port']}"
+            try:
+                client = self.get_container_client()
+                
+                # Determine seeds
+                node1 = self.cluster.nodelist()[0]
+                if not self.name == node1.name:
+                    seeds = f"--seeds {node1.network_interfaces['storage'][0]}"
+                else:
+                    seeds = ''
+                
+                # Read scylla.yaml to get ports
+                scylla_yaml = self.read_scylla_yaml()
+                
+                # Prepare port mappings
+                ports = {}
+                if 'alternator_port' in scylla_yaml:
+                    port = str(scylla_yaml['alternator_port'])
+                    ports[port] = port
+                if 'alternator_https_port' in scylla_yaml:
+                    port = str(scylla_yaml['alternator_https_port'])
+                    ports[port] = port
 
-            mount_points = [f'-v {self.local_yaml_path}:/etc/scylla',
-                            '-v /tmp:/tmp']
-            mount_points += [
-                f'-v {os.path.join(self.get_path(),directory)}:{os.path.join(self.base_data_path, directory)}' for directory in self.share_directories
-            ]
-            mount_points = ' '.join(mount_points)
+                # Prepare volume mounts
+                volumes = {
+                    self.local_yaml_path: '/etc/scylla',
+                    '/tmp': '/tmp'
+                }
 
-            res = run(['bash', '-c', f"docker run {ports} "
-                                     f"{mount_points} --name {self.docker_name}  "
-                                     f"-d {self.cluster.docker_image} {seeds} {' '.join(args)}"], stdout=PIPE, stderr=PIPE, universal_newlines=True)
-            self.pid = res.stdout.strip()
+                # Check if host filesystem supports O_DIRECT
+                use_tmpfs_data = False
+                if client.runtime_name == 'podman':
+                    result = run(['stat', '-f', '-c', '%T', self.get_path()],
+                                stdout=PIPE, stderr=PIPE, universal_newlines=True)
+                    if result.stdout.strip() in ('zfs', 'fuse'):
+                        use_tmpfs_data = True
+                        LOGGER.info(f"Host filesystem ({result.stdout.strip()}) doesn't support O_DIRECT, "
+                                    "using tmpfs for data directories")
 
-            if not res.returncode == 0:
-                LOGGER.error(res)
-                raise BaseException(f'failed to create docker {self.docker_name}')
+                # Data directories that need O_DIRECT support
+                data_dirs = [d for d in self.share_directories if d != 'logs']
+                tmpfs_mounts = []
 
+                if use_tmpfs_data:
+                    # Use tmpfs for data dirs (supports O_DIRECT),
+                    # bind-mount only logs for host access
+                    logs_path = os.path.join(self.get_path(), 'logs')
+                    volumes[logs_path] = os.path.join(self.base_data_path, 'logs')
+                    for directory in data_dirs:
+                        container_path = os.path.join(self.base_data_path, directory)
+                        tmpfs_mounts.append(container_path)
+                else:
+                    for directory in self.share_directories:
+                        host_path = os.path.join(self.get_path(), directory)
+                        container_path = os.path.join(self.base_data_path, directory)
+                        volumes[host_path] = container_path
+
+                # Build a custom entrypoint that fixes permissions and
+                # configures supervisor before launching it. This avoids
+                # the slow stop/chown/restart cycle.
+                mount_paths_str = ' '.join(
+                    ['/etc/scylla'] + [os.path.join(self.base_data_path, d) for d in self.share_directories]
+                )
+                entrypoint_script = (
+                    # Fix ownership of host-mounted directories
+                    f'chown -R scylla:scylla {mount_paths_str} ; '
+                    # Disable autorestart on scylla-server
+                    'echo "autorestart=false" >> /etc/supervisord.conf.d/scylla-server.conf ; '
+                    # Disable autorestart on scylla-jmx if present
+                    'test -f /etc/supervisord.conf.d/scylla-jmx.conf && '
+                    'echo "autorestart=false" >> /etc/supervisord.conf.d/scylla-jmx.conf ; '
+                    # Launch the original entrypoint
+                    'exec /docker-entrypoint.py'
+                )
+
+                # Build command (scylla args passed after entrypoint)
+                command = []
+                if seeds:
+                    command.extend(seeds.split())
+                command.extend(args)
+
+
+                # Append scylla args to the entrypoint script
+                if command:
+                    entrypoint_script += ' ' + ' '.join(command)
+
+                # Run container as root so the entrypoint can fix
+                # ownership of host-mounted volumes before launching
+                # docker-entrypoint.py (which handles user switching)
+                self.pid = client.run_container(
+                    image=self.cluster.docker_image,
+                    name=self.docker_name,
+                    volumes=volumes,
+                    ports=ports if ports else None,
+                    network=self.cluster.cluster_network,
+                    entrypoint='/bin/bash',
+                    command=['-c', entrypoint_script],
+                    user='0',
+                    cap_add=['SYS_NICE', 'IPC_LOCK', 'SYS_RAWIO'],
+                    security_opt=['seccomp=unconfined'],
+                    tmpfs=tmpfs_mounts if tmpfs_mounts else None,
+                    detach=True,
+                )
+
+                LOGGER.info(f"Started Docker container for node '{self.name}': {self.pid[:12]}")
+
+            except ContainerClientError as e:
+                LOGGER.error(f"Failed to create Docker container: {e}")
+                raise BaseException(f'Failed to create docker {self.docker_name}: {e}')
+
+            # Start log thread
             if not self.log_thread:
                 self.log_thread = DockerLogger(self, os.path.join(self.get_path(), 'logs', 'system.log'))
                 self.log_thread.start()
 
-            self.watch_log_for("supervisord started with", from_mark=0, timeout=10)
+            self.watch_log_for("supervisord started with", from_mark=0, timeout=30)
 
-            # HACK: need to echo cause: https://github.com/scylladb/scylla-tools-java/issues/213
-            run(['bash', '-c',
-                 f"docker exec {self.pid} bash -c 'find /opt/ -iname cassandra.in.sh | xargs sed -i -e \\'/echo.*as the config file\"/d\\'"],
-                stdout=PIPE, stderr=PIPE)
-
-            # disable autorestart on scylla and scylla-jmx
-            run(['bash', '-c',
-                 f"docker exec {self.pid} bash -c 'echo \"autorestart=false\" >> /etc/supervisord.conf.d/scylla-server.conf'"],
-                stdout=PIPE, stderr=PIPE)
-            run(['bash', '-c',
-                 f"docker exec {self.pid} bash -c 'echo \"autorestart=false\" >> /etc/supervisord.conf.d/scylla-jmx.conf'"],
-                stdout=PIPE, stderr=PIPE)
-            reread = run(['bash', '-c', f"docker exec {self.pid} supervisorctl update"], stdout=PIPE,
-                         stderr=PIPE)
-
-            LOGGER.debug(reread)
+            # Detect if scylla-jmx is available in this image
+            client = self.get_container_client()
+            rc, _, _ = client.exec_command(
+                self.pid,
+                ['test', '-f', '/etc/supervisord.conf.d/scylla-jmx.conf']
+            )
+            self._has_jmx = (rc == 0)
 
         if not self.log_thread:
             self.log_thread = DockerLogger(self, os.path.join(self.get_path(), 'logs', 'system.log'))
             self.log_thread.start()
 
-        # replace addresses
-        network = run(['bash', '-c', f"docker inspect --format='{{{{ .NetworkSettings.IPAddress }}}}' {self.pid}"], stdout=PIPE, stderr=PIPE, universal_newlines=True)
-        address = network.stdout.strip() if network.stdout else None
-        self.network_interfaces = {k: (address, v[1]) for k, v in list(self.network_interfaces.items())}
+        # Get container IP address
+        client = self.get_container_client()
+        address = client.get_container_ip(self.pid, network=self.cluster.cluster_network)
+        if address:
+            self.network_interfaces = {k: (address, v[1]) for k, v in list(self.network_interfaces.items())}
+        else:
+            LOGGER.warning(f"Could not get IP address for container {self.pid}")
 
     def service_start(self, service_name):
-        res = run(['bash', '-c', f'docker exec {self.pid} /bin/bash -c "supervisorctl start {service_name}"'],
-                  stdout=PIPE, stderr=PIPE)
-        if res.returncode != 0:
-            LOGGER.debug(res.stdout)
-            LOGGER.error(f'service {service_name} failed to start with error\n{res.stderr}')
+        """Start a service inside the container using supervisorctl."""
+        try:
+            client = self.get_container_client()
+            returncode, stdout, stderr = client.exec_command(
+                self.pid,
+                ['supervisorctl', 'start', service_name]
+            )
+            if returncode != 0:
+                # supervisorctl start returns non-zero for ALREADY_STARTED
+                # and during state transitions — only log at debug level
+                LOGGER.debug(f'supervisorctl start {service_name}: rc={returncode} stdout={stdout!r} stderr={stderr!r}')
+        except ContainerClientError as e:
+            LOGGER.error(f'Failed to start service {service_name}: {e}')
 
     def service_stop(self, service_name):
-        res = run(['bash', '-c', f'docker exec {self.pid} /bin/bash -c "supervisorctl stop {service_name}"'],
-                  stdout=PIPE, stderr=PIPE, universal_newlines=True)
-        if res.returncode != 0:
-            LOGGER.debug(res.stdout)
-            LOGGER.error(f'service {service_name} failed to stop with error\n{res.stderr}')
+        """Stop a service inside the container using supervisorctl."""
+        try:
+            client = self.get_container_client()
+            returncode, stdout, stderr = client.exec_command(
+                self.pid,
+                ['supervisorctl', 'stop', service_name]
+            )
+            if returncode != 0:
+                LOGGER.debug(stdout)
+                LOGGER.error(f'Service {service_name} failed to stop with error\n{stderr}')
+        except ContainerClientError as e:
+            LOGGER.error(f'Failed to stop service {service_name}: {e}')
 
     def service_status(self, service_name):
-        res = run(['bash', '-c', f'docker exec {self.pid} /bin/bash -c "supervisorctl status {service_name}"'],
-                  stdout=PIPE, stderr=PIPE, universal_newlines=True)
-        if res.returncode != 0:
-            LOGGER.debug(res.stdout)
-            LOGGER.error(f'service {service_name} failed to get status with error\n{res.stderr}')
+        """Get the status of a service inside the container.
+
+        Note: supervisorctl status returns non-zero for any state other than
+        RUNNING (e.g. STARTING, STOPPED, FATAL), so we parse stdout regardless
+        of the exit code.
+        """
+        try:
+            client = self.get_container_client()
+            returncode, stdout, stderr = client.exec_command(
+                self.pid,
+                ['supervisorctl', 'status', service_name]
+            )
+            # Parse supervisorctl output (format: "service_name STATUS ...")
+            # even on non-zero exit, since non-RUNNING states return non-zero
+            parts = stdout.split()
+            if len(parts) > 1:
+                LOGGER.debug(f'[{self.name}] service_status({service_name}): {parts[1]}')
+                return parts[1]
+            LOGGER.debug(f'[{self.name}] service_status({service_name}): rc={returncode} stdout={stdout!r} stderr={stderr!r}')
             return "DOWN"
-        else:
-            return res.stdout.split()[1]
+        except ContainerClientError as e:
+            LOGGER.error(f'[{self.name}] Failed to get status of {service_name}: {e}')
+            return "DOWN"
 
     def show(self, only_status=False, show_cluster=True):
         """
@@ -287,7 +531,7 @@ class ScyllaDockerNode(ScyllaNode):
         if self.workload is not None:
             values['workload'] = self.workload
         with open(filename, 'w') as f:
-            yaml.safe_dump(values, f)
+            YAML().dump(values, f)
 
     @staticmethod
     def filter_args(args):
@@ -317,28 +561,33 @@ class ScyllaDockerNode(ScyllaNode):
         return cleaned_args
 
     def _start_scylla(self, args, marks, update_pid, wait_other_notice,
-                      wait_for_binary_proto, ext_env):
+                      wait_normal_token_owner, wait_for_binary_proto, ext_env):
 
         args = self.filter_args(args)
+        LOGGER.debug(f"[{self.name}] _start_scylla: args={args}")
         # TODO: handle the cases args are changing between reboots (if there are any like that)
         self.create_docker(args)
+        LOGGER.debug(f"[{self.name}] _start_scylla: container created, pid={self.pid[:12]}")
 
-        scylla_status = self.service_status('scylla-server')
-        if scylla_status and scylla_status.upper() != 'RUNNING':
-            self.service_start('scylla-server')
-            # self.service_start('scylla-jmx')
+        scylla_status = self.service_status('scylla')
+        if scylla_status.upper() not in ('RUNNING', 'STARTING'):
+            LOGGER.debug(f"[{self.name}] _start_scylla: starting scylla (was {scylla_status})")
+            self.service_start('scylla')
 
         if wait_other_notice:
             for node, mark in marks:
                 node.watch_log_for_alive(self, from_mark=mark)
 
         if wait_for_binary_proto:
+            LOGGER.debug(f"[{self.name}] _start_scylla: waiting for CQL binary interface...")
             try:
                 self.wait_for_binary_interface(from_mark=self.mark, process=self._process_scylla, timeout=420)
             except TimeoutError as e:
                 if not self.wait_for_bootstrap_repair(from_mark=self.mark):
                     raise e
-                pass
+
+        # Return an object with a .pid attribute to satisfy the caller (ScyllaNode.start)
+        return types.SimpleNamespace(pid=self.pid, stderr=None, stdout=None, returncode=0)
 
     def do_stop(self, gently=True):
         """
@@ -346,28 +595,69 @@ class ScyllaDockerNode(ScyllaNode):
           - gently: Let Scylla and Scylla JMX clean up and shut down properly.
             Otherwise do a 'kill -9' which shuts down faster.
         """
+        if not self.pid:
+            return
         if gently:
-            self.service_stop('scylla-jmx')
-            self.service_stop('scylla-server')
+            if self.has_jmx:
+                self.service_stop('scylla-jmx')
+            self.service_stop('scylla')
         else:
-            res = run(['bash', '-c', f"docker exec {self.pid} bash -c 'kill -9 `supervisorctl pid scylla`'"],
-                      stdout=PIPE, stderr=PIPE)
-            LOGGER.debug(res)
-            res = run(['bash', '-c', f"docker exec {self.pid} bash -c 'kill -9 `supervisorctl pid scylla-jmx`'"],
-                      stdout=PIPE, stderr=PIPE)
-            LOGGER.debug(res)
+            try:
+                client = self.get_container_client()
+                # Get scylla PID and kill it
+                returncode, stdout, stderr = client.exec_command(
+                    self.pid,
+                    ['bash', '-c', 'kill -9 `supervisorctl pid scylla`']
+                )
+                LOGGER.debug(f"Kill scylla: {stdout}")
+
+                if self.has_jmx:
+                    # Get scylla-jmx PID and kill it
+                    returncode, stdout, stderr = client.exec_command(
+                        self.pid,
+                        ['bash', '-c', 'kill -9 `supervisorctl pid scylla-jmx`']
+                    )
+                    LOGGER.debug(f"Kill scylla-jmx: {stdout}")
+            except ContainerClientError as e:
+                LOGGER.error(f"Failed to kill processes: {e}")
 
     def clear(self, *args, **kwargs):
-        # change file permissions so it can be deleted
-        run(['bash', '-c', f'docker run --rm -v {self.get_path()}:/node busybox chmod -R 777 /node'], stdout=PIPE, stderr=PIPE)
+        """Clear node data, handling Docker file permissions."""
+        try:
+            client = self.get_container_client()
+            # Use busybox container to fix permissions
+            client.run_container(
+                image='busybox',
+                name=f'ccm-clear-{self.docker_name}',
+                volumes={self.get_path(): '/node'},
+                command=['chmod', '-R', '777', '/node'],
+                detach=False,
+                remove=True,
+            )
+        except ContainerClientError as e:
+            LOGGER.warning(f"Failed to fix permissions: {e}")
+            # Fallback to old method
+            runtime = self.get_container_client().runtime_name
+            run(['bash', '-c', f'{runtime} run --rm -v {self.get_path()}:/node busybox chmod -R 777 /node'],
+                stdout=PIPE, stderr=PIPE)
+
         super(ScyllaDockerNode, self).clear(*args, **kwargs)
 
     def remove(self):
-        run(['bash', '-c', f'docker rm --volumes -f {self.pid}'], stdout=PIPE, stderr=PIPE)
+        """Remove the Docker container."""
+        container_ref = self.pid or self.docker_name
+        if container_ref:
+            try:
+                client = self.get_container_client()
+                client.remove_container(container_ref, force=True, volumes=True)
+            except ContainerClientError as e:
+                LOGGER.debug(f"Failed to remove container {container_ref}: {e}")
 
     def _start_jmx(self, data):
+        if not self.has_jmx:
+            return
         jmx_status = self.service_status('scylla-jmx')
-        if jmx_status and jmx_status.upper() != 'RUNNING':
+        if jmx_status.upper() not in ('RUNNING', 'STARTING'):
             self.service_start('scylla-jmx')
 
     def is_running(self):
@@ -390,12 +680,28 @@ class ScyllaDockerNode(ScyllaNode):
                 self.status = Status.DOWN
             return
 
-        scylla_status = self.service_status('scylla-server')
-        if scylla_status and scylla_status.upper() == 'RUNNING':
+        scylla_status = self.service_status('scylla')
+        if scylla_status and scylla_status.upper() in ('RUNNING', 'STARTING'):
             self.status = Status.UP
         else:
             self.status = Status.DOWN
         self._update_config()
+
+    def wait_for_binary_interface(self, **kwargs):
+        """Wait for CQL interface by watching the log.
+
+        Skip the host-side socket check since the container IP is on an
+        isolated network not reachable from the host.
+        """
+        self.watch_log_for("Starting listening for CQL clients", **kwargs)
+
+    def nodetool(self, cmd, capture_output=True, wait=True, timeout=None, verbose=True):
+        """Run nodetool inside the Docker container."""
+        client = self.get_container_client()
+        nodetool_cmd = [client.runtime_name, 'exec', '-i', self.pid,
+                        'nodetool', '-h', 'localhost']
+        nodetool_cmd.extend(cmd.split())
+        return self._do_run_nodetool(nodetool_cmd, capture_output, wait, timeout, verbose)
 
     def _wait_java_up(self, ip_addr, jmx_port):
         # TODO: do a better implementation of it
@@ -405,7 +711,10 @@ class ScyllaDockerNode(ScyllaNode):
         pass
 
     def get_tool(self, toolname):
-        return ['docker', 'exec', '-i', f'{self.pid}', f'{toolname}']
+        """Get command to run a tool in the Docker container."""
+        # Keep backward compatibility with exec approach
+        client = self.get_container_client()
+        return [client.runtime_name, 'exec', '-i', f'{self.pid}', f'{toolname}']
 
     def _find_cmd(self, command_name):
         return self.get_tool(command_name)
@@ -425,19 +734,75 @@ class ScyllaDockerNode(ScyllaNode):
         self.update_yaml()
 
     def kill(self, __signal):
-        run(['bash', '-c', f"docker exec {self.pid} bash -c 'kill -{__signal} `supervisorctl pid scylla`'"],
-            stdout=PIPE, stderr=PIPE)
+        """Send a signal to the Scylla process in the container."""
+        try:
+            client = self.get_container_client()
+            client.exec_command(
+                self.pid,
+                ['bash', '-c', f'kill -{__signal} `supervisorctl pid scylla`']
+            )
+        except ContainerClientError as e:
+            LOGGER.error(f"Failed to send signal {__signal}: {e}")
 
     def unlink(self, file_path):
-        run(['bash', '-c', f'docker run --rm -v {file_path}:{file_path} busybox rm {file_path}'], stdout=PIPE, stderr=PIPE)
+        """Unlink a file using a temporary container."""
+        try:
+            client = self.get_container_client()
+            client.run_container(
+                image='busybox',
+                name=f'ccm-unlink-{os.path.basename(file_path)}',
+                volumes={file_path: file_path},
+                command=['rm', file_path],
+                detach=False,
+                remove=True,
+            )
+        except ContainerClientError as e:
+            LOGGER.warning(f"Failed to unlink {file_path}: {e}")
+            # Fallback
+            runtime = self.get_container_client().runtime_name
+            run(['bash', '-c', f'{runtime} run --rm -v {file_path}:{file_path} busybox rm {file_path}'],
+                stdout=PIPE, stderr=PIPE)
 
     def chmod(self, file_path, permissions):
+        """Change file permissions using a temporary container."""
         path_inside_docker = file_path.replace(self.get_path(), self.base_data_path)
-        run(['bash', '-c', f'docker run --rm -v {file_path}:{path_inside_docker} busybox chmod -R {permissions} {path_inside_docker}'],
-            stdout=PIPE, stderr=PIPE)
+        try:
+            client = self.get_container_client()
+            client.run_container(
+                image='busybox',
+                name=f'ccm-chmod-{os.path.basename(file_path)}',
+                volumes={file_path: path_inside_docker},
+                command=['chmod', '-R', str(permissions), path_inside_docker],
+                detach=False,
+                remove=True,
+            )
+        except ContainerClientError as e:
+            LOGGER.warning(f"Failed to chmod {file_path}: {e}")
+            # Fallback
+            runtime = self.get_container_client().runtime_name
+            run(['bash', '-c',
+                 f'{runtime} run --rm -v {file_path}:{path_inside_docker} busybox chmod -R {permissions} {path_inside_docker}'],
+                stdout=PIPE, stderr=PIPE)
 
     def rmtree(self, path):
-        run(['bash', '-c', f'docker run --rm -v {self.get_path()}:/node busybox chmod -R 777 /node'], stdout=PIPE, stderr=PIPE)
+        """Remove a directory tree, handling Docker permissions."""
+        try:
+            client = self.get_container_client()
+            client.run_container(
+                image='busybox',
+                name=f'ccm-rmtree-{os.path.basename(path)}',
+                volumes={self.get_path(): '/node'},
+                command=['chmod', '-R', '777', '/node'],
+                detach=False,
+                remove=True,
+            )
+        except ContainerClientError as e:
+            LOGGER.warning(f"Failed to fix permissions before rmtree: {e}")
+            # Fallback
+            runtime = self.get_container_client().runtime_name
+            run(['bash', '-c', f'{runtime} run --rm -v {self.get_path()}:/node busybox chmod -R 777 /node'],
+                stdout=PIPE, stderr=PIPE)
+
         super(ScyllaDockerNode, self).rmtree(path)
 
 
@@ -448,7 +813,8 @@ class DockerLogger:
 
     @property
     def _logger_cmd(self) -> str:
-        return f'docker logs -f {self._node.pid} >> {self._target_log_file} 2>&1 &'
+        runtime = self._node.get_container_client().runtime_name
+        return f'{runtime} logs -f {self._node.pid} >> {self._target_log_file} 2>&1 &'
 
     def start(self):
         check_call(['bash', '-c', self._logger_cmd])
