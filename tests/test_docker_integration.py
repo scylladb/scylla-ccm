@@ -206,14 +206,20 @@ class TestScyllaDockerClusterIntegration:
     def test_directory_mounting(self, docker_cluster):
         """Test that directories are properly mounted."""
         node1 = docker_cluster.nodelist()[0]
-        
-        # Check that expected directories exist on host
         node_path = Path(node1.get_path())
         assert node_path.exists()
-        
-        for directory in ['conf', 'data', 'commitlogs', 'hints', 'logs']:
+
+        # conf and logs are always bind-mounted
+        for directory in ['conf', 'logs']:
             dir_path = node_path / directory
             assert dir_path.exists(), f"Expected directory {directory} does not exist"
+
+        # data dirs may use tmpfs on podman+ZFS, only check if bind-mounted
+        client = docker_cluster.get_container_client()
+        if client.runtime_name == 'docker':
+            for directory in ['data', 'commitlogs', 'hints']:
+                dir_path = node_path / directory
+                assert dir_path.exists(), f"Expected directory {directory} does not exist"
     
     def test_configuration_access(self, docker_cluster):
         """Test that configuration files are accessible."""
@@ -328,3 +334,44 @@ class TestDockerErrorHandling:
             except ContainerImageNotFoundError:
                 # Expected behavior
                 pass
+
+
+@pytest.mark.docker
+class TestPodmanClusterIntegration:
+    """Integration tests specific to Podman runtime."""
+
+    def test_podman_cluster_creation(self, podman_cluster):
+        """Test that Podman cluster can be created."""
+        assert podman_cluster is not None
+        assert podman_cluster.is_docker()
+        client = podman_cluster.get_container_client()
+        assert client.runtime_name == 'podman'
+
+    def test_podman_node_running(self, podman_cluster):
+        """Test that node is running under Podman."""
+        node = podman_cluster.nodelist()[0]
+        assert node.is_running()
+        assert node.pid is not None
+
+    def test_podman_cql_operations(self, podman_cluster):
+        """Test CQL operations work under Podman."""
+        node = podman_cluster.nodelist()[0]
+        node.run_cqlsh(
+            '''
+            CREATE KEYSPACE IF NOT EXISTS podman_ks
+            WITH replication = { 'class' :'SimpleStrategy', 'replication_factor': 1};
+            USE podman_ks;
+            CREATE TABLE IF NOT EXISTS test (key int PRIMARY KEY, value text);
+            INSERT INTO test (key, value) VALUES (1, 'podman');
+            '''
+        )
+        output, error = node.run_cqlsh('SELECT * from podman_ks.test', return_output=True)
+        assert error == ''
+        assert 'podman' in output
+
+    def test_podman_nodetool(self, podman_cluster):
+        """Test nodetool works under Podman."""
+        node = podman_cluster.nodelist()[0]
+        status, error = node.nodetool('status')
+        assert error == ''
+        assert 'UN' in status

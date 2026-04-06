@@ -89,6 +89,32 @@ def relocatable_cluster(test_dir, test_id):
 
 
 @pytest.fixture(scope="session")
+def podman_cluster(test_dir, test_id):
+    """Create a single-node cluster using podman. Skip if podman unavailable."""
+    import shutil
+    if not shutil.which('podman'):
+        pytest.skip("podman not available")
+    cluster_name = f"podman_cluster_{test_id}"
+    cluster = ScyllaDockerCluster(str(test_dir), name=cluster_name,
+                                   docker_image=SCYLLA_DOCKER_IMAGE,
+                                   container_runtime='podman')
+    timeout = 10000
+    cluster.set_configuration_options(values={
+        'read_request_timeout_in_ms': timeout,
+        'range_request_timeout_in_ms': timeout,
+        'write_request_timeout_in_ms': timeout,
+        'truncate_request_timeout_in_ms': timeout,
+        'request_timeout_in_ms': timeout
+    })
+    cluster.populate(1)
+    cluster.start(wait_for_binary_proto=True)
+    try:
+        yield cluster
+    finally:
+        cluster.clear()
+
+
+@pytest.fixture(scope="session")
 def ccm_docker_cluster():
     cluster = CCMCluster(test_id="docker", docker_image=SCYLLA_DOCKER_IMAGE)
     return cluster
