@@ -1,0 +1,73 @@
+name: Docker/Podman Integration tests
+
+permissions:
+  contents: read
+
+on:
+  workflow_call: {}
+
+jobs:
+  docker-tests:
+    name: Docker Integration Tests
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+        python-version: "3.12"
+
+    - name: Install dependencies
+      run: uv sync
+
+    - name: Run Docker integration tests
+      env:
+        SCYLLA_DOCKER_IMAGE: scylladb/scylla:latest
+      run: |
+        uv run python -m pytest ./tests/test_docker_integration.py -x -m docker -v
+
+    - name: Upload test logs
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: docker-test-logs
+        path: tests/test_results/
+
+  podman-tests:
+    name: Podman Integration Tests
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+        python-version: "3.12"
+
+    - name: Install Podman
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y podman
+
+    - name: Install dependencies
+      run: uv sync
+
+    - name: Pull Scylla image for Podman
+      run: podman pull docker.io/scylladb/scylla:latest
+
+    - name: Run Podman integration tests
+      env:
+        SCYLLA_DOCKER_IMAGE: docker.io/scylladb/scylla:latest
+        CCM_CONTAINER_RUNTIME: podman
+      run: |
+        uv run python -m pytest ./tests/test_docker_integration.py -x -m docker -v
+
+    - name: Upload test logs
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: podman-test-logs
+        path: tests/test_results/

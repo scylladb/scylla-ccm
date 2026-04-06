@@ -22,3 +22,6 @@ jobs:
     uses: ./.github/workflows/nix.yml
     with:
       reloc_version: "2025-01-19T09:39:05Z"
+  ci-docker:
+    name: Docker/Podman Integration tests
+    uses: ./.github/workflows/docker-tests.yml
