@@ -175,9 +175,11 @@ class ClusterCreateCmd(Cmd):
     def validate(self, parser, options, args):
         if options.scylla and not options.install_dir and not options.podman_image:
             parser.error("must specify install_dir using scylla")
-        Cmd.validate(self, parser, options, args, cluster_name=True)
+        if options.podman_image and not options.scylla:
+            parser.error("--podman-image requires --scylla")
         if options.podman_image and options.docker_image:
             parser.error("--podman-image and --docker-image cannot be used together")
+        Cmd.validate(self, parser, options, args, cluster_name=True)
         if options.inter_rack_delay is not None and options.inter_rack_delay < 0:
             parser.error("--inter-rack-delay must be non-negative")
         if options.inter_dc_delay is not None and options.inter_dc_delay < 0:
@@ -279,7 +281,7 @@ class ClusterCreateCmd(Cmd):
             common.switch_cluster(self.path, self.name)
             print(f'Current cluster is now: {self.name}')
 
-        if not (self.options.ipprefix or self.options.ipformat):
+        if not cluster.is_podman() and not (self.options.ipprefix or self.options.ipformat):
             self.options.ipformat = '127.0.0.%d'
 
         if self.options.ssl_path:
@@ -441,7 +443,7 @@ class ClusterPopulateCmd(Cmd):
             if self.cluster.cassandra_version() >= "1.2" and self.options.vnodes:
                 self.cluster.set_configuration_options({'num_tokens': 256})
 
-            if not (self.options.ipprefix or self.options.ipformat):
+            if not self.cluster.is_podman() and not (self.options.ipprefix or self.options.ipformat):
                 self.options.ipformat = '127.0.0.%d'
 
             self.cluster.populate(self.nodes, self.options.debug, use_vnodes=self.options.vnodes, ipprefix=self.options.ipprefix, ipformat=self.options.ipformat)

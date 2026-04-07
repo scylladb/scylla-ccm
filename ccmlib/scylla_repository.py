@@ -433,7 +433,7 @@ def packages_from_env():
                                    scylla_package=os.environ.get('SCYLLA_CORE_PACKAGE'),
                                    scylla_unified_package=os.environ.get('SCYLLA_UNIFIED_PACKAGE')
                                    )
-    return packages if packages else None
+    return packages if any(packages) else None
 
 
 def download_packages(version_dir, packages, s3_url, version, verbose):

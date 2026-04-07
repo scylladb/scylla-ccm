@@ -97,7 +97,7 @@ test/development environments.
 Create a multi-DC cluster with podman:
 
 ```bash
-# 2 DCs: DC1 has 2 racks (2 nodes each), DC2 has 1 rack (1 node)
+# 2 DCs: DC1 has 1 rack (4 nodes), DC2 has 1 rack (1 node)
 ccm create mycluster --podman-image scylladb/scylla:2026.1 \
     -n 4:1 \
     --inter-rack-delay 2 \

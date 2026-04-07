@@ -29,6 +29,10 @@ class ClusterFactory():
             if install_dir is None and 'cassandra_dir' in data:
                 install_dir = data['cassandra_dir']
                 repository.validate(install_dir)
+            # IMPORTANT: the 'network_topology' check MUST come before the
+            # 'docker_image' check because podman clusters save BOTH keys
+            # in cluster.conf.  Reordering would silently load podman
+            # clusters as ScyllaDockerCluster.
             if 'network_topology' in data:
                 net_topo_data = data['network_topology']
                 cluster = ScyllaPodmanCluster(
