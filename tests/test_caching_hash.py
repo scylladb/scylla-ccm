@@ -360,3 +360,81 @@ class TestCachingEdgeCases:
         
         with pytest.raises(OSError, match="Failed to get file hash"):
             get_url_hash(str(test_file))
+
+
+class TestPackagesFromEnv:
+    """Test packages_from_env() function for reading environment variables."""
+    
+    def test_packages_from_env_all_set(self):
+        """Test reading all package types from environment variables."""
+        from ccmlib.scylla_repository import packages_from_env
+        
+        with patch.dict(os.environ, {
+            'SCYLLA_UNIFIED_PACKAGE': '/path/to/unified.tar.gz',
+            'SCYLLA_CORE_PACKAGE': '/path/to/core.tar.gz',
+            'SCYLLA_JMX_PACKAGE': '/path/to/jmx.tar.gz',
+            'SCYLLA_TOOLS_JAVA_PACKAGE': '/path/to/tools.tar.gz'
+        }, clear=False):
+            packages = packages_from_env()
+            
+            assert packages is not None
+            assert packages.scylla_unified_package == '/path/to/unified.tar.gz'
+            assert packages.scylla_package == '/path/to/core.tar.gz'
+            assert packages.scylla_jmx_package == '/path/to/jmx.tar.gz'
+            assert packages.scylla_tools_package == '/path/to/tools.tar.gz'
+    
+    def test_packages_from_env_unified_only(self):
+        """Test reading only unified package from environment."""
+        from ccmlib.scylla_repository import packages_from_env
+        
+        with patch.dict(os.environ, {
+            'SCYLLA_UNIFIED_PACKAGE': '/path/to/unified.tar.gz'
+        }, clear=False):
+            packages = packages_from_env()
+            
+            assert packages is not None
+            assert packages.scylla_unified_package == '/path/to/unified.tar.gz'
+            assert packages.scylla_package is None
+            assert packages.scylla_jmx_package is None
+            assert packages.scylla_tools_package is None
+    
+    def test_packages_from_env_none_set(self):
+        """Test that packages_from_env returns a RelocatablePackages with all None when no env vars are set."""
+        from ccmlib.scylla_repository import packages_from_env
+        
+        # Clear all relevant env vars
+        env_vars_to_clear = [
+            'SCYLLA_UNIFIED_PACKAGE',
+            'SCYLLA_CORE_PACKAGE', 
+            'SCYLLA_JMX_PACKAGE',
+            'SCYLLA_TOOLS_JAVA_PACKAGE',
+            'SCYLLA_JAVA_TOOLS_PACKAGE'
+        ]
+        
+        # Create a clean environment without these vars
+        clean_env = {k: v for k, v in os.environ.items() if k not in env_vars_to_clear}
+        
+        with patch.dict(os.environ, clean_env, clear=True):
+            packages = packages_from_env()
+            
+            # Returns a RelocatablePackages object, but all fields are None
+            # The check in line 436 `return packages if packages else None` 
+            # returns the packages object (since NamedTuple is always truthy)
+            # even when all fields are None
+            assert packages is not None
+            assert packages.scylla_unified_package is None
+            assert packages.scylla_package is None
+            assert packages.scylla_jmx_package is None
+            assert packages.scylla_tools_package is None
+    
+    def test_packages_from_env_alternate_tools_var(self):
+        """Test that SCYLLA_JAVA_TOOLS_PACKAGE is recognized as alternate name."""
+        from ccmlib.scylla_repository import packages_from_env
+        
+        with patch.dict(os.environ, {
+            'SCYLLA_JAVA_TOOLS_PACKAGE': '/path/to/tools-alternate.tar.gz'
+        }, clear=False):
+            packages = packages_from_env()
+            
+            assert packages is not None
+            assert packages.scylla_tools_package == '/path/to/tools-alternate.tar.gz'
