@@ -1,17 +1,25 @@
+import os
+import random
+import re
+import tempfile
 import time
 import typing
 from pathlib import Path
-import random
-import re
+from unittest.mock import patch
 
 import pytest
 
-from ccmlib.scylla_repository import setup as scylla_setup, CORE_PACKAGE_DIR_NAME, SOURCE_FILE_NAME
+from ccmlib.common import get_installed_scylla_package_hash, rmdirs
 from ccmlib.scylla_repository import (
+    setup as scylla_setup,
+    CORE_PACKAGE_DIR_NAME,
+    SOURCE_FILE_NAME,
     get_manager_release_url,
     get_manager_latest_reloc_url,
     Architecture,
+    directory_name,
 )
+from ccmlib.utils.download import get_url_hash, save_source_file
 
 
 @pytest.mark.repo_tests
@@ -223,11 +231,6 @@ class TestLocalFileCaching:
         Test that local unified package uses hash for caching.
         This validates the fix for issue #521.
         """
-        import os
-        import tempfile
-        from ccmlib.utils.download import get_url_hash, save_source_file
-        from ccmlib.common import get_installed_scylla_package_hash
-        
         # Use the existing test data file
         this_path = Path(__file__).parent
         test_package = this_path / "tests" / "test_data" / "scylla_unified_master_2023_04_03.tar.gz"
@@ -264,10 +267,6 @@ class TestLocalFileCaching:
         Test that changing local file content is detected via hash change.
         This ensures re-download logic works for local files.
         """
-        import tempfile
-        from ccmlib.utils.download import get_url_hash, save_source_file
-        from ccmlib.common import get_installed_scylla_package_hash
-        
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create two different local files
             pkg_v1 = Path(tmpdir) / "package_v1.tar.gz"
@@ -301,11 +300,6 @@ class TestLocalFileCaching:
         Test setup() function with local package specified via environment variable.
         Validates that hash is calculated and cached correctly for local files.
         """
-        import os
-        import tempfile
-        from unittest.mock import patch
-        from ccmlib.utils.download import get_url_hash
-        
         this_path = Path(__file__).parent
         test_package = this_path / "tests" / "test_data" / "scylla_unified_master_2023_04_03.tar.gz"
         
@@ -341,13 +335,6 @@ class TestLocalFileCaching:
         The fix: read env var packages before hash validation so they participate
         in the hash-based cache invalidation.
         """
-        import os
-        import tempfile
-        from unittest.mock import patch
-        from ccmlib.utils.download import get_url_hash, save_source_file
-        from ccmlib.common import get_installed_scylla_package_hash, rmdirs
-        from ccmlib.scylla_repository import directory_name
-        
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create two different package files
             pkg_v1 = Path(tmpdir) / "package_v1.tar.gz"
