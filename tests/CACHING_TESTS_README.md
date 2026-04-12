@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the comprehensive test suite created to validate the package caching mechanism in scylla-ccm, specifically addressing PR #557 and issue #521.
+This document describes the comprehensive test suite created to validate the package caching mechanism in scylla-ccm, specifically addressing PR #557, issue #521, and PR #732.
 
 ## Background
 
@@ -11,6 +11,9 @@ Issue #521 reported that caching wasn't working as expected with local files. Wh
 
 ### PR #557
 PR #557 implemented a fix that uses file hashing to enable proper caching for local files, S3 URLs, and HTTP URLs.
+
+### PR #732
+PR #732 fixed a critical bug where packages provided via environment variables (e.g., SCYLLA_UNIFIED_PACKAGE) were only read inside download_packages(), after the hash-based cache validation block. Since packages was None at validation time, a stale cached install was reused forever even when the local tarball changed. The fix reads env var packages earlier in setup() so they participate in hash validation.
 
 ## How Caching Works
 
@@ -29,6 +32,7 @@ The caching mechanism operates as follows:
    ```
 
 3. **Cache Validation**: On subsequent runs:
+   - Read environment variable packages (if set) using `packages_from_env()`
    - Read the stored hash from `source.txt`
    - Calculate/retrieve the current package hash
    - If hashes match: Use cached package (no re-download/re-extract)
@@ -72,6 +76,12 @@ Comprehensive unit and integration tests for the caching mechanism.
   - Special characters in hashes
   - md5sum command failures
 
+- **TestPackagesFromEnv**: Tests packages_from_env() function (NEW for PR #732)
+  - Reading all package types from environment variables
+  - Reading only unified package
+  - Handling empty environment
+  - Alternate tools package variable name
+
 ### 2. `tests/test_scylla_repository.py` (Modified)
 Added `TestLocalFileCaching` class with integration tests:
 
@@ -88,19 +98,25 @@ Added `TestLocalFileCaching` class with integration tests:
   - Tests environment variable handling
   - Validates SCYLLA_UNIFIED_PACKAGE usage
 
+- **test_env_var_package_cache_invalidation_on_change** (NEW for PR #732):
+  - Validates the fix for PR #732
+  - Tests that cache is invalidated when env var package content changes
+  - Ensures packages from env vars participate in hash validation
+  - Verifies that stale cached installs are not reused when tarball changes
+
 ## Running the Tests
 
 ### Quick Test (Unit Tests Only)
 ```bash
 python3 -m pytest tests/test_caching_hash.py -v
 ```
-Expected: 19 passed, 3 skipped in ~0.1s
+Expected: 23 passed, 3 skipped in ~0.1s
 
 ### Complete Caching Tests
 ```bash
 python3 -m pytest tests/test_caching_hash.py tests/test_scylla_repository.py::TestLocalFileCaching -v
 ```
-Expected: 22 passed, 3 skipped in ~0.1s
+Expected: 27 passed, 3 skipped in ~0.1s
 
 ### All Unit Tests (No Network)
 ```bash
@@ -151,6 +167,17 @@ Expected hash: `d2be7852b8c65f74c1da8c9efbc7e408`
 5. ✅ get_installed_scylla_package_hash() retrieves hash correctly
 6. ✅ Cache invalidation logic in setup() function works
 
+### PR #732 Fix Validation (NEW)
+1. ✅ packages_from_env() correctly reads environment variables
+2. ✅ packages_from_env() handles all package types (unified, core, tools, jmx)
+3. ✅ packages_from_env() handles alternate variable names
+4. ✅ Environment variable packages participate in hash validation
+5. ✅ Cache is invalidated when env var package content changes
+6. ✅ Stale cached installs are not reused when local tarball changes
+4. ✅ save_source_file() preserves all required information
+5. ✅ get_installed_scylla_package_hash() retrieves hash correctly
+6. ✅ Cache invalidation logic in setup() function works
+
 ### Edge Cases Covered
 1. ✅ Missing source.txt file
 2. ✅ Corrupted source.txt file
@@ -168,7 +195,9 @@ Expected hash: `d2be7852b8c65f74c1da8c9efbc7e408`
 | get_url_hash (HTTP) | ✅ Full (mocked) |
 | save_source_file | ✅ Full |
 | get_installed_scylla_package_hash | ✅ Full |
+| packages_from_env | ✅ Full (NEW) |
 | Hash validation in setup() | ✅ Full |
+| Env var package cache validation | ✅ Full (NEW) |
 | Edge cases | ✅ Full |
 | Integration scenarios | ✅ Full |
 
