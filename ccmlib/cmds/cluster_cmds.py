@@ -354,7 +354,7 @@ class ClusterAddCmd(Cmd):
 
     def run(self):
         try:
-            if self.options.scylla_node:
+            if self.options.scylla_node or isinstance(self.cluster, (ScyllaCluster, ScyllaDockerCluster)):
                 if self.cluster.is_docker():
                     node_class = ScyllaDockerNode
                 else:
