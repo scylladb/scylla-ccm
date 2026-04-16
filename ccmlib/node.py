@@ -973,9 +973,9 @@ class Node(object):
                         self.error(f"(EE) <stdout> {err}")
                 raise e
 
-            for err in output[1].split('\n'):
-                if err.strip():
-                    common.print_if_standalone(f"(EE) {err}", debug_callback=self.debug, end='')
+            for line in output[1].split('\n'):
+                if line.strip():
+                    common.print_if_standalone(f"(cqlsh stderr) {line}", debug_callback=self.warning, end='')
 
             if show_output:
                 common.print_if_standalone(output[0], debug_callback=self.debug, end='')
