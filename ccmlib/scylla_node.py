@@ -627,11 +627,13 @@ class ScyllaNode(Node):
         if gently:
             try:
                 self._process_agent.terminate()
+                self._process_agent.wait(timeout=30)
             except OSError:
                 pass
         else:
             try:
                 self._process_agent.kill()
+                self._process_agent.wait(timeout=30)
             except OSError:
                 pass
 
