@@ -162,6 +162,8 @@ class Node(object):
                 node.pid = int(data['pid'])
             if 'docker_id' in data:
                 node.pid = data['docker_id']
+            if 'podman_name' in data:
+                node.podman_name = data['podman_name']
             if 'install_dir' in data:
                 node.__install_dir = data['install_dir']
             if 'config_options' in data:
@@ -205,6 +207,10 @@ class Node(object):
 
     @staticmethod
     def is_docker():
+        return False
+
+    @staticmethod
+    def is_podman():
         return False
 
     def get_node_cassandra_root(self):
