@@ -402,6 +402,13 @@ def make_cassandra_env(install_dir, node_path, update_conf=True, hardcode_java_v
                 raise ArgumentError(f"java-{hardcode_java_version} wasn't found in {jvm_root_path}")
 
             env['JAVA_HOME'] = str(java_home_path.as_posix())
+        elif env['CUSTOM_JAVA_HOME'] == '__USE_JAVA_IN_PATH__':
+            # Cassandra starting script will use java from PATH, when JAVA_HOME is not set
+            # See: https://github.com/apache/cassandra/blob/8974fdb821db6b72eac5a34d96fe1f78ead3c11f/redhat/cassandra.in.sh#L103-L117
+            # When running on MacOS with Temurin, java binary fails to run correctly when JAVA_HOME is set to path that does not contain java binary
+            # Cassandra on the other hand expects JAVA_HOME to be set to a valid JDK path (with the binary being in the bin/java file).
+            # This means, that in this specific case, we cannot set JAVA_HOME at all.
+            pass
         else:
             env['JAVA_HOME'] = env['CUSTOM_JAVA_HOME']
             version = get_jvm_spec_version(pathlib.Path(env['JAVA_HOME']) / 'bin' / 'java')
