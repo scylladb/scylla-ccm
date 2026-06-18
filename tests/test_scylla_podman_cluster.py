@@ -424,12 +424,13 @@ class TestPodmanProcess:
         p = PodmanProcess("paused-container-id")
 
         monkeypatch.setattr(
-            "ccmlib.scylla_podman_cluster.run",
-            lambda *args, **kwargs: SimpleNamespace(
-                returncode=0,
-                stdout="paused:0\n",
-                stderr="",
-            ),
+            "ccmlib.scylla_podman_cluster._get_container_host_pid",
+            lambda cid: 99999,
+        )
+        monkeypatch.setattr(
+            os.path,
+            "isdir",
+            lambda path: path == "/proc/99999",
         )
 
         assert p.poll() is None
@@ -704,19 +705,18 @@ class TestPodmanNodeBehavior:
             )
         )
 
-        call_count = {"n": 0}
-
-        def fake_nsenter(container_id, command):
-            call_count["n"] += 1
-            if call_count["n"] == 1:
-                return SimpleNamespace(returncode=0, stderr="")
-            return SimpleNamespace(returncode=1, stderr="RTNETLINK: File exists")
-
         monkeypatch.setattr(
-            "ccmlib.scylla_podman_cluster._nsenter_net_run", fake_nsenter
+            "ccmlib.scylla_podman_cluster._get_container_host_pid",
+            lambda container_id: 12345,
+        )
+        monkeypatch.setattr(
+            "ccmlib.scylla_podman_cluster.run",
+            lambda *args, **kwargs: SimpleNamespace(
+                returncode=2, stderr="RTNETLINK: File exists"
+            ),
         )
 
-        with pytest.raises(RuntimeError, match=r"1 route\(s\).*node1"):
+        with pytest.raises(RuntimeError, match=r"2 route\(s\).*node1"):
             node._setup_routes()
 
     def test_start_scylla_refreshes_cpu_assignments_before_pinning(self, monkeypatch):
@@ -727,6 +727,7 @@ class TestPodmanNodeBehavior:
         node.pid = None
         node.log_thread = None
         node.mark = 0
+        node._fresh_container = False
 
         cluster = SimpleNamespace(pinning=True, _cpu_assignments={})
 
@@ -1579,84 +1580,25 @@ class TestPodmanNodeRemoveAndStatus:
         with pytest.raises(RuntimeError, match="no running container"):
             node.nodetool("status")
 
-    def test_nodetool_caches_supported_command_probe(self, monkeypatch):
-        """Supported native nodetool commands should only be probed once per node."""
+    def test_nodetool_dispatches_supported_command(self, monkeypatch):
+        """Verify nodetool command is dispatched with correct args via
+        ``get_tool``."""
         node = self._make_node()
-        check_calls = []
         run_calls = []
-
-        def fake_check_call(cmd, **kwargs):
-            check_calls.append(cmd)
-            return 0
 
         def fake_do_run_nodetool(cmd, capture_output, wait, timeout, verbose):
             run_calls.append(cmd)
             return "ok", ""
 
-        monkeypatch.setattr(
-            "ccmlib.scylla_podman_cluster.subprocess.check_call", fake_check_call
-        )
         monkeypatch.setattr(node, "_do_run_nodetool", fake_do_run_nodetool)
 
         assert node.nodetool("status") == ("ok", "")
         assert node.nodetool("status") == ("ok", "")
 
-        assert len(check_calls) == 1
         assert len(run_calls) == 2
         assert run_calls[0] == [
-            "podman",
-            "exec",
-            "abc123",
-            "scylla",
-            "nodetool",
-            "-h",
-            "localhost",
-            "-p",
-            "10000",
-            "status",
-        ]
-
-    def test_nodetool_caches_unsupported_command_probe(self, monkeypatch):
-        """Unsupported native commands should only probe once before JMX fallback."""
-        node = self._make_node()
-        node._cached_supervisor_programs = {"scylla", "scylla-jmx"}
-        check_calls = []
-        run_calls = []
-
-        def fake_check_call(cmd, **kwargs):
-            check_calls.append(cmd)
-            raise subprocess.CalledProcessError(1, cmd)
-
-        def fake_do_run_nodetool(cmd, capture_output, wait, timeout, verbose):
-            run_calls.append(cmd)
-            return "fallback", ""
-
-        monkeypatch.setattr(
-            "ccmlib.scylla_podman_cluster.subprocess.check_call", fake_check_call
-        )
-        monkeypatch.setattr(node, "_do_run_nodetool", fake_do_run_nodetool)
-
-        assert node.nodetool("cleanup") == ("fallback", "")
-        assert node.nodetool("cleanup") == ("fallback", "")
-
-        assert len(check_calls) == 1
-        assert run_calls == [
-            [
-                "podman",
-                "exec",
-                "abc123",
-                "nodetool",
-                "-Dcom.scylladb.apiPort=10000",
-                "cleanup",
-            ],
-            [
-                "podman",
-                "exec",
-                "abc123",
-                "nodetool",
-                "-Dcom.scylladb.apiPort=10000",
-                "cleanup",
-            ],
+            "/usr/bin/podman", "exec", "-i", "abc123", "nodetool",
+            "-h", "localhost", "-p", "10000", "status",
         ]
 
     def test_service_start_raises_on_failure(self, monkeypatch):

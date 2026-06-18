@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import subprocess
 import threading
 import time
@@ -291,51 +292,49 @@ class PodmanProcess:
     The parent ScyllaNode.start() expects _start_scylla() to return a Popen-like
     object with a .pid attribute. This adapter wraps a podman container ID to
     satisfy that interface.
+
+    ``poll()`` checks liveness via ``/proc/<host_pid>`` after resolving the
+    container's host PID once on the first throttled call.  This avoids any
+    ``podman`` subprocess calls during hot polling (which previously caused
+    ~75k ``podman inspect`` processes / ~3400 s of CPU for a 45-node cluster
+    and contended the podman database lock under concurrent log streaming).
     """
+
+    _POLL_CACHE_TTL = 0.5
 
     def __init__(self, container_id):
         self.pid = container_id
         self.returncode = None
+        self._last_poll_ts = 0.0
+        self._host_pid = None
 
     def poll(self):
-        """Check if the container is still running; update returncode if it exited."""
+        """Check if the container is still running; update returncode if it exited.
+
+        Throttled: at most one liveness check per ``_POLL_CACHE_TTL`` seconds.
+        After the container exits the cached returncode is returned immediately.
+        """
         if self.returncode is not None:
             return self.returncode
-        try:
-            res = run(
-                [
-                    "podman",
-                    "inspect",
-                    "--format",
-                    "{{.State.Status}}:{{.State.ExitCode}}",
-                    self.pid,
-                ],
-                stdout=PIPE,
-                stderr=DEVNULL,
-                text=True,
-            )
-            if res.returncode != 0:
-                # Container doesn't exist anymore
+        now = time.time()
+        if now - self._last_poll_ts < self._POLL_CACHE_TTL:
+            return self.returncode
+        self._last_poll_ts = now
+
+        # Resolve the host PID once.  This requires a single `podman inspect`
+        # — typically completes in <50 ms and avoids repeated podman calls.
+        # If the container is already gone the inspect fails and we mark it dead.
+        if self._host_pid is None:
+            try:
+                self._host_pid = _get_container_host_pid(self.pid)
+            except RuntimeError:
                 self.returncode = -1
                 return self.returncode
-            output = res.stdout.strip()
-            if ":" in output:
-                status, exit_code = output.rsplit(":", 1)
-                if status not in _RUNNING_CONTAINER_STATES:
-                    try:
-                        self.returncode = int(exit_code)
-                    except ValueError:
-                        LOGGER.warning(
-                            "Unexpected exit code %r for container %s",
-                            exit_code,
-                            self.pid,
-                        )
-                        self.returncode = -1
-        except FileNotFoundError:
-            LOGGER.warning("podman not found; marking container %s as dead", self.pid)
+
+        # Instant liveness check — no subprocess, no podman lock contention.
+        if not os.path.isdir(f"/proc/{self._host_pid}"):
             self.returncode = -1
-        except Exception:
-            LOGGER.debug("poll() failed for container %s", self.pid, exc_info=True)
+
         return self.returncode
 
 
@@ -1668,6 +1667,8 @@ class ScyllaPodmanNode(ScyllaNode):
           gossip ring settling with --seeds handshake, or iproute install latency.
     """
 
+    _STATUS_CACHE_TTL = 5
+
     def __init__(self, *args, **kwargs):
         kwargs["save"] = False
         self.share_directories = [
@@ -1694,6 +1695,9 @@ class ScyllaPodmanNode(ScyllaNode):
         )
         self.jmx_port = "7199"
         self.log_thread = None
+        self._host_pid = None
+        self._fresh_container = False
+        self._last_status_check = 0.0
         self._cached_nodetool_support = {}
         self._cached_supervisor_programs = None
 
@@ -2135,6 +2139,7 @@ class ScyllaPodmanNode(ScyllaNode):
             )
 
         self.pid = res.stdout.strip()
+        self._fresh_container = True
 
         try:
             # Start log streaming immediately so startup logs are captured.
@@ -2156,25 +2161,6 @@ class ScyllaPodmanNode(ScyllaNode):
             # ready on the very first attempt, so the exact ordering is not
             # critical, but setting routes early minimises unnecessary retries.
             self._setup_routes()
-
-            # Wait for supervisord to be accepting commands before returning.
-            # This ensures that _start_scylla() can immediately call
-            # service_status() / _supervisor_program_names() to determine the
-            # correct service name and whether service_start() is needed.
-            # Exit code 0 (all programs RUNNING) or 1 (some not yet RUNNING) are
-            # both acceptable — we just need supervisord to be reachable.
-            def is_supervisord_ready():
-                r = run(
-                    ["podman", "exec", self.pid, "supervisorctl", "status"],
-                    stdout=DEVNULL,
-                    stderr=DEVNULL,
-                )
-                return r.returncode in (0, 1)
-
-            if not common.wait_for(func=is_supervisord_ready, timeout=30, step=0.1):
-                raise TimeoutError(
-                    f"Supervisord for {self.name} did not become ready within 30 seconds"
-                )
 
         except Exception:
             LOGGER.error(
@@ -2198,27 +2184,43 @@ class ScyllaPodmanNode(ScyllaNode):
     def _setup_routes(self):
         """Add IP routes inside the container for cross-rack connectivity.
 
-        Uses ``nsenter`` to run the host's ``ip`` binary in the container's
-        network namespace, avoiding any dependency on tools inside the image.
+        All routes are added in a single ``nsenter`` + ``sh -c`` call (instead
+        of one ``nsenter`` per route) to minimise subprocess overhead.
         """
         if not self.cluster.network_topology:
             return
 
-        failed_routes = []
         routes = self.cluster.network_topology.get_routes_for_node(self.name)
-        for dest_subnet, gateway in routes:
-            res = _nsenter_net_run(
-                self.pid,
-                ["ip", "route", "add", dest_subnet, "via", gateway],
+        if not routes:
+            return
+
+        # Resolve the host PID with retries — the container's init-process
+        # PID may not be assigned immediately after podman run -d returns.
+        host_pid = None
+        for _ in range(10):
+            try:
+                host_pid = _get_container_host_pid(self.pid)
+                break
+            except RuntimeError:
+                time.sleep(0.5)
+        if host_pid is None:
+            raise RuntimeError(
+                f"Container {self.pid} did not become ready within 5s"
             )
-            if res.returncode != 0:
-                failed_routes.append(
-                    f"{dest_subnet} via {gateway}: {res.stderr.strip()}"
-                )
-        if failed_routes:
+        self._host_pid = int(host_pid)
+
+        route_script = "; ".join(
+            f"ip route add {shlex.quote(dest)} via {shlex.quote(gw)}" for dest, gw in routes
+        )
+        full_cmd = [
+            "nsenter", "-t", str(host_pid), "--user", "--net",
+            "sh", "-c", route_script,
+        ]
+        res = run(full_cmd, stdout=PIPE, stderr=PIPE, text=True)
+        if res.returncode != 0:
             raise RuntimeError(
                 "Failed to add %d route(s) in %s: %s"
-                % (len(failed_routes), self.name, "; ".join(failed_routes))
+                % (len(routes), self.name, res.stderr.strip())
             )
 
     def _apply_tc_rules(self):
@@ -2263,24 +2265,30 @@ class ScyllaPodmanNode(ScyllaNode):
                 stderr=PIPE,
                 text=True,
             )
-        res = run(
-            [
-                "podman",
-                "exec",
-                self.pid,
-                "supervisorctl",
-                "start",
-                service_name,
-            ],
-            stdout=PIPE,
-            stderr=PIPE,
-            text=True,
-        )
-        if res.returncode != 0:
-            LOGGER.debug(res.stdout)
-            raise RuntimeError(
-                f"service {service_name} failed to start in {self.name}: {res.stderr}"
+        # Retry up to 30s in case supervisord isn't ready yet (fresh
+        # container just started by podman run -d).
+        for attempt in range(30):
+            res = run(
+                [
+                    "podman",
+                    "exec",
+                    self.pid,
+                    "supervisorctl",
+                    "start",
+                    service_name,
+                ],
+                stdout=PIPE,
+                stderr=PIPE,
+                text=True,
             )
+            if res.returncode == 0:
+                return
+            if attempt == 29:
+                LOGGER.debug(res.stdout)
+                raise RuntimeError(
+                    f"service {service_name} failed to start in {self.name}: {res.stderr}"
+                )
+            time.sleep(1)
 
     def service_stop(self, service_name):
         # Pre-check: if the service is already stopped/exited/fatal, return
@@ -2333,11 +2341,15 @@ class ScyllaPodmanNode(ScyllaNode):
             return max(0.0, timeout - (time.time() - start))
 
         if self.cluster.version() and parse_version(self.cluster.version()) >= parse_version("1.2"):
+            # 0.2 s log polling instead of the 10 ms default.  This wait can
+            # last minutes during Raft topology bootstrap; 10 ms spinning
+            # wastes CPU that the joining Scylla shards need.
             self.watch_log_for(
                 "Starting listening for CQL clients",
                 from_mark=from_mark,
                 process=process,
                 timeout=remaining_timeout(),
+                polling_interval=0.2,
             )
 
         binary_itf = self.network_interfaces["binary"]
@@ -2547,12 +2559,14 @@ class ScyllaPodmanNode(ScyllaNode):
             )
             self.log_thread.start()
 
-        # For a fresh container supervisord auto-starts Scylla; no explicit
-        # service_start is needed.  For a restarted container (after do_stop)
-        # Scylla is STOPPED and must be started explicitly.
-        scylla_status = self.service_status(self._scylla_service_name())
-        if scylla_status and scylla_status.upper() not in ("RUNNING", "STARTING"):
-            self.service_start(self._scylla_service_name())
+        # supervisord auto-starts Scylla in fresh containers, so no explicit
+        # service_start is needed here.  Only restarted containers (after
+        # do_stop) need manual start.
+        if not self._fresh_container:
+            scylla_status = self.service_status(self._scylla_service_name())
+            if scylla_status and scylla_status.upper() not in ("RUNNING", "STARTING"):
+                self.service_start(self._scylla_service_name())
+        self._fresh_container = False
 
         if wait_other_notice:
             for node, mark in marks:
@@ -2758,6 +2772,15 @@ class ScyllaPodmanNode(ScyllaNode):
         return self.status == Status.UP
 
     def _update_podman_status(self):
+        # Cache UP status for _STATUS_CACHE_TTL seconds to avoid podman DB
+        # lock contention when many threads poll concurrently during the
+        # final is_running() wait in start().  Still detects process death
+        # within the TTL window, unlike permanent caching.
+        now = time.time()
+        if self.status == Status.UP and now - self._last_status_check < self._STATUS_CACHE_TTL:
+            return
+        self._last_status_check = now
+
         if self.pid is None:
             if self.status == Status.UP or self.status == Status.DECOMMISSIONED:
                 self.status = Status.DOWN
@@ -2768,8 +2791,6 @@ class ScyllaPodmanNode(ScyllaNode):
         if scylla_status and scylla_status.upper() == "RUNNING":
             new_status = Status.UP
         elif self.status == Status.DECOMMISSIONED:
-            # Preserve DECOMMISSIONED — a decommissioned node whose scylla
-            # process has stopped is still decommissioned, not merely DOWN.
             return
         else:
             new_status = Status.DOWN
@@ -2782,6 +2803,12 @@ class ScyllaPodmanNode(ScyllaNode):
 
     def _update_pid(self, process):
         pass
+
+    def nodetool(self, cmd, capture_output=True, wait=True, timeout=None, verbose=True):
+        nodetool = self.get_tool('nodetool')
+        nodetool.extend(['-h', 'localhost', '-p', str(self.api_port)])
+        nodetool.extend(cmd.split())
+        return self._do_run_nodetool(nodetool, capture_output, wait, timeout, verbose)
 
     def get_tool(self, toolname):
         if self.pid is None:
