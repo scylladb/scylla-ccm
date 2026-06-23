@@ -1,5 +1,6 @@
 # ccm podman-based scylla cluster with network topology support
 
+import concurrent.futures
 import ipaddress
 import hashlib
 import json
@@ -22,6 +23,7 @@ from ccmlib import common
 from ccmlib.node import (
     NodeError,
     Status,
+    TimeoutError,
 )
 from ccmlib.scylla_cluster import ScyllaCluster
 from ccmlib.scylla_node import ScyllaNode
@@ -366,7 +368,7 @@ def _get_container_host_pid(container_id):
         ) from exc
 
 
-def _nsenter_net_run(container_id, command, check=False):
+def _nsenter_net_run(container_id, command, check=False, host_pid=None):
     """Run a command inside a container's network namespace using nsenter.
 
     Uses ``nsenter --user --net`` to enter the container's user and network
@@ -378,11 +380,13 @@ def _nsenter_net_run(container_id, command, check=False):
         container_id: podman container name or ID
         command: list of command arguments (e.g. ["ip", "route", "add", ...])
         check: if True, raise on non-zero exit
+        host_pid: cached host PID (avoids an extra ``podman inspect`` call)
 
     Returns:
         subprocess.CompletedProcess
     """
-    host_pid = _get_container_host_pid(container_id)
+    if host_pid is None:
+        host_pid = _get_container_host_pid(container_id)
     full_cmd = ["nsenter", "-t", str(host_pid), "--user", "--net"] + list(command)
     try:
         res = run(full_cmd, stdout=PIPE, stderr=PIPE, text=True)
@@ -996,6 +1000,9 @@ class ScyllaPodmanCluster(ScyllaCluster):
         self._cpu_assignments = {}
         # Lock protecting the one-time image config extraction (see _get_image_conf_cache_dir).
         self._image_conf_cache_lock = threading.Lock()
+        # Shared managers for log streaming and event monitoring (Optimization 1 & 4).
+        self._log_manager = None
+        self._event_monitor = None
         # Pass docker_image to parent so it skips install_dir validation
         kwargs["docker_image"] = self.podman_image
         super(ScyllaPodmanCluster, self).__init__(*args, **kwargs)
@@ -1025,6 +1032,16 @@ class ScyllaPodmanCluster(ScyllaCluster):
 
     def get_install_dir(self):
         return None
+
+    def _ensure_managers(self):
+        # Shared log streaming and event monitoring; also used on the
+        # ClusterFactory load path where populate() is never called.  The
+        # event monitor is started lazily on the first node start (see
+        # PodmanEventMonitor.register) so read-only commands on a loaded
+        # cluster don't spawn a `podman events --stream` subprocess.
+        if self._log_manager is None:
+            self._log_manager = PodmanLogManager()
+            self._event_monitor = PodmanEventMonitor(self._log_manager)
 
     def populate(
         self,
@@ -1098,6 +1115,10 @@ class ScyllaPodmanCluster(ScyllaCluster):
                 for _ in range(n):
                     node_locations.append((dc, rack))
 
+        # Initialize shared log manager and event monitor for this cluster.
+        self._ensure_managers()
+        self._event_monitor.start()
+
         if dcs != [None]:
             self.set_configuration_options(values={"endpoint_snitch": self.snitch})
 
@@ -1141,6 +1162,12 @@ class ScyllaPodmanCluster(ScyllaCluster):
             self.network_topology.destroy_networks()
             raise
 
+        # Prepare directory permissions for all nodes before starting
+        # containers.  This runs the expensive ``podman unshare chmod -R``
+        # exactly once during cluster setup instead of O(N) times during
+        # node start.
+        self._prepare_cluster_permissions()
+
         self.cluster_cleanup()
         if self.pinning:
             self._refresh_cpu_assignments()
@@ -1157,6 +1184,42 @@ class ScyllaPodmanCluster(ScyllaCluster):
             self.default_wait_for_binary_proto, node_count,
         )
         return self
+
+    def _prepare_cluster_permissions(self):
+        """Perform the expensive ``podman unshare chmod -R a+rwX`` once for all nodes.
+
+        Called during ``populate()`` after node directories are created and
+        their ownership has been handed to the container user.  This avoids
+        repeating the recursive chmod per-node during ``create_container()``,
+        which is a significant bottleneck when starting 50-100 containers
+        concurrently.
+        """
+        runtime_user = _get_image_runtime_user(self.podman_image)
+        if runtime_user is None:
+            LOGGER.warning(
+                "Unable to determine runtime user for image %s; "
+                "skipping cluster-level permission setup",
+                self.podman_image,
+            )
+            return
+        uid, gid = runtime_user
+        for node in self.nodelist():
+            for directory in node.share_directories:
+                host_path = os.path.join(node.get_path(), directory)
+                if not os.path.exists(host_path):
+                    continue
+                _chown_path_for_container(host_path, uid, gid)
+                res = run(
+                    ["podman", "unshare", "chmod", "-R", "a+rwX", host_path],
+                    stdout=PIPE,
+                    stderr=PIPE,
+                    text=True,
+                )
+                if res.returncode != 0:
+                    LOGGER.warning(
+                        "Failed to chmod %s to a+rwX via podman unshare: %s",
+                        host_path, res.stderr,
+                    )
 
     def _compute_cpu_assignments(self):
         """Compute non-overlapping CPU assignments for each node.
@@ -1694,12 +1757,16 @@ class ScyllaPodmanNode(ScyllaNode):
             ]
         )
         self.jmx_port = "7199"
-        self.log_thread = None
         self._host_pid = None
         self._fresh_container = False
         self._last_status_check = 0.0
         self._cached_nodetool_support = {}
         self._cached_supervisor_programs = None
+        # References to cluster-level managers (set after cluster init)
+        self._log_manager = getattr(self.cluster, "_log_manager", None)
+        self._event_monitor = getattr(self.cluster, "_event_monitor", None)
+        # Default to 1 CPU (not 2 like ScyllaNode) to reduce resource usage
+        self._smp = 1
 
     def _supervisor_program_names(self):
         if self.pid is None:
@@ -1745,92 +1812,8 @@ class ScyllaPodmanNode(ScyllaNode):
     def has_jmx(self):
         return self._jmx_service_name() is not None
 
-    def nodetool(self, cmd, capture_output=True, wait=True, timeout=None, verbose=True):
-        """Run nodetool inside the podman container via 'podman exec'."""
-        if self.pid is None:
-            raise RuntimeError(
-                f"Cannot run nodetool on {self.name}: no running container"
-            )
-        nodetool = ["podman", "exec", self.pid, "scylla", "nodetool"]
-        # Check if the command is supported by the native nodetool
-        command = next(
-            (arg for arg in cmd.split() if not arg.startswith("-")), None
-        )
-        if command is None:
-            raise RuntimeError(f"Could not determine nodetool subcommand from: {cmd!r}")
-        cache = getattr(self, "_cached_nodetool_support", None)
-        if cache is None:
-            cache = {}
-            self._cached_nodetool_support = cache
-        if command not in cache:
-            try:
-                subprocess.check_call(
-                    nodetool + [command, "--help"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.STDOUT,
-                    timeout=30,
-                )
-                cache[command] = True
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-                cache[command] = False
-        if cache[command]:
-            nodetool.extend(["-h", "localhost", "-p", str(self.api_port)])
-            nodetool.extend(cmd.split())
-            return self._do_run_nodetool(
-                nodetool, capture_output, wait, timeout, verbose
-            )
-
-        if not self.has_jmx:
-            raise RuntimeError(
-                f"Node {self.name}: native nodetool does not support '{cmd}' "
-                f"and JMX is not available for fallback"
-            )
-        # Fall back to java nodetool via JMX (running inside the container)
-        jmx_nodetool = [
-            "podman",
-            "exec",
-            self.pid,
-            "nodetool",
-            f"-Dcom.scylladb.apiPort={self.api_port}",
-        ] + cmd.split()
-        return self._do_run_nodetool(
-            jmx_nodetool, capture_output, wait, timeout, verbose
-        )
-
     def _prepare_bind_mounts(self):
         _make_path_container_writable(self.local_yaml_path)
-        runtime_user = _get_image_runtime_user(self.cluster.podman_image)
-        for host_path in [
-            os.path.join(self.get_path(), directory)
-            for directory in self.share_directories
-        ]:
-            _make_path_container_writable(host_path)
-            if runtime_user is not None:
-                uid, gid = runtime_user
-                _chown_path_for_container(host_path, uid, gid)
-                # After handing ownership to the container user via podman unshare,
-                # the host user (uid != container subuid) can no longer write into
-                # these directories.  Run chmod a+rwX inside the same user-namespace
-                # so that both the container user AND the host user retain write
-                # access.  This is critical for the logs/ directory: PodmanLogger
-                # opens logs/system.log from the host side after the container has
-                # taken ownership of the directory.
-                res = run(
-                    ["podman", "unshare", "chmod", "-R", "a+rwX", host_path],
-                    stdout=PIPE,
-                    stderr=PIPE,
-                    text=True,
-                )
-                if res.returncode != 0:
-                    LOGGER.warning(
-                        "Failed to chmod %s to a+rwX via podman unshare: %s",
-                        host_path, res.stderr,
-                    )
-                # Do NOT call _make_path_container_writable() here a second time.
-                # After podman unshare chown, the host user no longer owns these
-                # directories and os.chmod() would fail with EPERM.  The
-                # podman unshare chmod -R a+rwX above already grants both the
-                # container user and the host user write access.
 
     def _pinning_container_args(self):
         """Return podman run flags for CPU pinning, or empty list if not pinned."""
@@ -2046,11 +2029,12 @@ class ScyllaPodmanNode(ScyllaNode):
             )
             # Clean up the dead container
             run(["podman", "rm", "-f", self.pid], stdout=DEVNULL, stderr=DEVNULL)
-            self.pid = None
             self._cached_supervisor_programs = None
-            if self.log_thread:
-                self.log_thread.stop()
-                self.log_thread = None
+            if self._log_manager:
+                self._log_manager.stop_stream(self.pid)
+            if self._event_monitor:
+                self._event_monitor.unregister(self.pid)
+            self.pid = None
 
         if not self.cluster.network_topology:
             raise RuntimeError(
@@ -2058,7 +2042,8 @@ class ScyllaPodmanNode(ScyllaNode):
                 f"cluster network topology is not initialized"
             )
 
-        self.cluster.network_topology.create_networks()
+        # Networks were created during populate() and verified there;
+        # no need to re-inspect them during container creation.
 
         node_ip = self._get_rack_ip()
         network_name = self.cluster.network_topology.get_node_network(self.name)
@@ -2068,10 +2053,9 @@ class ScyllaPodmanNode(ScyllaNode):
         # populate().  The bind mount below makes it visible inside the
         # container.  Supervisord starts Scylla automatically; no
         # stop/start cycle is needed.
-        node1 = self.cluster.nodelist()[0]
         seed_args = []
-        if self.name != node1.name:
-            seed_args = ["--seeds", node1.network_interfaces["storage"][0]]
+        if self.name != self.cluster.seeds[0].name:
+            seed_args = ["--seeds", self.cluster.seeds[0].network_interfaces["storage"][0]]
 
         scylla_yaml = self.read_scylla_yaml()
         # Do not publish Alternator to fixed host ports. Each node already has a
@@ -2142,13 +2126,10 @@ class ScyllaPodmanNode(ScyllaNode):
         self._fresh_container = True
 
         try:
-            # Start log streaming immediately so startup logs are captured.
-            if self.log_thread:
-                self.log_thread.stop()
-            self.log_thread = PodmanLogger(
-                self, os.path.join(self.get_path(), "logs", "system.log")
-            )
-            self.log_thread.start()
+            # Log streaming is on-demand.  Skipping it here avoids one
+            # ``podman logs -f`` subprocess per container.
+            if self._event_monitor:
+                self._event_monitor.register(self, self.pid)
 
             # Update network interfaces with the actual rack IP.
             self.network_interfaces = {
@@ -2169,9 +2150,10 @@ class ScyllaPodmanNode(ScyllaNode):
             )
             self._cached_supervisor_programs = None
             self._cached_nodetool_support = {}
-            if self.log_thread:
-                self.log_thread.stop()
-                self.log_thread = None
+            if self._log_manager and self.pid:
+                self._log_manager.stop_stream(self.pid)
+            if self._event_monitor and self.pid:
+                self._event_monitor.unregister(self.pid)
             if self.pid:
                 run(
                     ["podman", "rm", "--volumes", "-f", self.pid],
@@ -2243,15 +2225,29 @@ class ScyllaPodmanNode(ScyllaNode):
         # Remove any existing root qdisc so we can re-apply rules cleanly
         # (e.g. on restart when the container was not recreated).
         # Failure is expected on first start (no qdisc to delete).
-        _nsenter_net_run(self.pid, ["sh", "-c", f"tc qdisc del dev {CONTAINER_NET_INTERFACE} root 2>/dev/null || true"])
+        # Build the full tc script and apply it in a single nsenter call.
+        script_parts = [
+            f"tc qdisc del dev {CONTAINER_NET_INTERFACE} root 2>/dev/null || true",
+        ]
+        script_parts.extend(tc_commands)
 
-        for cmd in tc_commands:
-            res = _nsenter_net_run(self.pid, ["sh", "-c", cmd])
-            if res.returncode != 0:
-                LOGGER.warning(
-                    "Failed to apply tc rule in %s: cmd=%s stderr=%s",
-                    self.name, cmd, res.stderr,
-                )
+        host_pid = getattr(self, "_host_pid", None)
+        if host_pid is not None:
+            full_cmd = [
+                "nsenter", "-t", str(host_pid), "--user", "--net",
+                "sh", "-c", "; ".join(script_parts),
+            ]
+            res = run(full_cmd, stdout=PIPE, stderr=PIPE, text=True)
+        else:
+            res = _nsenter_net_run(
+                self.pid,
+                ["sh", "-c", "; ".join(script_parts)],
+            )
+        if res.returncode != 0:
+            LOGGER.warning(
+                "Failed to apply tc rules in %s: %s",
+                self.name, res.stderr,
+            )
 
     def service_start(self, service_name):
         # Clear any FATAL/EXITED state so supervisord will accept the start
@@ -2334,23 +2330,10 @@ class ScyllaPodmanNode(ScyllaNode):
     def wait_for_binary_interface(self, **kwargs):
         timeout = kwargs.get("timeout", 420)
         process = kwargs.get("process")
-        from_mark = kwargs.get("from_mark")
         start = time.time()
 
         def remaining_timeout():
             return max(0.0, timeout - (time.time() - start))
-
-        if self.cluster.version() and parse_version(self.cluster.version()) >= parse_version("1.2"):
-            # 0.2 s log polling instead of the 10 ms default.  This wait can
-            # last minutes during Raft topology bootstrap; 10 ms spinning
-            # wastes CPU that the joining Scylla shards need.
-            self.watch_log_for(
-                "Starting listening for CQL clients",
-                from_mark=from_mark,
-                process=process,
-                timeout=remaining_timeout(),
-                polling_interval=0.2,
-            )
 
         binary_itf = self.network_interfaces["binary"]
         container_id = self.pid
@@ -2364,22 +2347,29 @@ class ScyllaPodmanNode(ScyllaNode):
                     )
             if container_id is None:
                 return False
-            res = run(
-                [
-                    "podman",
-                    "exec",
-                    container_id,
-                    "bash",
-                    "-c",
-                    f"echo > /dev/tcp/{binary_itf[0]}/{binary_itf[1]}",
-                ],
-                stdout=DEVNULL,
-                stderr=DEVNULL,
-            )
-            return res.returncode == 0
+            try:
+                res = run(
+                    [
+                        "podman",
+                        "exec",
+                        container_id,
+                        "bash",
+                        "-c",
+                        f"echo > /dev/tcp/{binary_itf[0]}/{binary_itf[1]}",
+                    ],
+                    stdout=DEVNULL,
+                    stderr=DEVNULL,
+                    timeout=5,
+                )
+                return res.returncode == 0
+            except subprocess.TimeoutExpired:
+                return False
 
+        n = len(self.cluster.nodes)
+        first = min(10.0 + n * 0.3, 60.0)
+        step = min(1.0 + n * 0.05, 5.0)
         remaining = remaining_timeout()
-        if not common.wait_for(func=is_binary_interface_listening, timeout=remaining, step=0.2):
+        if not common.wait_for(func=is_binary_interface_listening, timeout=remaining, first=first, step=step):
             raise TimeoutError(
                 f"Binary interface {binary_itf[0]}:{binary_itf[1]} did not start listening within {timeout} seconds"
             )
@@ -2552,12 +2542,11 @@ class ScyllaPodmanNode(ScyllaNode):
             )
         self.create_container(args)
 
-        # Restart the log streamer if it was stopped (e.g. after do_stop)
-        if not self.log_thread and self.pid:
-            self.log_thread = PodmanLogger(
-                self, os.path.join(self.get_path(), "logs", "system.log")
-            )
-            self.log_thread.start()
+        # Log streaming is on-demand, started when a watch_log_for_* method
+        # is called.  Skipping here avoids one ``podman logs -f`` subprocess
+        # per container.
+        if self._event_monitor and self.pid:
+            self._event_monitor.register(self, self.pid)
 
         # supervisord auto-starts Scylla in fresh containers, so no explicit
         # service_start is needed here.  Only restarted containers (after
@@ -2590,9 +2579,10 @@ class ScyllaPodmanNode(ScyllaNode):
 
     def do_stop(self, gently=True):
         # Stop the log streamer so it doesn't become orphaned
-        if self.log_thread:
-            self.log_thread.stop()
-            self.log_thread = None
+        if self._log_manager and self.pid:
+            self._log_manager.stop_stream(self.pid)
+        if self._event_monitor and self.pid:
+            self._event_monitor.unregister(self.pid)
 
         if not self.pid:
             return
@@ -2710,9 +2700,10 @@ class ScyllaPodmanNode(ScyllaNode):
         super(ScyllaPodmanNode, self).clear(*args, **kwargs)
 
     def remove(self):
-        if self.log_thread:
-            self.log_thread.stop()
-            self.log_thread = None
+        if self._log_manager and self.pid:
+            self._log_manager.stop_stream(self.pid)
+        if self._event_monitor and self.pid:
+            self._event_monitor.unregister(self.pid)
         # Invalidate caches tied to the container — a new container may have
         # different supervisor programs or nodetool support.
         self._cached_supervisor_programs = None
@@ -2772,12 +2763,13 @@ class ScyllaPodmanNode(ScyllaNode):
         return self.status == Status.UP
 
     def _update_podman_status(self):
-        # Cache UP status for _STATUS_CACHE_TTL seconds to avoid podman DB
+        # Cache UP and DOWN status for _STATUS_CACHE_TTL seconds to avoid podman DB
         # lock contention when many threads poll concurrently during the
         # final is_running() wait in start().  Still detects process death
         # within the TTL window, unlike permanent caching.
         now = time.time()
-        if self.status == Status.UP and now - self._last_status_check < self._STATUS_CACHE_TTL:
+        last_check = getattr(self, "_last_status_check", 0.0)
+        if now - last_check < self._STATUS_CACHE_TTL:
             return
         self._last_status_check = now
 
@@ -2797,6 +2789,18 @@ class ScyllaPodmanNode(ScyllaNode):
         if new_status != self.status:
             self.status = new_status
             self._update_config()
+
+    def _notify_container_died(self):
+        """Called by the event monitor when the container dies."""
+        if self.status == Status.UP or self.status == Status.DECOMMISSIONED:
+            self.status = Status.DOWN
+            self._update_config()
+        if self._log_manager and self.pid:
+            self._log_manager.stop_stream(self.pid)
+
+    def _notify_container_started(self):
+        """Called by the event monitor when the container starts/restarts."""
+        pass
 
     def _wait_java_up(self, ip_addr, jmx_port):
         return True
@@ -2993,100 +2997,179 @@ class ScyllaPodmanNode(ScyllaNode):
         super(ScyllaPodmanNode, self).rmtree(path)
 
 
-class PodmanLogger:
-    """Streams podman container logs to a local file.
+class PodmanLogManager:
+    """Manages log streaming for all containers using per-container daemon threads.
 
-    Uses subprocess.Popen so the process can be tracked and stopped cleanly.
+    Each container's log stream runs a ``podman logs -f`` process in a dedicated
+    daemon thread so that log streaming is available for every container regardless
+    of cluster size.
     """
 
-    def __init__(self, node, target_log_file: str):
-        self._node = node
-        self._target_log_file = target_log_file
-        self._process = None
-        self._log_file = None
-        self._reader_thread = None
-        self._stop_event = threading.Event()
+    def __init__(self):
+        self._streams: dict[str, "_LogStreamState"] = {}
 
-    def start(self):
-        """Start streaming container logs to the target file.
-
-        Uses a background thread that reads from ``podman logs -f`` and writes
-        each line to the log file with an explicit flush.  This ensures that
-        ``watch_log_for`` sees new lines promptly, regardless of OS-level
-        write buffering on the pipe-to-file path.
-        """
-        self.stop()  # Clean up any previous process
-        self._stop_event.clear()
-        self._log_file = open(self._target_log_file, "a", encoding="utf-8")
-        try:
-            self._process = Popen(
-                ["podman", "logs", "-f", self._node.pid],
-                stdout=PIPE,
-                stderr=STDOUT,
-            )
-            self._reader_thread = threading.Thread(
-                target=self._reader_loop, daemon=True
-            )
-            self._reader_thread.start()
-        except Exception:
-            if self._process is not None:
-                try:
-                    self._process.kill()
-                    self._process.wait(timeout=5)
-                except Exception:
-                    pass
-                self._process = None
-            self._log_file.close()
-            self._log_file = None
-            raise
-
-    def _reader_loop(self):
-        """Read lines from the podman logs process and write them with flush."""
-        log_file = self._log_file
-        if log_file is None:
+    def start_stream(self, container_id: str, log_file_path: str):
+        """Begin streaming logs for *container_id* to *log_file_path*."""
+        if container_id in self._streams:
             return
+        state = _LogStreamState(log_file_path)
+        self._streams[container_id] = state
+        thread = threading.Thread(
+            target=self._stream_logs,
+            args=(container_id, state),
+            name=f"podman-log-{container_id[:12]}",
+            daemon=True,
+        )
+        thread.start()
+        state.thread = thread
+
+    def stop_stream(self, container_id: str):
+        """Stop the log stream for *container_id*."""
+        state = self._streams.pop(container_id, None)
+        if state is not None:
+            state.stop_event.set()
+
+    def stop_all(self):
+        """Stop all managed log streams."""
+        for container_id, state in list(self._streams.items()):
+            state.stop_event.set()
+        self._streams.clear()
+
+    def _stream_logs(self, container_id, state):
+        """Background: run ``podman logs -f`` and write to the log file."""
         try:
-            for line in self._process.stdout:
-                if self._stop_event.is_set():
-                    break
+            with open(state.log_file_path, "a", encoding="utf-8") as f:
+                process = Popen(
+                    ["podman", "logs", "-f", container_id],
+                    stdout=PIPE,
+                    stderr=STDOUT,
+                )
                 try:
-                    log_file.write(line.decode("utf-8", errors="replace"))
-                    log_file.flush()
+                    for line in process.stdout:
+                        if state.stop_event.is_set():
+                            break
+                        f.write(line.decode("utf-8", errors="replace"))
+                        f.flush()
                 except Exception:
-                    LOGGER.debug(
-                        "Podman log writer error for %s (skipping line)",
-                        self._node.name,
+                    LOGGER.warning(
+                        "Podman log stream exception for %s", container_id,
                         exc_info=True,
                     )
-                    continue
+                finally:
+                    process.terminate()
+                    process.wait(timeout=5)
         except Exception:
-            LOGGER.debug(
-                "Podman log reader stopped for %s", self._node.name, exc_info=True
+            LOGGER.warning(
+                "Podman log stream failed to start for %s", container_id,
+                exc_info=True,
             )
 
+
+class _LogStreamState:
+    """Internal state for a single container's log stream."""
+    __slots__ = ("log_file_path", "stop_event", "thread")
+
+    def __init__(self, log_file_path):
+        self.log_file_path = log_file_path
+        self.stop_event = threading.Event()
+        self.thread = None
+
+
+class PodmanEventMonitor:
+    """A single daemon thread that subscribes to ``podman events --stream``.
+
+    All ``ScyllaPodmanNode`` instances register with this monitor on creation.
+    When a container ``die`` / ``stop`` event is received, the corresponding
+    node is marked ``DOWN`` immediately.  This replaces per-node polling of
+    ``podman exec supervisorctl status`` and per-node ``PodmanLogger`` threads.
+    """
+
+    def __init__(self, log_manager: PodmanLogManager):
+        self._log_manager = log_manager
+        self._containers: dict[str, "ScyllaPodmanNode"] = {}
+        self._lock = threading.Lock()
+        self._thread: threading.Thread | None = None
+        self._stop_event = threading.Event()
+
+    def register(self, node: "ScyllaPodmanNode", container_id: str):
+        """Register a node so the monitor updates its status on death events."""
+        self.start()
+        with self._lock:
+            self._containers[container_id] = node
+
+    def unregister(self, container_id: str):
+        """Remove a container from the monitor."""
+        with self._lock:
+            self._containers.pop(container_id, None)
+
+    def start(self):
+        """Start the event listener thread."""
+        if self._thread is not None:
+            return
+        self._thread = threading.Thread(
+            target=self._event_loop, daemon=True,
+            name="podman-event-monitor",
+        )
+        self._thread.start()
+
     def stop(self):
-        """Stop the log streaming process, join the reader thread, and close the file handle."""
+        """Stop the event listener thread."""
         self._stop_event.set()
-        if self._process is not None:
+        if self._thread is not None:
+            self._thread.join(timeout=5)
+            self._thread = None
+
+    def _event_loop(self):
+        """Background: run ``podman events --stream`` and dispatch events."""
+        while not self._stop_event.is_set():
             try:
-                self._process.terminate()
-                self._process.wait(timeout=5)
-            except Exception:
-                try:
-                    self._process.kill()
-                    self._process.wait(timeout=5)
-                except Exception:
-                    pass
-            self._process = None
-        # Join the reader thread to ensure it has finished writing before we
-        # close the file handle.  This prevents a race where start() reopens
-        # the file while the old thread is still flushing.
-        if self._reader_thread is not None:
-            self._reader_thread.join(timeout=5)
-            self._reader_thread = None
-        if self._log_file is not None:
+                process = Popen(
+                    ["podman", "events", "--stream", "--format", "json"],
+                    stdout=PIPE,
+                    stderr=DEVNULL,
+                )
+            except FileNotFoundError:
+                LOGGER.warning("podman binary not found; event monitor disabled")
+                return
+
             try:
-                self._log_file.close()
+                for line in process.stdout:
+                    if self._stop_event.is_set():
+                        break
+                    try:
+                        event = json.loads(line)
+                        self._dispatch(event)
+                    except json.JSONDecodeError:
+                        continue
             except Exception:
-                pass
-            self._log_file = None
+                LOGGER.debug("Podman event stream ended", exc_info=True)
+            finally:
+                process.terminate()
+                process.wait(timeout=5)
+                if not self._stop_event.is_set():
+                    time.sleep(1)
+
+    def _dispatch(self, event):
+        """Handle a single podman event."""
+        event_type = event.get("Type")
+        event_status = event.get("Status", "")
+        container_id = event.get("ID")
+        if event_type != "container" or not container_id:
+            return
+
+        with self._lock:
+            node = self._containers.get(container_id)
+
+        if node is None:
+            return
+
+        if event_status in ("die", "stop", "kill", "oom"):
+            node._notify_container_died()
+        elif event_status in ("start", "restart"):
+            node._notify_container_started()
+
+    _event_statuses: dict[str, str] = {}
+
+    def get_event_status(self, container_id):
+        """Return the last-known status for *container_id* or None."""
+        return self._event_statuses.get(container_id)
