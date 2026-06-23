@@ -1556,25 +1556,90 @@ class ScyllaPodmanCluster(ScyllaCluster):
     ):
         """Start nodes, then apply tc/netem rules for latency simulation.
 
-        Overrides ScyllaCluster.start_nodes() to defer tc rule application
-        until after all nodes have their CQL interface ready.  This avoids
-        Raft topology bootstrap being slowed by artificial inter-DC latency,
-        which can cause joins to exceed the wait timeout.
+        Overrides ScyllaCluster.start_nodes() to skip ``watch_log_for``
+        calls (the parent's ``start_nodes`` waits for ``system.log``
+        patterns).  Podman containers always run with ``--log-to-stdout 1``
+        (hard-coded in the image's ``scylla-server.sh``), so ``system.log``
+        is never written to the bind-mounted logs directory, causing
+        ``watch_log_for`` to hang indefinitely.
+
+        CQL readiness is verified by the podman override of
+        ``wait_for_binary_interface()``, which checks the CQL port directly
+        via ``podman exec`` inside each ``node.start()`` call.
         """
+
+        if wait_for_binary_proto is None:
+            wait_for_binary_proto = self.force_wait_for_cluster_start
+        if wait_other_notice is None:
+            wait_other_notice = self.force_wait_for_cluster_start
+        if wait_normal_token_owner is None and wait_other_notice:
+            wait_normal_token_owner = True
+        self.debug(
+            f"start_nodes: no_wait={no_wait} "
+            f"wait_for_binary_proto={wait_for_binary_proto} "
+            f"wait_other_notice={wait_other_notice} "
+            f"wait_normal_token_owner={wait_normal_token_owner} "
+            f"force_wait_for_cluster_start={self.force_wait_for_cluster_start}"
+        )
+        self.started = True
+
         if self.pinning:
             self._refresh_cpu_assignments()
 
-        started = super().start_nodes(
-            nodes=nodes,
-            no_wait=no_wait,
-            verbose=verbose,
-            wait_for_binary_proto=wait_for_binary_proto,
-            wait_other_notice=wait_other_notice,
-            wait_normal_token_owner=wait_normal_token_owner,
-            jvm_args=jvm_args,
-            profile_options=profile_options,
-            quiet_start=quiet_start,
-        )
+        if jvm_args is None:
+            jvm_args = []
+
+        marks = []
+        if wait_other_notice:
+            marks = [
+                (node, node.mark_log())
+                for node in list(self.nodes.values())
+                if node.is_running()
+            ]
+
+        if nodes is None:
+            nodes = list(self.nodes.values())
+        elif isinstance(nodes, ScyllaNode):
+            nodes = [nodes]
+
+        started = []
+        for node in nodes:
+            if not node.is_running():
+                # Skip the parent's watch_log_for — CQL readiness is verified
+                # via podman exec inside node.start().
+                p = node.start(
+                    update_pid=False,
+                    jvm_args=jvm_args,
+                    profile_options=profile_options,
+                    no_wait=no_wait,
+                    wait_for_binary_proto=wait_for_binary_proto,
+                    wait_other_notice=wait_other_notice,
+                    wait_normal_token_owner=False,
+                )
+                mark = 0
+                if os.path.exists(node.logfilename()):
+                    mark = node.mark_log()
+                started.append((node, p, mark))
+                marks.append((node, mark))
+
+        # Skip __update_pids (parent stores _process_scylla reference) and
+        # the is_running() check — podman nodes set their own pid and
+        # _process_scylla during _start_scylla().
+
+        if wait_other_notice:
+            for old_node, mark in marks:
+                for node, _, _ in started:
+                    if old_node is not node:
+                        old_node.watch_log_for_alive(
+                            node, from_mark=mark,
+                            timeout=self.default_wait_other_notice_timeout,
+                        )
+                        old_node.watch_rest_for_alive(
+                            node,
+                            timeout=self.default_wait_other_notice_timeout,
+                            wait_normal_token_owner=wait_normal_token_owner,
+                        )
+
         # Apply tc/netem rules now that all nodes are running
         if self.network_topology:
             skipped = []
@@ -1966,6 +2031,7 @@ class ScyllaPodmanNode(ScyllaNode):
         # Data directories inside the container
         data["data_file_directories"] = [os.path.join(self.base_data_path, "data")]
         data["commitlog_directory"] = os.path.join(self.base_data_path, "commitlogs")
+        data["log_directory"] = os.path.join(self.base_data_path, "logs")
         for directory in ["hints", "view_hints", "saved_caches"]:
             data[f"{directory}_directory"] = os.path.join(
                 self.base_data_path, directory
