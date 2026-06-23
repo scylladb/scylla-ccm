@@ -44,6 +44,9 @@ class ClusterFactory():
                 )
                 if net_topo_data:
                     cluster.network_topology = PodmanNetworkTopology.from_dict(cluster.network_cluster_name(), net_topo_data)
+                # populate() is never called on load; wire the shared managers so
+                # loaded nodes get working log streaming.
+                cluster._ensure_managers()
             elif 'docker_image' in data and data['docker_image']:
                 cluster = ScyllaDockerCluster(path, data['name'], docker_image=data['docker_image'],
                                               container_runtime=data.get('container_runtime'),

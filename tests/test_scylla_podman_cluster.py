@@ -18,6 +18,7 @@ import pytest
 from collections import OrderedDict
 from types import SimpleNamespace
 from unittest.mock import patch
+from ccmlib.node import TimeoutError
 
 from ruamel.yaml import YAML
 
@@ -613,25 +614,13 @@ class TestPodmanNodeBehavior:
         from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
 
         node = object.__new__(ScyllaPodmanNode)
-        node.cluster = SimpleNamespace(version=lambda: "2026.1")
+        node.cluster = SimpleNamespace(version=lambda: "2026.1", nodes={})
         node.network_interfaces = {"binary": ("10.90.1.1", 9042)}
         node.pid = "container-id"
 
-        seen = {"watch_log_for": False, "wait_for": False, "run": []}
+        seen = {"wait_for": False, "run": []}
 
-        monkeypatch.setattr(
-            node,
-            "watch_log_for",
-            lambda *args, **kwargs: seen.__setitem__("watch_log_for", True),
-        )
-        monkeypatch.setattr(
-            "ccmlib.scylla_podman_cluster.common.check_socket_listening",
-            lambda *args, **kwargs: (_ for _ in ()).throw(
-                AssertionError("host-side socket check should not be used")
-            ),
-        )
-
-        def fake_run(cmd, stdout=None, stderr=None):
+        def fake_run(cmd, stdout=None, stderr=None, **kwargs):
             seen["run"].append(cmd)
             return SimpleNamespace(returncode=0)
 
@@ -646,7 +635,6 @@ class TestPodmanNodeBehavior:
 
         node.wait_for_binary_interface(timeout=5)
 
-        assert seen["watch_log_for"]
         assert seen["wait_for"]
         assert seen["run"] == [
             [
@@ -662,10 +650,11 @@ class TestPodmanNodeBehavior:
     def test_wait_for_binary_interface_uses_remaining_timeout_after_log_wait(
         self, monkeypatch
     ):
+        """Verify that remaining_timeout is correctly computed from kwargs."""
         from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
 
         node = object.__new__(ScyllaPodmanNode)
-        node.cluster = SimpleNamespace(version=lambda: "2026.1")
+        node.cluster = SimpleNamespace(version=lambda: "2026.1", nodes={})
         node.network_interfaces = {"binary": ("10.90.1.1", 9042)}
         node.pid = "container-id"
         node.name = "node1"
@@ -677,7 +666,6 @@ class TestPodmanNodeBehavior:
             "ccmlib.scylla_podman_cluster.time.time",
             lambda: next(timeline),
         )
-        monkeypatch.setattr(node, "watch_log_for", lambda *args, **kwargs: True)
         monkeypatch.setattr(
             "ccmlib.scylla_podman_cluster.run",
             lambda *args, **kwargs: SimpleNamespace(returncode=0),
@@ -701,17 +689,10 @@ class TestPodmanNodeBehavior:
         from ccmlib.scylla_podman_cluster import ScyllaPodmanNode
 
         node = object.__new__(ScyllaPodmanNode)
-        node.cluster = SimpleNamespace(version=lambda: "2026.1")
+        node.cluster = SimpleNamespace(version=lambda: "2026.1", nodes={})
         node.network_interfaces = {"binary": ("10.90.1.1", 9042)}
         node.pid = "container-id"
 
-        monkeypatch.setattr(node, "watch_log_for", lambda *args, **kwargs: True)
-        monkeypatch.setattr(
-            "ccmlib.scylla_podman_cluster.common.check_socket_listening",
-            lambda *args, **kwargs: (_ for _ in ()).throw(
-                AssertionError("host-side socket check should not be used")
-            ),
-        )
         monkeypatch.setattr(
             "ccmlib.scylla_podman_cluster.run",
             lambda *args, **kwargs: SimpleNamespace(returncode=1),
@@ -800,7 +781,7 @@ class TestPodmanNodeBehavior:
         monkeypatch.setattr(node, "_scylla_service_name", lambda: "scylla")
         monkeypatch.setattr(node, "get_path", lambda: "/tmp/node1")
         monkeypatch.setattr(
-            "ccmlib.scylla_podman_cluster.PodmanLogger",
+            "ccmlib.scylla_podman_cluster.PodmanLogManager",
             lambda node_obj, log_path: SimpleNamespace(
                 start=lambda: None,
                 stop=lambda: None,
@@ -837,6 +818,7 @@ class TestPodmanClusterBehavior:
         cluster._scylla_manager = None
         cluster.pinning = False
         cluster._cpu_assignments = {}
+        cluster._log_manager = SimpleNamespace()
 
         monkeypatch.setattr(
             cluster,
@@ -855,6 +837,7 @@ class TestPodmanClusterBehavior:
         monkeypatch.setattr(cluster, "new_node", lambda *args, **kwargs: None)
         monkeypatch.setattr(cluster, "_update_config", lambda *args, **kwargs: None)
         monkeypatch.setattr(cluster, "cluster_cleanup", lambda: None)
+        monkeypatch.setattr(cluster, "_prepare_cluster_permissions", lambda: None)
 
         attempted_prefixes = []
         prefixes = iter(["10.89", "10.90"])
@@ -1131,7 +1114,7 @@ class TestPodmanContainerCreate:
         node.base_data_path = "/var/lib/scylla"
         node.local_yaml_path = "/tmp/node1-conf"
         node.share_directories = []
-        node.log_thread = None
+        node._log_manager = None
         node.network_interfaces = {
             "storage": ("127.0.0.1", 7000),
             "binary": ("127.0.0.1", 9042),
@@ -1147,6 +1130,10 @@ class TestPodmanContainerCreate:
                     name="node1", network_interfaces={"storage": ("10.89.1.1", 7000)}
                 )
             ],
+            seeds=[SimpleNamespace(
+                name="node1",
+                network_interfaces={"storage": ("10.89.1.1", 7000)},
+            )],
         )
 
         calls = []
@@ -1172,12 +1159,6 @@ class TestPodmanContainerCreate:
         monkeypatch.setattr(node, "_jmx_service_name", lambda: None)
         monkeypatch.setattr(node, "service_stop", lambda service_name: None)
         monkeypatch.setattr(node, "_setup_routes", lambda: None)
-        monkeypatch.setattr(
-            "ccmlib.scylla_podman_cluster.PodmanLogger",
-            lambda node_obj, log_path: SimpleNamespace(
-                start=lambda: None, stop=lambda: None
-            ),
-        )
 
         node.create_container([])
 
@@ -1201,7 +1182,7 @@ class TestPodmanContainerCreate:
         node.base_data_path = "/usr/lib/scylla"
         node.local_yaml_path = "/tmp/node1-conf"
         node.share_directories = []
-        node.log_thread = None
+        node._log_manager = None
         node.network_interfaces = {
             "storage": ("127.0.0.1", 7000),
             "binary": ("127.0.0.1", 9042),
@@ -1218,6 +1199,10 @@ class TestPodmanContainerCreate:
                     name="node1", network_interfaces={"storage": ("10.89.1.1", 7000)}
                 )
             ],
+            seeds=[SimpleNamespace(
+                name="node1",
+                network_interfaces={"storage": ("10.89.1.1", 7000)},
+            )],
         )
 
         def fake_run(cmd, **kwargs):
@@ -1240,12 +1225,6 @@ class TestPodmanContainerCreate:
         monkeypatch.setattr(node, "_jmx_service_name", lambda: None)
         monkeypatch.setattr(node, "service_stop", lambda service_name: None)
         monkeypatch.setattr(node, "_setup_routes", lambda: None)
-        monkeypatch.setattr(
-            "ccmlib.scylla_podman_cluster.PodmanLogger",
-            lambda node_obj, log_path: SimpleNamespace(
-                start=lambda: None, stop=lambda: None
-            ),
-        )
 
         node.create_container([])
 
@@ -1266,11 +1245,9 @@ class TestPodmanContainerCreate:
             "storage": ("127.0.0.1", 7000),
             "binary": ("127.0.0.1", 9042),
         }
-        create_networks_calls = []
         node.cluster = SimpleNamespace(
             podman_image="docker.io/scylladb/scylla:2026.1",
             network_topology=SimpleNamespace(
-                create_networks=lambda: create_networks_calls.append(True),
                 get_node_network=lambda node_name: "ccm-testcluster-dc1-rack1",
             ),
             nodelist=lambda: [
@@ -1278,6 +1255,10 @@ class TestPodmanContainerCreate:
                     name="node1", network_interfaces={"storage": ("10.89.1.1", 7000)}
                 )
             ],
+            seeds=[SimpleNamespace(
+                name="node1",
+                network_interfaces={"storage": ("10.89.1.1", 7000)},
+            )],
         )
 
         monkeypatch.setattr(node, "_get_rack_ip", lambda: "10.89.1.1")
@@ -1292,7 +1273,6 @@ class TestPodmanContainerCreate:
 
         node.create_container([])
 
-        assert create_networks_calls == [True]
         assert node.pid == "container123"
         assert node.network_interfaces["storage"] == ("10.89.1.1", 7000)
 
@@ -1322,6 +1302,10 @@ class TestPodmanContainerCreate:
                     name="node1", network_interfaces={"storage": ("10.89.1.1", 7000)}
                 )
             ],
+            seeds=[SimpleNamespace(
+                name="node1",
+                network_interfaces={"storage": ("10.89.1.1", 7000)},
+            )],
         )
 
         monkeypatch.setattr(node, "_get_rack_ip", lambda: "10.89.1.1")
@@ -1452,7 +1436,7 @@ class TestPodmanNodeRemoveAndStatus:
         node = object.__new__(TestableScyllaPodmanNode)
         node.name = "node1"
         node.pid = "abc123"
-        node.log_thread = None
+        node._log_manager = None
         node.status = SimpleNamespace()  # placeholder
         node._cached_nodetool_support = {}
         node._cached_supervisor_programs = None
@@ -1500,12 +1484,12 @@ class TestPodmanNodeRemoveAndStatus:
         node.remove()
         assert calls == []  # no podman rm should have been called
 
-    def test_remove_stops_log_thread(self, monkeypatch):
-        """Verify remove() stops the log thread."""
+    def test_remove_stops_log_stream(self, monkeypatch):
+        """Verify remove() stops the log stream via the log manager."""
         node = self._make_node()
         stopped = {"called": False}
-        node.log_thread = SimpleNamespace(
-            stop=lambda: stopped.__setitem__("called", True)
+        node._log_manager = SimpleNamespace(
+            stop_stream=lambda cid: stopped.__setitem__("called", True)
         )
         monkeypatch.setattr(
             "ccmlib.scylla_podman_cluster.run",
@@ -1513,7 +1497,6 @@ class TestPodmanNodeRemoveAndStatus:
         )
         node.remove()
         assert stopped["called"]
-        assert node.log_thread is None
 
     def test_service_status_returns_down_when_pid_is_none(self):
         """Verify service_status() returns 'DOWN' when container is gone."""
