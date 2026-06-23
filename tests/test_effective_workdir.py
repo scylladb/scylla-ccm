@@ -38,17 +38,23 @@ def symlink_tracker():
 
 class TestGetEffectiveWorkdir:
 
-    def test_short_path_returns_unchanged(self, tmp_path):
+    def test_short_path_returns_unchanged(self):
         """When the path is short enough, it is returned as-is."""
-        node_path = str(tmp_path / "node1")
-        os.makedirs(node_path, exist_ok=True)
-        node = _make_node(node_path)
+        # Use /tmp directly to guarantee a short base path regardless of
+        # the test runner environment (e.g. nix-shell adds long prefixes
+        # to pytest's tmp_path which can exceed UNIX_SOCKET_PATH_MAX).
+        with tempfile.TemporaryDirectory(dir='/tmp') as short_tmp:
+            node_path = os.path.join(short_tmp, "node1")
+            os.makedirs(node_path, exist_ok=True)
+            assert len(os.path.join(node_path, 'cql.m')) <= UNIX_SOCKET_PATH_MAX, \
+                f"Test setup error: path already too long ({len(os.path.join(node_path, 'cql.m'))} > {UNIX_SOCKET_PATH_MAX})"
+            node = _make_node(node_path)
 
-        result = node._get_effective_workdir()
+            result = node._get_effective_workdir()
 
-        assert result == node_path
-        symlink_path = ScyllaNode._workdir_symlink_path(node_path)
-        assert not os.path.islink(symlink_path)
+            assert result == node_path
+            symlink_path = ScyllaNode._workdir_symlink_path(node_path)
+            assert not os.path.islink(symlink_path)
 
     def test_long_path_creates_symlink(self, tmp_path, symlink_tracker):
         """When the path is too long, a symlink is created in /tmp."""
@@ -126,14 +132,15 @@ class TestGetEffectiveWorkdir:
         node._cleanup_workdir_symlink()
         assert not os.path.islink(result)
 
-    def test_cleanup_ignores_short_path(self, tmp_path):
+    def test_cleanup_ignores_short_path(self):
         """_cleanup_workdir_symlink does nothing for short paths."""
-        node_path = str(tmp_path / "node1")
-        os.makedirs(node_path, exist_ok=True)
-        node = _make_node(node_path)
+        with tempfile.TemporaryDirectory(dir='/tmp') as short_tmp:
+            node_path = os.path.join(short_tmp, "node1")
+            os.makedirs(node_path, exist_ok=True)
+            node = _make_node(node_path)
 
-        # Should not raise
-        node._cleanup_workdir_symlink()
+            # Should not raise
+            node._cleanup_workdir_symlink()
 
     def test_hash_uses_12_hex_chars(self, tmp_path):
         """Symlink name uses 12 hex chars from the MD5 hash."""
