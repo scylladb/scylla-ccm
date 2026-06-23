@@ -829,7 +829,8 @@ class ScyllaNode(Node):
             args += ['--replace-node-first-boot', replace_node_host_id]
         elif replace_address:
             args += ['--replace-address', replace_address]
-        args += ['--unsafe-bypass-fsync', '1']
+        if '--unsafe-bypass-fsync' not in args:
+            args += ['--unsafe-bypass-fsync', '1']
 
         current_node_version = self.node_install_dir_version() or self.cluster.version()
         current_node_is_enterprise = parse_version(current_node_version) > parse_version("2018.1")
