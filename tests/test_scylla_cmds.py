@@ -28,9 +28,8 @@ cluster_params = pytest.mark.parametrize(
 )
 
 
-def copy_cluster_data(request: FixtureRequest):
-    cluster_dir = request.getfixturevalue('cluster_under_test').cluster_dir
-    test_dir = request.getfixturevalue('test_dir')
+def copy_cluster_data(request: FixtureRequest, cluster_under_test, test_dir):
+    cluster_dir = cluster_under_test.cluster_dir
     scope_id = f'-{str(datetime.now().strftime("%H%M%S%s"))}' if request.scope == 'class' else ''
     test_name = f'{request.node.name}{scope_id}'
     user = getpass.getuser()
@@ -52,13 +51,13 @@ def copy_cluster_data(request: FixtureRequest):
 class TestCCMCreateCluster:
     @staticmethod
     @pytest.fixture(scope="function", autouse=True)
-    def base_setup(request, cluster_under_test):
+    def base_setup(request, cluster_under_test, test_dir):
         try:
             yield
         finally:
             cluster_under_test.run_command(cluster_under_test.get_stop_cmd())
             cluster_under_test.process.wait()
-            copy_cluster_data(request=request)
+            copy_cluster_data(request, cluster_under_test, test_dir)
             cluster_under_test.run_command(cluster_under_test.get_remove_cmd())
             cluster_under_test.process.wait()
             if os.path.exists(cluster_under_test.cluster_dir):
@@ -85,7 +84,7 @@ class TestCCMClusterStatus:
 
     @staticmethod
     @pytest.fixture(scope="class", autouse=True)
-    def base_setup(request, cluster_under_test):
+    def base_setup(request, cluster_under_test, test_dir):
         try:
             cluster_under_test.run_command(cluster_under_test.get_create_cmd(args=['-n', '1']))
             cluster_under_test.validate_command_result()
@@ -93,7 +92,7 @@ class TestCCMClusterStatus:
         finally:
             cluster_under_test.run_command(cluster_under_test.get_stop_cmd())
             cluster_under_test.process.wait()
-            copy_cluster_data(request)
+            copy_cluster_data(request, cluster_under_test, test_dir)
             cluster_under_test.run_command(cluster_under_test.get_remove_cmd())
             cluster_under_test.process.wait()
             if os.path.exists(cluster_under_test.cluster_dir):
@@ -115,13 +114,13 @@ class TestCCMClusterStart:
 
     @staticmethod
     @pytest.fixture(autouse=True)
-    def base_setup(request, cluster_under_test):
+    def base_setup(request, cluster_under_test, test_dir):
         try:
             yield
         finally:
             cluster_under_test.run_command(cluster_under_test.get_stop_cmd())
             cluster_under_test.process.wait()
-            copy_cluster_data(request)
+            copy_cluster_data(request, cluster_under_test, test_dir)
             cluster_under_test.run_command(cluster_under_test.get_remove_cmd())
             cluster_under_test.process.wait()
             if os.path.exists(cluster_under_test.cluster_dir):
@@ -156,7 +155,7 @@ class TestCCMClusterNodetool:
 
     @staticmethod
     @pytest.fixture(scope="class", autouse=True)
-    def base_setup_with_2_nodes(request, cluster_under_test):
+    def base_setup_with_2_nodes(request, cluster_under_test, test_dir):
         try:
             cluster_under_test.run_command(cluster_under_test.get_create_cmd(args=['-n', '2']))
             cluster_under_test.validate_command_result()
@@ -170,7 +169,7 @@ class TestCCMClusterNodetool:
         finally:
             cluster_under_test.run_command(cluster_under_test.get_stop_cmd())
             cluster_under_test.process.wait()
-            copy_cluster_data(request)
+            copy_cluster_data(request, cluster_under_test, test_dir)
             cluster_under_test.run_command(cluster_under_test.get_remove_cmd())
             cluster_under_test.process.wait()
             if os.path.exists(cluster_under_test.cluster_dir):
@@ -213,7 +212,7 @@ class TestCCMClusterNodetool:
 class TestCCMClusterManagerSctool:
     @staticmethod
     @pytest.fixture(scope="class", autouse=True)
-    def base_setup(request, cluster_under_test):
+    def base_setup(request, cluster_under_test, test_dir):
         try:
             cluster_under_test.run_command(cluster_under_test.get_create_cmd(args=['-n', '3',
                 '--scylla-manager-package',
@@ -229,7 +228,7 @@ class TestCCMClusterManagerSctool:
         finally:
             cluster_under_test.run_command(cluster_under_test.get_stop_cmd())
             cluster_under_test.process.wait()
-            copy_cluster_data(request)
+            copy_cluster_data(request, cluster_under_test, test_dir)
             cluster_under_test.run_command(cluster_under_test.get_remove_cmd())
             cluster_under_test.process.wait()
             if os.path.exists(cluster_under_test.cluster_dir):
