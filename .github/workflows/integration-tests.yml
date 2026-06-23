@@ -52,14 +52,13 @@ jobs:
     - name: Download versions
       if: steps.cache-versions.outputs.cache-hit != 'true'
       run: |
-        source ${{ env.VIRTUAL_ENV }}/bin/activate
         normalized=$(echo ${{ inputs.reloc_version }} | tr ':' '_')
         if [ ! -f ~/.ccm/scylla-repository/unstable/master/$normalized ]; then
-          ./ccm create temp -n 1 --scylla --version unstable/master:${{ inputs.reloc_version }}
-          ./ccm remove
+          uv run ./ccm create temp -n 1 --scylla --version unstable/master:${{ inputs.reloc_version }}
+          uv run ./ccm remove
         fi
-        ./ccm create temp-cas -n 1 --version 3.11.4 > /dev/null
-        ./ccm remove
+        uv run ./ccm create temp-cas -n 1 --version 3.11.4 > /dev/null
+        uv run ./ccm remove
 
     - name: Test with pytest
       run: |
