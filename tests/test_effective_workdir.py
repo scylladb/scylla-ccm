@@ -42,13 +42,22 @@ class TestGetEffectiveWorkdir:
         """When the path is short enough, it is returned as-is."""
         node_path = str(tmp_path / "node1")
         os.makedirs(node_path, exist_ok=True)
-        node = _make_node(node_path)
+        short_tmp = None
+        if len(os.path.join(node_path, 'cql.m')) > UNIX_SOCKET_PATH_MAX:
+            short_tmp = tempfile.mkdtemp()
+            node_path = os.path.join(short_tmp, "node1")
+            os.makedirs(node_path, exist_ok=True)
 
-        result = node._get_effective_workdir()
-
-        assert result == node_path
-        symlink_path = ScyllaNode._workdir_symlink_path(node_path)
-        assert not os.path.islink(symlink_path)
+        try:
+            node = _make_node(node_path)
+            result = node._get_effective_workdir()
+            assert result == node_path
+            symlink_path = ScyllaNode._workdir_symlink_path(node_path)
+            assert not os.path.islink(symlink_path)
+        finally:
+            if short_tmp is not None:
+                os.rmdir(node_path)
+                os.rmdir(short_tmp)
 
     def test_long_path_creates_symlink(self, tmp_path, symlink_tracker):
         """When the path is too long, a symlink is created in /tmp."""
