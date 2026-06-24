@@ -261,6 +261,7 @@ class TestScyllaDockerClusterIntegration:
 class TestScyllaDockerClusterStress:
     """Stress tests for Docker clusters (slower tests)."""
     
+    @pytest.mark.skip(reason="cassandra-stress not available in scylladb/scylla Docker images")
     def test_stress_workload(self, docker_cluster):
         """Test running cassandra-stress workload."""
         node1 = docker_cluster.nodelist()[0]
