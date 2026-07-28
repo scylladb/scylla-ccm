@@ -18,25 +18,23 @@ latency between racks and datacenters.
 
 ```
 Host (rootless podman, ip_forward=1, routes between rack bridges)
-  ├── ccm-{cluster}-dc1-rac1 (10.<prefix>.1.0/24) — node1, node2, ccm-client
-  ├── ccm-{cluster}-dc1-rac2 (10.<prefix>.2.0/24) — node3, node4
-  └── ccm-{cluster}-dc2-rac1 (10.<prefix>.3.0/24) — node5
+  ├── ccm-{cluster}-dc1-rac1 (<subnet_prefix>.1.0/24) — node1, node2
+  ├── ccm-{cluster}-dc1-rac2 (<subnet_prefix>.2.0/24) — node3, node4
+  └── ccm-{cluster}-dc2-rac1 (<subnet_prefix>.3.0/24) — node5
 ```
 
 - Each rack has its own podman network with a /24 subnet
 - Each node connects to its rack network only (single interface `eth0`)
 - Intra-rack: bridged directly, 0 latency
 - Cross-rack/DC: routed through host, `tc`/`netem` applied via `nsenter` adds per-destination delay
-- CQL client container sits on Rack1's network with same tc rules
 
 ### IP Scheme
 
 | Component      | IP Pattern                           |
 |----------------|--------------------------------------|
-| Rack subnets   | `10.{prefix}.{rack_idx}.0/24`      |
-| Gateways       | `10.{prefix}.{rack_idx}.254`       |
-| Node IPs       | `10.{prefix}.{rack_idx}.{node_offset}` |
-| Client         | `10.{prefix}.1.100` (on first rack) |
+| Rack subnets   | `{subnet_prefix}.{rack_idx}.0/24`      |
+| Gateways       | `{subnet_prefix}.{rack_idx}.254`       |
+| Node IPs       | `{subnet_prefix}.{rack_idx}.{node_offset}` |
 
 Where `rack_idx` starts at 1 and increments globally across all DCs.
 By default CCM prefers the `10.89.x.0/24` range, but if that overlaps with
@@ -87,8 +85,11 @@ test/development environments.
 
 ### Requirements
 
-- Host must have at least `total_nodes * smp` CPUs available
-- `smp` defaults to 2 (set via `node.set_smp()` or `SCYLLA_EXT_OPTS="--smp N"`)
+- Host must have at least the sum of each node's `smp` CPUs available (for
+  example, 6 nodes at the default `smp=1` need 6 CPUs; nodes may use
+  different `smp` values, in which case each node's own value is summed)
+- `smp` defaults to **1** for podman nodes (set via `node.set_smp()` or
+  `SCYLLA_EXT_OPTS="--smp N"`)
 
 ## Usage
 
@@ -143,9 +144,6 @@ cluster.start(wait_for_binary_proto=True)
 topo = cluster.network_topology
 print(topo.get_node_ip("node1"))  # for example: 10.89.1.1
 
-# Start a CQL client container on Rack1's network
-cluster.start_client_container()
-
 # Clean up
 cluster.remove()
 ```
@@ -174,7 +172,7 @@ Key classes:
 - `PodmanNetworkTopology` — manages subnet allocation, IP assignment, route
   calculation, and tc command generation
 - `ScyllaPodmanCluster` — overrides `populate()`, `create_node()`,
-  `get_node_ip()`, `remove()`, `_update_config()`; manages client container
+  `get_node_ip()`, `remove()`, `_update_config()`
 - `ScyllaPodmanNode` — overrides container lifecycle, service management,
   tool execution; handles route setup and tc application
 
@@ -214,7 +212,6 @@ pytest tests/test_scylla_podman_cluster.py -v -m network_topology
 | Network | Single flat network | Per-rack networks |
 | Latency sim | None | tc/netem via nsenter from host |
 | Multi-DC | Not topology-aware | Full DC/rack topology |
-| Client | Direct host access | Client container on Rack1 |
 | Status | Broken in master | Active |
 
 ## Example: 2 DCs x 3 AZs
@@ -224,12 +221,12 @@ A realistic deployment with 2 datacenters, 3 availability zones (racks) per DC,
 
 ```
 Host (rootless podman)
-  ├── ccm-mycluster-dc1-az1 (10.<prefix>.1.0/24) — node1, ccm-client
-  ├── ccm-mycluster-dc1-az2 (10.<prefix>.2.0/24) — node2
-  ├── ccm-mycluster-dc1-az3 (10.<prefix>.3.0/24) — node3
-  ├── ccm-mycluster-dc2-az1 (10.<prefix>.4.0/24) — node4
-  ├── ccm-mycluster-dc2-az2 (10.<prefix>.5.0/24) — node5
-  └── ccm-mycluster-dc2-az3 (10.<prefix>.6.0/24) — node6
+  ├── ccm-mycluster-dc1-az1 (<subnet_prefix>.1.0/24) — node1
+  ├── ccm-mycluster-dc1-az2 (<subnet_prefix>.2.0/24) — node2
+  ├── ccm-mycluster-dc1-az3 (<subnet_prefix>.3.0/24) — node3
+  ├── ccm-mycluster-dc2-az1 (<subnet_prefix>.4.0/24) — node4
+  ├── ccm-mycluster-dc2-az2 (<subnet_prefix>.5.0/24) — node5
+  └── ccm-mycluster-dc2-az3 (<subnet_prefix>.6.0/24) — node6
 ```
 
 ### Python API
@@ -255,16 +252,13 @@ cluster.populate({
 
 cluster.start(wait_for_binary_proto=True)
 
-# Start the CQL client container on the first AZ's network
-cluster.start_client_container()
-
 # Node IPs:
 topo = cluster.network_topology
 print(topo.get_node_ip("node1"))  # for example: 10.89.1.1 (DC1/AZ1)
 print(topo.get_node_ip("node4"))  # for example: 10.89.4.1 (DC2/AZ1)
 
 # CQL client contact points
-print(cluster.get_client_contact_points())
+print([n.network_interfaces["binary"][0] for n in cluster.nodelist()])
 
 # Latency from DC1/AZ1 to DC1/AZ2: ~1ms (inter-rack same DC)
 # Latency from DC1/AZ1 to DC2/AZ1: ~40ms (inter-DC)
@@ -281,7 +275,7 @@ cluster from the host, use the node IPs from the topology:
 from cassandra.cluster import Cluster as CQLCluster
 from cassandra.policies import DCAwareRoundRobinPolicy
 
-contact_points = [ip for ip, port in cluster.get_client_contact_points()]
+contact_points = [n.network_interfaces["binary"][0] for n in cluster.nodelist()]
 cql = CQLCluster(
     contact_points=contact_points,
     port=9042,
@@ -306,10 +300,8 @@ cql.shutdown()
 ```
 
 Note: if running from the host (outside containers), the host must have routes
-to the selected `10.<prefix>.x.0/24` subnets. Podman rootless mode typically handles this
-automatically. Alternatively, use `cluster.run_cqlsh_on_client()` to execute
-CQL commands from inside the client container, which is always on the correct
-network.
+to the selected `<subnet_prefix>.x.0/24` subnets. Podman rootless mode typically handles this
+automatically.
 
 ### tc rules applied (via nsenter) to node1 (DC1/AZ1)
 
@@ -361,5 +353,3 @@ Each node is UN (Up/Normal) with its own IP on the corresponding rack subnet:
 | node4 | dc2 | az1  | 10.89.4.1 | 10.89.4.0/24  |
 | node5 | dc2 | az2  | 10.89.5.1 | 10.89.5.0/24  |
 | node6 | dc2 | az3  | 10.89.6.1 | 10.89.6.0/24  |
-
-CQL client container: 10.89.1.100 on the dc1/az1 network.
