@@ -894,7 +894,7 @@ class ScyllaNode(Node):
                 raise NodeError(e_msg, scylla_process)
 
         self._update_pid(scylla_process)
-        if not wait_for(func=lambda: self.is_running(), timeout=30, first=5, step=0.5):
+        if not wait_for(func=lambda: self.is_running(), timeout=30, first=0, step=0.5):
             raise NodeError(f"{self.name} did not become UP within 30 s")
 
         if self.scylla_manager and self.scylla_manager.is_agent_available:
