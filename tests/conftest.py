@@ -11,11 +11,27 @@ from tests.test_config import RESULTS_DIR, TEST_ID, SCYLLA_DOCKER_IMAGE, SCYLLA_
 
 from ccmlib.scylla_cluster import ScyllaCluster
 from ccmlib.scylla_docker_cluster import ScyllaDockerCluster
-from ccmlib.scylla_podman_cluster import ScyllaPodmanCluster
+from ccmlib.scylla_podman_cluster import (
+    PODMAN_RESOURCE_OWNER_LABEL,
+    PODMAN_TEST_SESSION_ENV,
+    PODMAN_TEST_SESSION_LABEL,
+    ScyllaPodmanCluster,
+)
 from .ccmcluster import CCMCluster
 
 
 LOGGER = logging.getLogger(__name__)
+
+# Mark every podman container/network created during this test session so
+# that stale-resource pruning (below) can be scoped to test-created
+# resources. Without this, pruning would also delete "ccm-"-named resources
+# from a normal interactive `ccm create ... -s` CLI invocation: that CLI
+# process exits right after startup while the cluster it created keeps
+# running, so its containers would otherwise look identical to an abandoned
+# crashed-test-run leftover (dead owner PID). `setdefault` lets a caller
+# override the value (or explicitly unset labeling isn't supported, but a
+# custom session id can be supplied) while still defaulting it for us.
+os.environ.setdefault(PODMAN_TEST_SESSION_ENV, "pytest")
 
 
 def _pid_is_alive(pid):
@@ -31,7 +47,7 @@ def _pid_is_alive(pid):
 def _resource_owner_pid(labels):
     if not isinstance(labels, dict):
         return None
-    owner_pid = labels.get("org.scylladb.ccm-owner-pid")
+    owner_pid = labels.get(PODMAN_RESOURCE_OWNER_LABEL)
     if owner_pid is None:
         return None
     try:
@@ -40,11 +56,29 @@ def _resource_owner_pid(labels):
         return None
 
 
+def _has_test_session_label(labels):
+    """Return True if *labels* marks the resource as created by a test session.
+
+    Used to scope stale-resource pruning to resources tests themselves
+    created, never resources from an interactive `ccm` CLI invocation.
+    """
+    if not isinstance(labels, dict):
+        return False
+    return bool(labels.get(PODMAN_TEST_SESSION_LABEL))
+
+
 def _prune_stale_ccm_podman_resources():
     """Remove any leftover CCM podman containers and networks from previous test runs.
 
     Only resources owned by a dead pytest session are removed. This avoids
     tearing down a concurrently running CCM podman session on the same host.
+
+    Scoped to resources carrying the test-session label (see
+    ``PODMAN_TEST_SESSION_LABEL`` / ``os.environ.setdefault`` above): a
+    "ccm-"-named container with a dead owner PID is not necessarily stale --
+    a plain `ccm create ... -s` CLI invocation exits right after starting
+    the cluster, while the cluster/containers it created keep running. Only
+    resources tagged as test-created are eligible for this sweep.
     """
     CCM_CONTAINER_PREFIX = "ccm-"
     CCM_NETWORK_PREFIX = "ccm-"
@@ -63,9 +97,11 @@ def _prune_stale_ccm_podman_resources():
                 names = c.get("Names", [])
                 name = names[0] if names else c.get("Name", "")
                 state = c.get("State", "")
-                owner_pid = _resource_owner_pid(c.get("Labels", {}))
+                labels = c.get("Labels", {})
+                owner_pid = _resource_owner_pid(labels)
                 if (
                     name.startswith(CCM_CONTAINER_PREFIX)
+                    and _has_test_session_label(labels)
                     and owner_pid is not None
                     and not _pid_is_alive(owner_pid)
                 ):
@@ -90,8 +126,11 @@ def _prune_stale_ccm_podman_resources():
             networks = json.loads(res.stdout)
             for net in networks:
                 name = net.get("name", "")
-                owner_pid = _resource_owner_pid(net.get("labels", {}))
+                labels = net.get("labels", {})
+                owner_pid = _resource_owner_pid(labels)
                 if not name.startswith(CCM_NETWORK_PREFIX):
+                    continue
+                if not _has_test_session_label(labels):
                     continue
                 if owner_pid is None or _pid_is_alive(owner_pid):
                     continue

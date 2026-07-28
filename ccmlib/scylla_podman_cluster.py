@@ -8,18 +8,23 @@ import logging
 import os
 import re
 import shlex
-import subprocess
 import threading
 import time
+import uuid
 import warnings
 from collections import OrderedDict
 from multiprocessing import cpu_count as host_cpu_count
-from shutil import copy2, copyfile, which
-from subprocess import run, PIPE, DEVNULL, STDOUT, Popen
+from shutil import copy2, copyfile
+from subprocess import run, PIPE, DEVNULL, Popen, TimeoutExpired
 
 from ruamel.yaml import YAML
 
 from ccmlib import common
+from ccmlib.container_client import (
+    ContainerClientError,
+    ContainerLogManager,
+    PodmanClient,
+)
 from ccmlib.node import (
     NodeError,
     Status,
@@ -30,6 +35,27 @@ from ccmlib.scylla_node import ScyllaNode
 from ccmlib.utils.version import parse_version
 
 LOGGER = logging.getLogger("ccm")
+
+_PODMAN_CLIENT = None
+_PODMAN_CLIENT_LOCK = threading.Lock()
+
+
+def _get_podman_client():
+    """Return a process-wide singleton PodmanClient.
+
+    All podman container/network operations go through this shared
+    `ContainerClient` instead of ad-hoc subprocess calls, so the low-level
+    runtime code isn't duplicated between the Docker and Podman clusters.
+
+    Double-checked locking since concurrent node starts race here; harmless
+    (PodmanClient is stateless) but wastes a `podman version` call per race.
+    """
+    global _PODMAN_CLIENT
+    if _PODMAN_CLIENT is None:
+        with _PODMAN_CLIENT_LOCK:
+            if _PODMAN_CLIENT is None:
+                _PODMAN_CLIENT = PodmanClient()
+    return _PODMAN_CLIENT
 
 # Subnet allocation scheme:
 #   Rack networks:  10.{prefix_octet}.{rack_idx}.0/24  (rack_idx starts at 1)
@@ -47,29 +73,48 @@ if not re.fullmatch(r"[a-zA-Z0-9._-]{1,15}", CONTAINER_NET_INTERFACE):
         "must be 1-15 alphanumeric, dot, hyphen, or underscore characters"
     )
 PODMAN_RESOURCE_OWNER_LABEL = "org.scylladb.ccm-owner-pid"
+# Set by test suites (see tests/conftest.py) to mark every container/network
+# they create as belonging to a test session. This lets test-session cleanup
+# scope itself to resources it (or a previous test session) actually created,
+# instead of pruning any dead-owner-PID "ccm-"-named resource on the host --
+# which would also catch containers from a normal interactive
+# `ccm create ... -s` CLI invocation (whose creating process exits right
+# after startup while the cluster keeps running).
+PODMAN_TEST_SESSION_LABEL = "org.scylladb.ccm-test-session"
+PODMAN_TEST_SESSION_ENV = "CCM_PODMAN_TEST_SESSION"
 BUSYBOX_IMAGE = os.environ.get("CCM_PODMAN_BUSYBOX_IMAGE", "busybox")
 _IMAGE_RUNTIME_USER_CACHE = {}
 _RUNNING_CONTAINER_STATES = frozenset(("running", "created", "paused"))
 
 
+def _resource_labels():
+    """Return the labels applied to every container/network CCM creates.
+
+    Always includes the owning-PID label. When running under a test session
+    (``CCM_PODMAN_TEST_SESSION`` set -- see tests/conftest.py), also tags the
+    resource so test-session cleanup can be scoped to test-created resources.
+    """
+    labels = {PODMAN_RESOURCE_OWNER_LABEL: str(os.getpid())}
+    test_session = os.environ.get(PODMAN_TEST_SESSION_ENV)
+    if test_session:
+        labels[PODMAN_TEST_SESSION_LABEL] = test_session
+    return labels
+
+
 def _busybox_chmod(host_path, container_path, permissions, description="busybox chmod"):
     """Run busybox chmod inside podman, logging a warning on failure."""
-    res = run(
-        [
-            "podman", "run", "--rm",
-            "-v", f"{host_path}:{container_path}",
-            BUSYBOX_IMAGE,
-            "chmod", "-R", permissions, container_path,
-        ],
-        stdout=DEVNULL,
-        stderr=PIPE,
-        text=True,
-    )
-    if res.returncode != 0:
-        LOGGER.warning(
-            "%s on %s failed (rc=%d): %s",
-            description, host_path, res.returncode, res.stderr.strip(),
+    client = _get_podman_client()
+    try:
+        client.run_container(
+            image=BUSYBOX_IMAGE,
+            name=f"ccm-chmod-{uuid.uuid4().hex[:12]}",
+            volumes={host_path: container_path},
+            command=["chmod", "-R", permissions, container_path],
+            detach=False,
+            remove=True,
         )
+    except ContainerClientError as exc:
+        LOGGER.warning("%s on %s failed: %s", description, host_path, exc)
 
 
 def _extract_image_conf(image, dest_dir):
@@ -81,33 +126,28 @@ def _extract_image_conf(image, dest_dir):
     there, avoiding O(N) container spawns during ``populate()``.
     """
     os.makedirs(dest_dir, exist_ok=True)
-    res = run(
-        [
-            "podman", "run", "-d",
-            "--label", f"{PODMAN_RESOURCE_OWNER_LABEL}={os.getpid()}",
-            image,
-            "tail", "-f", "/dev/null",
-        ],
-        stdout=PIPE, stderr=PIPE, text=True,
-    )
-    if res.returncode != 0:
-        raise RuntimeError(
-            f"Failed to start temp container for config extraction: {res.stderr}"
-        )
-    container_id = res.stdout.strip()
+    client = _get_podman_client()
     try:
-        cp_res = run(
-            ["podman", "container", "cp", "-a", f"{container_id}:/etc/scylla/", "-"],
-            stdout=PIPE, stderr=PIPE,
+        container_id = client.run_container(
+            image=image,
+            name=f"ccm-extract-conf-{uuid.uuid4().hex[:12]}",
+            labels=_resource_labels(),
+            command=["tail", "-f", "/dev/null"],
         )
-        if cp_res.returncode != 0:
-            stderr_text = cp_res.stderr.decode("utf-8", errors="replace") if isinstance(cp_res.stderr, bytes) else cp_res.stderr
+    except ContainerClientError as exc:
+        raise RuntimeError(
+            f"Failed to start temp container for config extraction: {exc}"
+        )
+    try:
+        try:
+            tar_bytes = client.copy_from_container(container_id, "/etc/scylla/")
+        except ContainerClientError as exc:
             raise RuntimeError(
-                f"Failed to copy /etc/scylla from {image} (container {container_id}): {stderr_text}"
+                f"Failed to copy /etc/scylla from {image} (container {container_id}): {exc}"
             )
         tar_res = run(
             ["tar", "--skip-old-files", "-x", "--strip-components=1", "-C", dest_dir],
-            input=cp_res.stdout,
+            input=tar_bytes,
             stderr=PIPE,
         )
         if tar_res.returncode != 0:
@@ -116,7 +156,7 @@ def _extract_image_conf(image, dest_dir):
                 f"Failed to extract scylla config from {image}: {stderr_text}"
             )
     finally:
-        run(["podman", "rm", "-f", container_id], stdout=DEVNULL, stderr=DEVNULL)
+        client.remove_container(container_id, force=True)
 
     # Belt-and-suspenders: verify the sentinel was written.  Guards against
     # silent edge cases (e.g. the image has no /etc/scylla/scylla.yaml) that
@@ -187,26 +227,12 @@ def _resource_owner_pid(labels):
         return None
 
 
-def _inspect_podman_json(command):
-    res = run(command, stdout=PIPE, stderr=DEVNULL, text=True)
-    if res.returncode != 0 or not res.stdout.strip():
-        return None
-    try:
-        payload = json.loads(res.stdout)
-    except json.JSONDecodeError:
-        LOGGER.warning("Failed to parse podman inspect output for %r", command)
-        return None
-    if isinstance(payload, list):
-        return payload[0] if payload else None
-    return payload
-
-
 def _inspect_container(name_or_id):
-    return _inspect_podman_json(["podman", "inspect", name_or_id])
+    return _get_podman_client().inspect_container(name_or_id)
 
 
 def _inspect_network(name):
-    return _inspect_podman_json(["podman", "network", "inspect", name])
+    return _get_podman_client().inspect_network(name)
 
 
 def _container_owner_labels(container_info):
@@ -275,15 +301,13 @@ def _remove_named_container_if_safe(
                 "it is already owned by this process"
             )
 
-    res = run(
-        ["podman", "rm", "--volumes", "-f", container_name],
-        stdout=PIPE,
-        stderr=PIPE,
-        text=True,
-    )
-    if res.returncode != 0:
+    try:
+        _get_podman_client().remove_container(
+            container_name, force=True, volumes=True, check=True
+        )
+    except ContainerClientError as exc:
         raise RuntimeError(
-            f"Failed to remove existing container {container_name}: {res.stderr}"
+            f"Failed to remove existing container {container_name}: {exc}"
         )
     return None
 
@@ -347,25 +371,10 @@ def _get_container_host_pid(container_id):
     from the host, allowing us to run ``ip`` and ``tc`` commands using the host's
     binaries rather than requiring them inside the container.
     """
-    res = run(
-        ["podman", "inspect", "--format", "{{.State.Pid}}", container_id],
-        stdout=PIPE,
-        stderr=PIPE,
-        text=True,
-    )
-    if res.returncode != 0:
-        raise RuntimeError(
-            f"Failed to get host PID for container {container_id}: {res.stderr}"
-        )
-    pid = res.stdout.strip()
-    if not pid or pid == "0":
-        raise RuntimeError(f"Container {container_id} is not running (host PID={pid})")
-    try:
-        return int(pid)
-    except ValueError as exc:
-        raise RuntimeError(
-            f"Unexpected host PID value for container {container_id}: {pid!r}"
-        ) from exc
+    pid = _get_podman_client().get_container_pid(container_id)
+    if pid is None:
+        raise RuntimeError(f"Container {container_id} is not running or was not found")
+    return pid
 
 
 def _nsenter_net_run(container_id, command, check=False, host_pid=None):
@@ -438,33 +447,28 @@ def _get_image_runtime_user(image_name):
     if cached is not None:
         return cached
 
-    res = run(
-        [
-            "podman",
-            "run",
-            "--rm",
-            "--entrypoint",
-            "sh",
-            image_name,
-            "-lc",
-            "id -u; id -g",
-        ],
-        stdout=PIPE,
-        stderr=PIPE,
-        text=True,
-    )
-    if res.returncode != 0:
+    client = _get_podman_client()
+    try:
+        output = client.run_container(
+            image=image_name,
+            name=f"ccm-runtime-user-{uuid.uuid4().hex[:12]}",
+            entrypoint="sh",
+            command=["-lc", "id -u; id -g"],
+            detach=False,
+            remove=True,
+        )
+    except ContainerClientError as exc:
         LOGGER.warning(
             "Failed to determine runtime user for image %s: %s",
-            image_name, res.stderr,
+            image_name, exc,
         )
         return None
 
-    lines = [line.strip() for line in res.stdout.splitlines() if line.strip()]
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
     if len(lines) < 2:
         LOGGER.warning(
             "Unexpected runtime user output for image %s: %s",
-            image_name, res.stdout,
+            image_name, output,
         )
         return None
 
@@ -473,7 +477,7 @@ def _get_image_runtime_user(image_name):
     except ValueError:
         LOGGER.warning(
             "Invalid runtime user output for image %s: %s",
-            image_name, res.stdout,
+            image_name, output,
         )
         return None
 
@@ -481,39 +485,9 @@ def _get_image_runtime_user(image_name):
     return runtime_user
 
 
-def _chown_path_for_container(path, uid, gid):
-    res = run(
-        ["podman", "unshare", "chown", "-R", f"{uid}:{gid}", path],
-        stdout=PIPE,
-        stderr=PIPE,
-        text=True,
-    )
-    if res.returncode != 0:
-        LOGGER.warning(
-            "Failed to chown %s to %s:%s for container access: %s",
-            path, uid, gid, res.stderr,
-        )
-        return False
-    return True
-
-
 def _list_podman_ipv4_networks():
     """Return all IPv4 podman network subnets visible to the local podman daemon."""
-    res = run(
-        ["podman", "network", "ls", "--format", "json"],
-        stdout=PIPE,
-        stderr=PIPE,
-        text=True,
-    )
-    if res.returncode != 0:
-        LOGGER.warning("Failed to list podman networks: %s", res.stderr)
-        return []
-
-    try:
-        networks = json.loads(res.stdout)
-    except json.JSONDecodeError:
-        LOGGER.warning("Failed to parse podman network ls output as JSON")
-        return []
+    networks = _get_podman_client().list_networks()
 
     subnets = []
     for network in networks:
@@ -722,6 +696,7 @@ class PodmanNetworkTopology:
 
     def create_networks(self):
         """Create all podman networks for the topology."""
+        client = _get_podman_client()
         for (dc, rack), info in self.rack_networks.items():
             name = info["network_name"]
             subnet = info["subnet"]
@@ -757,68 +732,51 @@ class PodmanNetworkTopology:
                             f"Refusing to recreate in-use network {name}: "
                             f"containers still attached: {sorted(attached_names)}"
                         )
-                rm_res = run(
-                    ["podman", "network", "rm", "-f", name],
-                    stdout=PIPE,
-                    stderr=PIPE,
-                    text=True,
-                )
-                if rm_res.returncode != 0:
+                try:
+                    client.remove_network(name, force=True, check=True)
+                except ContainerClientError as exc:
                     raise RuntimeError(
-                        f"Failed to remove existing podman network {name}: {rm_res.stderr}"
+                        f"Failed to remove existing podman network {name}: {exc}"
                     )
-            res = run(
-                [
-                    "podman",
-                    "network",
-                    "create",
-                    "--label",
-                    f"{PODMAN_RESOURCE_OWNER_LABEL}={os.getpid()}",
-                    "--subnet",
-                    subnet,
-                    "--gateway",
-                    gateway,
+            try:
+                client.create_network(
                     name,
-                ],
-                stdout=PIPE,
-                stderr=PIPE,
-                text=True,
-            )
-            if res.returncode != 0:
-                raise RuntimeError(
-                    f"Failed to create podman network {name}: {res.stderr}"
+                    subnet=subnet,
+                    gateway=gateway,
+                    labels=_resource_labels(),
                 )
+            except ContainerClientError as exc:
+                raise RuntimeError(f"Failed to create podman network {name}: {exc}")
             LOGGER.debug("Created podman network %s (%s)", name, subnet)
 
     def destroy_networks(self):
         """Remove all podman networks for this topology."""
+        client = _get_podman_client()
         for (dc, rack), info in self.rack_networks.items():
             name = info["network_name"]
             network_info = _inspect_network(name)
             if network_info is None:
                 continue
             owner_pid = _resource_owner_pid(_network_owner_labels(network_info))
-            if owner_pid is not None and owner_pid != os.getpid() and _pid_is_alive(owner_pid):
+            if owner_pid is None:
+                # Mirrors create_networks(): a network with this deterministic
+                # name exists but wasn't created by us (no ownership label).
+                # Never force-remove a resource we don't own.
+                LOGGER.warning(
+                    "Skipping removal of network %s: missing %s label "
+                    "(not created by this process)",
+                    name,
+                    PODMAN_RESOURCE_OWNER_LABEL,
+                )
+                continue
+            if owner_pid != os.getpid() and _pid_is_alive(owner_pid):
                 LOGGER.warning(
                     "Skipping removal of network %s owned by live process %s",
                     name,
                     owner_pid,
                 )
                 continue
-            res = run(
-                ["podman", "network", "rm", "-f", name],
-                stdout=PIPE,
-                stderr=PIPE,
-                text=True,
-            )
-            if res.returncode != 0:
-                LOGGER.warning(
-                    "Failed to remove podman network %s: %s",
-                    name,
-                    res.stderr.strip(),
-                )
-            else:
-                LOGGER.debug("Removed podman network %s", name)
+            client.remove_network(name, force=True)
 
     def get_node_ip(self, node_name):
         """Get the assigned rack IP for a node."""
@@ -919,6 +877,9 @@ class PodmanNetworkTopology:
                     f"match ip dst {subnet} flowid 1:3"
                 )
 
+        # only the root qdisc: no delay/loss configured, nothing to shape
+        if len(commands) == 1:
+            return []
         return commands
 
     def get_client_ip(self):
@@ -1040,8 +1001,20 @@ class ScyllaPodmanCluster(ScyllaCluster):
         # PodmanEventMonitor.register) so read-only commands on a loaded
         # cluster don't spawn a `podman events --stream` subprocess.
         if self._log_manager is None:
-            self._log_manager = PodmanLogManager()
+            self._log_manager = ContainerLogManager(self.get_container_client())
             self._event_monitor = PodmanEventMonitor(self._log_manager)
+
+    def _ensure_image_pulled(self):
+        """Pull the image if it is not present locally."""
+        client = _get_podman_client()
+        if not client.image_exists(self.podman_image):
+            LOGGER.info("Pulling image %s (not present locally)...", self.podman_image)
+            if not client.pull_image(self.podman_image):
+                raise RuntimeError(f"Failed to pull podman image {self.podman_image}")
+
+    def get_container_client(self):
+        """Return the shared PodmanClient used for all container operations."""
+        return _get_podman_client()
 
     def populate(
         self,
@@ -1061,6 +1034,8 @@ class ScyllaPodmanCluster(ScyllaCluster):
             LOGGER.warning(
                 "ipformat is ignored for podman clusters (IPs come from network topology)"
             )
+
+        self._ensure_image_pulled()
 
         # Parse the topology exactly like the base class does
         topology = self._parse_topology(nodes)
@@ -1203,23 +1178,28 @@ class ScyllaPodmanCluster(ScyllaCluster):
             )
             return
         uid, gid = runtime_user
-        for node in self.nodelist():
-            for directory in node.share_directories:
-                host_path = os.path.join(node.get_path(), directory)
-                if not os.path.exists(host_path):
-                    continue
-                _chown_path_for_container(host_path, uid, gid)
-                res = run(
-                    ["podman", "unshare", "chmod", "-R", "a+rwX", host_path],
-                    stdout=PIPE,
-                    stderr=PIPE,
-                    text=True,
-                )
-                if res.returncode != 0:
-                    LOGGER.warning(
-                        "Failed to chmod %s to a+rwX via podman unshare: %s",
-                        host_path, res.stderr,
-                    )
+        client = _get_podman_client()
+        paths = [
+            host_path
+            for node in self.nodelist()
+            for directory in node.share_directories
+            if os.path.exists(host_path := os.path.join(node.get_path(), directory))
+        ]
+        if not paths:
+            return
+        # batch all paths into two unshare calls
+        returncode, stdout, stderr = client.unshare(["chown", "-R", f"{uid}:{gid}", *paths])
+        if returncode != 0:
+            LOGGER.warning(
+                "Failed to chown node directories to %s:%s via podman unshare: %s",
+                uid, gid, stderr,
+            )
+        returncode, stdout, stderr = client.unshare(["chmod", "-R", "a+rwX", *paths])
+        if returncode != 0:
+            LOGGER.warning(
+                "Failed to chmod node directories to a+rwX via podman unshare: %s",
+                stderr,
+            )
 
     def _compute_cpu_assignments(self):
         """Compute non-overlapping CPU assignments for each node.
@@ -1373,36 +1353,21 @@ class ScyllaPodmanCluster(ScyllaCluster):
             return
 
         # Use the Scylla image so cqlsh is available in the client container.
-        res = run(
-            [
-                "podman",
-                "run",
-                "-d",
-                "--name",
-                client_name,
-                "--network",
-                client_network,
-                "--ip",
-                client_ip,
-                "--label",
-                f"{PODMAN_RESOURCE_OWNER_LABEL}={os.getpid()}",
-                "--cap-add",
-                "NET_ADMIN",
-                "--entrypoint",
-                "sh",
-                self.podman_image,
-                "-lc",
-                "sleep infinity",
-            ],
-            stdout=PIPE,
-            stderr=PIPE,
-            text=True,
-        )
+        client = _get_podman_client()
+        try:
+            self._client_container_id = client.run_container(
+                image=self.podman_image,
+                name=client_name,
+                network=client_network,
+                ip=client_ip,
+                labels=_resource_labels(),
+                cap_add=["NET_ADMIN"],
+                entrypoint="sh",
+                command=["-lc", "sleep infinity"],
+            )
+        except ContainerClientError as exc:
+            raise RuntimeError(f"Failed to start CQL client container: {exc}")
 
-        if res.returncode != 0:
-            raise RuntimeError(f"Failed to start CQL client container: {res.stderr}")
-
-        self._client_container_id = res.stdout.strip()
         LOGGER.debug("Started CQL client container %s at %s", client_name, client_ip)
 
         try:
@@ -1494,27 +1459,16 @@ class ScyllaPodmanCluster(ScyllaCluster):
         ip = node.network_interfaces["binary"][0]
         port = node.network_interfaces["binary"][1]
 
-        res = run(
-            [
-                "podman",
-                "exec",
-                self._client_container_id,
-                "cqlsh",
-                ip,
-                str(port),
-                "-e",
-                cql_command,
-            ],
-            stdout=PIPE,
-            stderr=PIPE,
-            text=True,
+        returncode, stdout, stderr = _get_podman_client().exec_command(
+            self._client_container_id,
+            ["cqlsh", ip, str(port), "-e", cql_command],
         )
-        if res.returncode != 0:
+        if returncode != 0:
             LOGGER.warning(
                 "cqlsh on client container returned non-zero exit code %d: %s",
-                res.returncode, res.stderr.strip(),
+                returncode, stderr.strip(),
             )
-        return res.stdout, res.stderr
+        return stdout, stderr
 
     def _setup_container_routes(self, container_name_or_id, node_name):
         """Set up IP routes inside a container for cross-rack connectivity.
@@ -1554,18 +1508,10 @@ class ScyllaPodmanCluster(ScyllaCluster):
         profile_options=None,
         quiet_start=False,
     ):
-        """Start nodes, then apply tc/netem rules for latency simulation.
+        """Start nodes, then apply any configured tc/netem rules.
 
-        Overrides ScyllaCluster.start_nodes() to skip ``watch_log_for``
-        calls (the parent's ``start_nodes`` waits for ``system.log``
-        patterns).  Podman containers always run with ``--log-to-stdout 1``
-        (hard-coded in the image's ``scylla-server.sh``), so ``system.log``
-        is never written to the bind-mounted logs directory, causing
-        ``watch_log_for`` to hang indefinitely.
-
-        CQL readiness is verified by the podman override of
-        ``wait_for_binary_interface()``, which checks the CQL port directly
-        via ``podman exec`` inside each ``node.start()`` call.
+        CQL readiness is verified by probing the CQL port via ``podman exec``
+        instead of the parent's log-based waits.
         """
 
         if wait_for_binary_proto is None:
@@ -1641,19 +1587,83 @@ class ScyllaPodmanCluster(ScyllaCluster):
                         )
 
         # Apply tc/netem rules now that all nodes are running
-        if self.network_topology:
-            skipped = []
-            for node in self.nodelist():
-                if node.is_running() and node.pid:
-                    node._apply_tc_rules()
-                else:
-                    skipped.append(node.name)
-            if skipped:
-                LOGGER.warning(
-                    "Skipped tc/netem rules for %d node(s) that are not running: %s",
-                    len(skipped), ", ".join(skipped),
-                )
+        self.apply_network_shaping()
         return started
+
+    def apply_network_shaping(self, nodes=None):
+        """Apply tc/netem delay/loss rules to running nodes; no-op if none configured.
+
+        ``start_nodes()`` calls this automatically; callers starting nodes
+        via ``node.start()`` directly must call it themselves.
+
+        Args:
+            nodes: nodes to shape; defaults to every node in the cluster.
+        """
+        if not self.network_topology:
+            return
+        target_nodes = list(nodes) if nodes is not None else self.nodelist()
+        # no-op when the topology defines no delay/loss rules
+        if not any(
+            self.network_topology.build_tc_commands(node.name) for node in target_nodes
+        ):
+            return
+
+        def shape(node):
+            if node.is_running() and node.pid:
+                node._apply_tc_rules()
+                return None
+            return node.name
+
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(16, len(target_nodes))
+        ) as pool:
+            skipped = [name for name in pool.map(shape, target_nodes) if name]
+        if skipped:
+            LOGGER.warning(
+                "Skipped tc/netem rules for %d node(s) that are not running: %s",
+                len(skipped), ", ".join(skipped),
+            )
+
+    def _batch_remove_nodes(self, nodes):
+        """Remove several nodes' containers in a few batched `rm` calls
+        instead of one `podman rm` subprocess per node.
+
+        Falls back to per-node removal (trying each node's alternate
+        target) only for whichever containers a batch failed to remove.
+        """
+        nodes = list(nodes)
+        if not nodes:
+            return
+        primary_target_to_node = {}
+        for n in nodes:
+            targets = n._detach_container()
+            n._pending_remove_targets = targets
+            if targets:
+                primary_target_to_node[targets[0]] = n
+
+        if not primary_target_to_node:
+            return
+        client = self.get_container_client()
+        failed_targets = client.remove_containers(
+            list(primary_target_to_node.keys()), force=True, volumes=True, chunk_size=10
+        )
+        for target in failed_targets:
+            n = primary_target_to_node[target]
+            fallback_targets = n._pending_remove_targets[1:]
+            removed = False
+            for fallback in fallback_targets:
+                try:
+                    client.remove_container(fallback, force=True, volumes=True, check=True)
+                    removed = True
+                    break
+                except ContainerClientError as exc:
+                    LOGGER.warning("podman rm -f %s failed: %s", fallback, exc)
+            if not removed:
+                LOGGER.error(
+                    "Failed to remove container for %s using targets %s",
+                    n.name,
+                    n._pending_remove_targets,
+                )
 
     def clear(self):
         """Remove all containers, then wipe node data directories.
@@ -1673,15 +1683,10 @@ class ScyllaPodmanCluster(ScyllaCluster):
             LOGGER.warning(
                 "Failed to stop client container during clear()", exc_info=True
             )
-        for n in list(self.nodes.values()):
-            try:
-                n.remove()
-            except Exception:
-                LOGGER.warning(
-                    "Failed to remove container for node %s during clear()",
-                    n.name,
-                    exc_info=True,
-                )
+        try:
+            self._batch_remove_nodes(self.nodes.values())
+        except Exception:
+            LOGGER.warning("Failed to batch-remove node containers during clear()", exc_info=True)
         # Wipe node data directories (node.pid is None after remove() so no container access)
         for n in list(self.nodes.values()):
             try:
@@ -1720,13 +1725,26 @@ class ScyllaPodmanCluster(ScyllaCluster):
                     "Failed to stop client container during remove()",
                     exc_info=True,
                 )
-            for n in list(self.nodes.values()):
+            try:
+                self._batch_remove_nodes(self.nodes.values())
+            except Exception:
+                LOGGER.warning("Failed to batch-remove node containers during remove()", exc_info=True)
+            # Stop the shared event monitor/log streams -- final teardown,
+            # otherwise this cluster leaks a background thread per process.
+            if self._event_monitor:
                 try:
-                    n.remove()
+                    self._event_monitor.stop()
                 except Exception:
                     LOGGER.warning(
-                        "Failed to remove container for node %s during remove()",
-                        n.name,
+                        "Failed to stop event monitor during remove()",
+                        exc_info=True,
+                    )
+            if self._log_manager:
+                try:
+                    self._log_manager.stop_all()
+                except Exception:
+                    LOGGER.warning(
+                        "Failed to stop log manager during remove()",
                         exc_info=True,
                     )
             try:
@@ -1787,13 +1805,7 @@ class ScyllaPodmanCluster(ScyllaCluster):
 
 
 class ScyllaPodmanNode(ScyllaNode):
-    """A ScyllaDB node running in a podman container with topology-aware networking.
-
-    TODO: Cluster startup takes ~2 minutes per node (3-node cluster ~6-7 min total).
-          This is significantly longer than expected; investigate root cause.
-          Candidates: supervisorctl update triggering a second Scylla start cycle,
-          gossip ring settling with --seeds handshake, or iproute install latency.
-    """
+    """A ScyllaDB node running in a podman container with topology-aware networking."""
 
     _STATUS_CACHE_TTL = 5
 
@@ -1833,6 +1845,10 @@ class ScyllaPodmanNode(ScyllaNode):
         # Default to 1 CPU (not 2 like ScyllaNode) to reduce resource usage
         self._smp = 1
 
+    def get_container_client(self):
+        """Return the shared PodmanClient used for all container operations."""
+        return _get_podman_client()
+
     def _supervisor_program_names(self):
         if self.pid is None:
             return set()
@@ -1840,21 +1856,18 @@ class ScyllaPodmanNode(ScyllaNode):
         # during the lifetime of a container).
         if self._cached_supervisor_programs is not None:
             return self._cached_supervisor_programs
-        res = run(
-            ["podman", "exec", self.pid, "supervisorctl", "status"],
-            stdout=PIPE,
-            stderr=PIPE,
-            text=True,
+        returncode, stdout, stderr = self.get_container_client().exec_command(
+            self.pid, ["supervisorctl", "status"]
         )
         # supervisorctl status exits with code 1 whenever any process is not
         # RUNNING (e.g. STOPPED after a graceful stop).  The output is still
         # valid program-list output, so parse it regardless of returncode.
         # Only bail out if stdout is completely empty (podman exec failed).
-        if not res.stdout.strip():
+        if not stdout.strip():
             return set()
         programs = {
             line.split()[0]
-            for line in res.stdout.splitlines()
+            for line in stdout.splitlines()
             if line.strip() and ":" not in line.split()[0]
         }
         if programs:
@@ -2010,6 +2023,7 @@ class ScyllaPodmanNode(ScyllaNode):
         if not os.path.exists(os.path.join(self.local_yaml_path, "scylla.yaml")):
             cache_dir = self.cluster._get_image_conf_cache_dir()
             _copy_conf_dir(cache_dir, self.local_yaml_path)
+        self._ensure_log_file()
         super(ScyllaPodmanNode, self).update_yaml()
 
         conf_file = os.path.join(self.get_conf_dir(), common.SCYLLA_CONF)
@@ -2076,25 +2090,23 @@ class ScyllaPodmanNode(ScyllaNode):
         The container is connected to its rack network with a static IP.
         After creation, IP routes and tc rules are set up.
         """
+        client = _get_podman_client()
         if self.pid:
             # Verify the container is still alive.  If it was killed
             # externally (OOM, ``podman stop``, etc.) we need to clear
             # the stale pid so a fresh container can be created.
-            res = run(
-                ["podman", "inspect", "--format", "{{.State.Status}}", self.pid],
-                stdout=PIPE, stderr=DEVNULL, text=True,
-            )
-            if res.returncode == 0 and res.stdout.strip() in ("running", "created", "paused"):
+            status = client.get_container_status(self.pid)
+            if status in _RUNNING_CONTAINER_STATES:
                 return
             LOGGER.warning(
                 "Container %s for node %s is no longer running (status: %s); "
                 "will recreate",
                 self.pid,
                 self.name,
-                res.stdout.strip() if res.returncode == 0 else "not found",
+                status or "not found",
             )
             # Clean up the dead container
-            run(["podman", "rm", "-f", self.pid], stdout=DEVNULL, stderr=DEVNULL)
+            client.remove_container(self.pid, force=True)
             self._cached_supervisor_programs = None
             if self._log_manager:
                 self._log_manager.stop_stream(self.pid)
@@ -2127,75 +2139,62 @@ class ScyllaPodmanNode(ScyllaNode):
         # Do not publish Alternator to fixed host ports. Each node already has a
         # stable per-rack container IP; host-port publishing would collide when
         # multiple nodes enable Alternator in the same cluster.
-        port_args = []
 
         self._prepare_bind_mounts()
 
-        # Volume mounts
-        # Use :z for SELinux relabeling so rootless podman can read the config
-        mount_args = [
-            "-v",
-            f"{self.local_yaml_path}:/etc/scylla:z",
-            "-v",
-            "/tmp:/tmp",
-        ]
+        # /tmp is excluded from SELinux relabeling below (shared system
+        # path; some policies refuse it, and it's used by other processes).
+        volumes = {
+            self.local_yaml_path: "/etc/scylla",
+            "/tmp": "/tmp",
+        }
         for d in self.share_directories:
-            mount_args.extend(
-                [
-                    "-v",
-                    f"{os.path.join(self.get_path(), d)}:{os.path.join(self.base_data_path, d)}:z",
-                ]
-            )
+            volumes[os.path.join(self.get_path(), d)] = os.path.join(self.base_data_path, d)
 
         existing_container = _remove_named_container_if_safe(
             self.podman_name, allow_reuse_current_running=True
         )
         if existing_container is not None:
             self.pid = existing_container.get("Id", self.podman_name)
+            # Reset caches, same as the recreate/error-cleanup paths below.
+            self._cached_supervisor_programs = None
+            self._cached_nodetool_support = {}
+            self._last_status_check = 0.0
             self.network_interfaces = {
                 k: (node_ip, v[1]) for k, v in list(self.network_interfaces.items())
             }
             return
 
+        cpu_assignments = getattr(self.cluster, "_cpu_assignments", {})
+        pinned_cpus = cpu_assignments.get(self.name)
+        cpuset_cpus = ",".join(str(c) for c in pinned_cpus) if pinned_cpus else None
+
         # Start the container.  All configuration is bind-mounted; supervisord
         # starts Scylla with the correct settings immediately.
-        cmd = [
-            "podman",
-            "run",
-            *port_args,
-            *mount_args,
-            "--name",
-            self.podman_name,
-            "--network",
-            network_name,
-            "--ip",
-            node_ip,
-            "--label",
-            f"{PODMAN_RESOURCE_OWNER_LABEL}={os.getpid()}",
-            "--cap-add",
-            "NET_ADMIN",
-            *self._pinning_container_args(),
-            "-d",
-            self.cluster.podman_image,
-            *seed_args,
-            *args,
-        ]
-        res = run(cmd, stdout=PIPE, stderr=PIPE, text=True)
-
-        if res.returncode != 0:
-            LOGGER.error(res)
+        try:
+            self.pid = client.run_container(
+                image=self.cluster.podman_image,
+                name=self.podman_name,
+                volumes=volumes,
+                volumes_no_relabel=["/tmp"],
+                network=network_name,
+                ip=node_ip,
+                labels=_resource_labels(),
+                cap_add=["NET_ADMIN"],
+                cpuset_cpus=cpuset_cpus,
+                command=[*seed_args, *args],
+            )
+        except ContainerClientError as exc:
             raise RuntimeError(
-                f"Failed to create podman container {self.podman_name}: {res.stderr}"
+                f"Failed to create podman container {self.podman_name}: {exc}"
             )
 
-        self.pid = res.stdout.strip()
         self._fresh_container = True
+        self._last_status_check = 0.0  # invalidate status cache after state change
+        self._ensure_log_file()
 
         try:
-            # Log streaming is on-demand.  Skipping it here avoids one
-            # ``podman logs -f`` subprocess per container.
-            if self._event_monitor:
-                self._event_monitor.register(self, self.pid)
+            # event-monitor registration happens in _start_scylla()
 
             # Update network interfaces with the actual rack IP.
             self.network_interfaces = {
@@ -2221,13 +2220,10 @@ class ScyllaPodmanNode(ScyllaNode):
             if self._event_monitor and self.pid:
                 self._event_monitor.unregister(self.pid)
             if self.pid:
-                run(
-                    ["podman", "rm", "--volumes", "-f", self.pid],
-                    stdout=DEVNULL,
-                    stderr=DEVNULL,
-                )
+                client.remove_container(self.pid, force=True, volumes=True)
                 self.pid = None
             raise
+
 
     def _setup_routes(self):
         """Add IP routes inside the container for cross-rack connectivity.
@@ -2316,39 +2312,26 @@ class ScyllaPodmanNode(ScyllaNode):
             )
 
     def service_start(self, service_name):
+        client = self.get_container_client()
         # Clear any FATAL/EXITED state so supervisord will accept the start
         # command.  After an ungraceful stop (kill -9) the process lands in
         # FATAL and supervisorctl refuses a plain "start" until cleared.
         status = self.service_status(service_name)
         if status and status.upper() in ("FATAL", "EXITED", "BACKOFF"):
-            run(
-                ["podman", "exec", self.pid, "supervisorctl", "clear", service_name],
-                stdout=PIPE,
-                stderr=PIPE,
-                text=True,
-            )
+            client.exec_command(self.pid, ["supervisorctl", "clear", service_name])
         # Retry up to 30s in case supervisord isn't ready yet (fresh
         # container just started by podman run -d).
         for attempt in range(30):
-            res = run(
-                [
-                    "podman",
-                    "exec",
-                    self.pid,
-                    "supervisorctl",
-                    "start",
-                    service_name,
-                ],
-                stdout=PIPE,
-                stderr=PIPE,
-                text=True,
+            returncode, stdout, stderr = client.exec_command(
+                self.pid, ["supervisorctl", "start", service_name]
             )
-            if res.returncode == 0:
+            if returncode == 0:
+                self._last_status_check = 0.0  # invalidate status cache
                 return
             if attempt == 29:
-                LOGGER.debug(res.stdout)
+                LOGGER.debug(stdout)
                 raise RuntimeError(
-                    f"service {service_name} failed to start in {self.name}: {res.stderr}"
+                    f"service {service_name} failed to start in {self.name}: {stderr}"
                 )
             time.sleep(1)
 
@@ -2362,36 +2345,118 @@ class ScyllaPodmanNode(ScyllaNode):
                 service_name, self.name, current_status,
             )
             return
-        res = run(
-            ["podman", "exec", self.pid, "supervisorctl", "stop", service_name],
-            stdout=PIPE,
-            stderr=PIPE,
-            text=True,
+        returncode, stdout, stderr = self.get_container_client().exec_command(
+            self.pid, ["supervisorctl", "stop", service_name]
         )
-        if res.returncode != 0:
-            LOGGER.debug(res.stdout)
+        if returncode != 0:
+            LOGGER.debug(stdout)
             raise RuntimeError(
-                f"service {service_name} failed to stop in {self.name}: {res.stderr}"
+                f"service {service_name} failed to stop in {self.name}: {stderr}"
             )
+        self._last_status_check = 0.0  # invalidate status cache
 
     def service_status(self, service_name):
         if self.pid is None:
             return "DOWN"
-        res = run(
-            ["podman", "exec", self.pid, "supervisorctl", "status", service_name],
-            stdout=PIPE,
-            stderr=PIPE,
-            text=True,
+        returncode, stdout, stderr = self.get_container_client().exec_command(
+            self.pid, ["supervisorctl", "status", service_name]
         )
         # supervisorctl status <name> exits with 1 when the process exists but
         # is not RUNNING (e.g. STOPPED/EXITED/FATAL).  The second token on
         # stdout is still the status string we need.  Only fall back to DOWN
         # when podman exec itself failed (empty stdout).
-        parts = res.stdout.split()
+        parts = stdout.split()
         if len(parts) > 1:
             return parts[1]
-        LOGGER.debug("service %s failed to get status in %s: %s", service_name, self.name, res.stderr)
+        LOGGER.debug("service %s failed to get status in %s: %s", service_name, self.name, stderr)
         return "DOWN"
+
+    def _ensure_log_file(self):
+        """Create an empty logs/system.log so grep_log/watch_log_for don't crash
+        or hang on a missing file (--log-to-stdout means nothing writes it)."""
+        log_path = self.logfilename()
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        if not os.path.exists(log_path):
+            open(log_path, "a").close()
+
+    def _ensure_log_stream(self):
+        """Start on-demand `podman logs -f` streaming into system.log (idempotent)."""
+        self._ensure_log_file()
+        if self._log_manager and self.pid:
+            self._log_manager.start_stream(self.pid, self.logfilename())
+
+    def watch_log_for(self, exprs, from_mark=None, timeout=600, process=None,
+                      verbose=False, filename='system.log', polling_interval=0.01):
+        # start log streaming on demand
+        if filename == 'system.log':
+            self._ensure_log_stream()
+        return super(ScyllaPodmanNode, self).watch_log_for(
+            exprs, from_mark=from_mark, timeout=timeout, process=process,
+            verbose=verbose, filename=filename, polling_interval=polling_interval,
+        )
+
+    def _rest_api_get(self, path, timeout=10):
+        """GET a Scylla REST API path via curl inside the container.
+        The host cannot reach container IPs in rootless podman."""
+        if self.pid is None:
+            return None
+        returncode, stdout, stderr = self.get_container_client().exec_command(
+            self.pid,
+            ["curl", "-sf", "--max-time", str(int(timeout)),
+             f"http://localhost:{self.api_port}{path}"],
+            timeout=timeout + 5,
+        )
+        return stdout if returncode == 0 else None
+
+    def _rest_api_json(self, path, timeout=10):
+        body = self._rest_api_get(path, timeout=timeout)
+        if body is None:
+            return None
+        try:
+            return json.loads(body)
+        except json.JSONDecodeError:
+            LOGGER.warning("Unexpected REST response from %s%s: %r", self.name, path, body)
+            return None
+
+    def hostid(self, timeout=60, force_refresh=False):
+        if self.node_hostid and not force_refresh:
+            return self.node_hostid
+        hostid = self._rest_api_json("/storage_service/hostid/local", timeout=min(timeout, 30))
+        if hostid is not None:
+            self.node_hostid = hostid
+        return self.node_hostid
+
+    def watch_rest_for_alive(self, nodes, timeout=120, wait_normal_token_owner=True):
+        """Same checks as ScyllaNode.watch_rest_for_alive, but via in-container curl."""
+        nodes_tofind = nodes if isinstance(nodes, list) else [nodes]
+        tofind = set(node.address() for node in nodes_tofind)
+        tofind_host_id_map = dict((node.address(), node.hostid()) for node in nodes_tofind)
+        endtime = time.time() + timeout
+        while time.time() < endtime:
+            live = set(self._rest_api_json("/gossiper/endpoint/live") or [])
+            live -= set(self._rest_api_json("/storage_service/nodes/joining") or [])
+            if tofind.issubset(live):
+                have_no_tokens = {
+                    addr for addr in tofind
+                    if not self._rest_api_json(f"/storage_service/tokens/{addr}")
+                }
+                if not have_no_tokens:
+                    if not wait_normal_token_owner:
+                        return
+                    host_id_map = {
+                        r["key"]: r["value"]
+                        for r in self._rest_api_json("/storage_service/host_id") or []
+                    }
+                    normal = {
+                        addr for addr, hid in host_id_map.items()
+                        if addr in tofind_host_id_map
+                        and (hid == tofind_host_id_map[addr] or not tofind_host_id_map[addr])
+                    }
+                    tofind -= normal
+                    if not tofind:
+                        return
+            time.sleep(0.1)
+        raise TimeoutError(f"watch_rest_for_alive() timeout after {timeout} seconds")
 
     def wait_for_binary_interface(self, **kwargs):
         timeout = kwargs.get("timeout", 420)
@@ -2403,6 +2468,7 @@ class ScyllaPodmanNode(ScyllaNode):
 
         binary_itf = self.network_interfaces["binary"]
         container_id = self.pid
+        client = self.get_container_client()
 
         def is_binary_interface_listening():
             if process is not None:
@@ -2413,26 +2479,16 @@ class ScyllaPodmanNode(ScyllaNode):
                     )
             if container_id is None:
                 return False
-            try:
-                res = run(
-                    [
-                        "podman",
-                        "exec",
-                        container_id,
-                        "bash",
-                        "-c",
-                        f"echo > /dev/tcp/{binary_itf[0]}/{binary_itf[1]}",
-                    ],
-                    stdout=DEVNULL,
-                    stderr=DEVNULL,
-                    timeout=5,
-                )
-                return res.returncode == 0
-            except subprocess.TimeoutExpired:
-                return False
+            returncode, stdout, stderr = client.exec_command(
+                container_id,
+                ["bash", "-c", f"echo > /dev/tcp/{binary_itf[0]}/{binary_itf[1]}"],
+                timeout=5,
+            )
+            return returncode == 0
 
+        # short initial delay before probing, scaled with cluster size
         n = len(self.cluster.nodes)
-        first = min(10.0 + n * 0.3, 60.0)
+        first = min(3.0 + n * 0.1, 30.0)
         step = min(1.0 + n * 0.05, 5.0)
         remaining = remaining_timeout()
         if not common.wait_for(func=is_binary_interface_listening, timeout=remaining, first=first, step=step):
@@ -2643,6 +2699,41 @@ class ScyllaPodmanNode(ScyllaNode):
         self._process_scylla = PodmanProcess(self.pid)
         return self._process_scylla
 
+    def _get_service_pid(self, service_name, warn_prefix=None):
+        """Return the in-container PID of *service_name* via supervisorctl, or None.
+
+        Shared by do_stop()/kill()/pause()/resume() (kill is a shell builtin,
+        not a binary in the container, so signals go via `bash -c`).
+        """
+        returncode, stdout, stderr = self.get_container_client().exec_command(
+            self.pid, ["supervisorctl", "pid", service_name]
+        )
+        if returncode != 0 or not stdout.strip():
+            log = LOGGER.warning if warn_prefix else LOGGER.debug
+            log(
+                "%sfailed to get pid of %s in %s: %s",
+                f"{warn_prefix}: " if warn_prefix else "",
+                service_name, self.name, stderr,
+            )
+            return None
+        pid = stdout.strip()
+        if not pid.isdigit() or pid == "0":
+            LOGGER.warning(
+                "Unexpected PID value from supervisorctl for %s in %s: %r",
+                service_name, self.name, pid,
+            )
+            return None
+        return int(pid)
+
+    def _signal_service(self, service_name, sig_name, warn_prefix=None):
+        """Send `sig_name` (e.g. '9', 'STOP', 'CONT') to *service_name*'s process."""
+        pid = self._get_service_pid(service_name, warn_prefix=warn_prefix)
+        if pid is None:
+            return
+        self.get_container_client().exec_command(
+            self.pid, ["bash", "-c", f"kill -{sig_name} {pid}"]
+        )
+
     def do_stop(self, gently=True):
         # Stop the log streamer so it doesn't become orphaned
         if self._log_manager and self.pid:
@@ -2661,80 +2752,17 @@ class ScyllaPodmanNode(ScyllaNode):
         else:
             jmx_service = self._jmx_service_name()
             scylla_service = self._scylla_service_name()
-            # Get the PID of the scylla service, then kill -9 via bash
-            pid_res = run(
-                [
-                    "podman",
-                    "exec",
-                    self.pid,
-                    "supervisorctl",
-                    "pid",
-                    scylla_service,
-                ],
-                stdout=PIPE,
-                stderr=PIPE,
-                text=True,
-            )
-            if pid_res.returncode == 0 and pid_res.stdout.strip():
-                _pid = pid_res.stdout.strip()
-                if not _pid.isdigit() or _pid == "0":
-                    LOGGER.warning(
-                        "Unexpected PID value from supervisorctl for %s "
-                        "in %s: %r",
-                        scylla_service, self.name, _pid,
-                    )
-                else:
-                    run(
-                        [
-                            "podman",
-                            "exec",
-                            self.pid,
-                            "bash",
-                            "-c",
-                            f"kill -9 {_pid}",
-                        ],
-                        stdout=PIPE,
-                        stderr=PIPE,
-                    )
-            # Tell supervisord the service is stopped so autorestart
-            # does not kick in after the kill -9.
+            # kill -9 the service's process directly (kill is a shell
+            # builtin, not a binary in the Scylla container), then tell
+            # supervisord the service is stopped so autorestart does not
+            # kick in after the kill -9.
+            self._signal_service(scylla_service, "9")
             self.service_stop(scylla_service)
             if jmx_service:
-                jmx_pid_res = run(
-                    [
-                        "podman",
-                        "exec",
-                        self.pid,
-                        "supervisorctl",
-                        "pid",
-                        jmx_service,
-                    ],
-                    stdout=PIPE,
-                    stderr=PIPE,
-                    text=True,
-                )
-                if jmx_pid_res.returncode == 0 and jmx_pid_res.stdout.strip():
-                    _jmx_pid = jmx_pid_res.stdout.strip()
-                    if not _jmx_pid.isdigit() or _jmx_pid == "0":
-                        LOGGER.warning(
-                            "Unexpected PID value from supervisorctl for %s "
-                            "in %s: %r",
-                            jmx_service, self.name, _jmx_pid,
-                        )
-                    else:
-                        run(
-                            [
-                                "podman",
-                                "exec",
-                                self.pid,
-                                "bash",
-                                "-c",
-                                f"kill -9 {_jmx_pid}",
-                            ],
-                            stdout=PIPE,
-                            stderr=PIPE,
-                        )
+                self._signal_service(jmx_service, "9")
                 self.service_stop(jmx_service)
+        self._last_status_check = 0.0  # invalidate status cache
+
 
     def wait_until_stopped(self, wait_seconds=None, marks=None, dump_core=True):
         """Wait until the Scylla service inside the container is no longer running.
@@ -2765,7 +2793,16 @@ class ScyllaPodmanNode(ScyllaNode):
         _busybox_chmod(self.get_path(), "/node", "775", f"clear chmod for {self.name}")
         super(ScyllaPodmanNode, self).clear(*args, **kwargs)
 
-    def remove(self):
+    def _detach_container(self):
+        """Unhook this node from its container without removing it yet.
+
+        Stops log streaming/event tracking, invalidates container-tied
+        caches, and clears self.pid so subsequent is_running()/status calls
+        don't try to exec into a container that's about to disappear.
+
+        Returns the ordered list of remove targets to try (container ID
+        first, then the deterministic podman name as a fallback).
+        """
         if self._log_manager and self.pid:
             self._log_manager.stop_stream(self.pid)
         if self._event_monitor and self.pid:
@@ -2775,36 +2812,28 @@ class ScyllaPodmanNode(ScyllaNode):
         self._cached_supervisor_programs = None
         self._cached_nodetool_support = {}
         container_id = self.pid
-        # Clear pid first so that any subsequent is_running()/service_status()
-        # calls (e.g. from the parent stop() during teardown) take the early
-        # return path in _update_podman_status instead of exec-ing into a removed
-        # container.
         self.pid = None
-        # Try to remove by container ID first, then by deterministic podman
-        # name as a fallback.  Log and warn on failures — silent swallowing
-        # of podman rm errors leads to leaked containers.
         targets = []
         if container_id:
             targets.append(str(container_id))
         if hasattr(self, "podman_name") and self.podman_name:
             targets.append(self.podman_name)
+        return targets
+
+    def remove(self):
+        # Try to remove by container ID first, then by deterministic podman
+        # name as a fallback.  Log and warn on failures — silent swallowing
+        # of podman rm errors leads to leaked containers.
+        targets = self._detach_container()
         removed = False
+        client = self.get_container_client()
         for target in targets:
-            res = run(
-                ["podman", "rm", "--volumes", "-f", target],
-                stdout=PIPE,
-                stderr=PIPE,
-                text=True,
-            )
-            if res.returncode == 0:
+            try:
+                client.remove_container(target, force=True, volumes=True, check=True)
                 removed = True
                 break
-            LOGGER.warning(
-                "podman rm -f %s failed (rc=%d): %s",
-                target,
-                res.returncode,
-                res.stderr.strip(),
-            )
+            except ContainerClientError as exc:
+                LOGGER.warning("podman rm -f %s failed: %s", target, exc)
         if not removed and targets:
             LOGGER.error(
                 "Failed to remove container for %s using targets %s",
@@ -2883,7 +2912,7 @@ class ScyllaPodmanNode(ScyllaNode):
     def get_tool(self, toolname):
         if self.pid is None:
             raise RuntimeError(f"Cannot run {toolname} on {self.name}: no running container")
-        podman_bin = which("podman") or "podman"
+        podman_bin = self.get_container_client().runtime_path
         return [podman_bin, "exec", "-i", f"{self.pid}", f"{toolname}"]
 
     def _find_cmd(self, command_name):
@@ -2909,48 +2938,7 @@ class ScyllaPodmanNode(ScyllaNode):
     def kill(self, __signal):
         if self.pid is None:
             return
-        service_name = self._scylla_service_name()
-        # Get the PID of the service first, then send the signal via bash
-        # (kill is a shell builtin, not a binary in the Scylla container).
-        pid_res = run(
-            [
-                "podman",
-                "exec",
-                self.pid,
-                "supervisorctl",
-                "pid",
-                service_name,
-            ],
-            stdout=PIPE,
-            stderr=PIPE,
-            text=True,
-        )
-        if pid_res.returncode != 0 or not pid_res.stdout.strip():
-            LOGGER.debug(
-                "Failed to get pid of %s in %s: %s",
-                service_name, self.name, pid_res.stderr,
-            )
-            return
-        _pid = pid_res.stdout.strip()
-        if not _pid.isdigit() or _pid == "0":
-            LOGGER.warning(
-                "Unexpected PID value from supervisorctl for %s "
-                "in %s: %r",
-                service_name, self.name, _pid,
-            )
-            return
-        run(
-            [
-                "podman",
-                "exec",
-                self.pid,
-                "bash",
-                "-c",
-                f"kill -{int(__signal)} {_pid}",
-            ],
-            stdout=PIPE,
-            stderr=PIPE,
-        )
+        self._signal_service(self._scylla_service_name(), str(int(__signal)))
 
     def pause(self):
         """Pause the Scylla process inside the container using SIGSTOP.
@@ -2961,32 +2949,7 @@ class ScyllaPodmanNode(ScyllaNode):
         """
         if self.pid is None:
             return
-        service_name = self._scylla_service_name()
-        pid_res = run(
-            ["podman", "exec", self.pid, "supervisorctl", "pid", service_name],
-            stdout=PIPE,
-            stderr=PIPE,
-            text=True,
-        )
-        if pid_res.returncode != 0 or not pid_res.stdout.strip():
-            LOGGER.warning(
-                "Cannot pause %s: failed to get Scylla PID from supervisorctl",
-                self.name,
-            )
-            return
-        _pid = pid_res.stdout.strip()
-        if not _pid.isdigit() or _pid == "0":
-            LOGGER.warning(
-                "Cannot pause %s: unexpected PID value %r from supervisorctl",
-                self.name,
-                _pid,
-            )
-            return
-        run(
-            ["podman", "exec", self.pid, "bash", "-c", f"kill -STOP {_pid}"],
-            stdout=PIPE,
-            stderr=PIPE,
-        )
+        self._signal_service(self._scylla_service_name(), "STOP", warn_prefix=f"Cannot pause {self.name}")
 
     def resume(self):
         """Resume the Scylla process inside the container using SIGCONT.
@@ -2995,32 +2958,7 @@ class ScyllaPodmanNode(ScyllaNode):
         """
         if self.pid is None:
             return
-        service_name = self._scylla_service_name()
-        pid_res = run(
-            ["podman", "exec", self.pid, "supervisorctl", "pid", service_name],
-            stdout=PIPE,
-            stderr=PIPE,
-            text=True,
-        )
-        if pid_res.returncode != 0 or not pid_res.stdout.strip():
-            LOGGER.warning(
-                "Cannot resume %s: failed to get Scylla PID from supervisorctl",
-                self.name,
-            )
-            return
-        _pid = pid_res.stdout.strip()
-        if not _pid.isdigit() or _pid == "0":
-            LOGGER.warning(
-                "Cannot resume %s: unexpected PID value %r from supervisorctl",
-                self.name,
-                _pid,
-            )
-            return
-        run(
-            ["podman", "exec", self.pid, "bash", "-c", f"kill -CONT {_pid}"],
-            stdout=PIPE,
-            stderr=PIPE,
-        )
+        self._signal_service(self._scylla_service_name(), "CONT", warn_prefix=f"Cannot resume {self.name}")
 
     def unlink(self, file_path):
         if not os.path.exists(file_path):
@@ -3029,26 +2967,17 @@ class ScyllaPodmanNode(ScyllaNode):
         # mounted file IS the mount point — ``rm`` inside the container would
         # fail with EBUSY if we mounted the file directly.
         parent_dir = os.path.dirname(os.path.abspath(file_path))
-        res = run(
-            [
-                "podman",
-                "run",
-                "--rm",
-                "-v",
-                f"{parent_dir}:{parent_dir}",
-                BUSYBOX_IMAGE,
-                "rm",
-                os.path.abspath(file_path),
-            ],
-            stdout=DEVNULL,
-            stderr=PIPE,
-            text=True,
-        )
-        if res.returncode != 0:
-            LOGGER.warning(
-                "unlink %s via busybox failed (rc=%d): %s",
-                file_path, res.returncode, res.stderr.strip(),
+        try:
+            self.get_container_client().run_container(
+                image=BUSYBOX_IMAGE,
+                name=f"ccm-unlink-{uuid.uuid4().hex[:12]}",
+                volumes={parent_dir: parent_dir},
+                command=["rm", os.path.abspath(file_path)],
+                detach=False,
+                remove=True,
             )
+        except ContainerClientError as exc:
+            LOGGER.warning("unlink %s via busybox failed: %s", file_path, exc)
 
     def chmod(self, file_path, permissions):
         prefix = self.get_path()
@@ -3063,84 +2992,6 @@ class ScyllaPodmanNode(ScyllaNode):
         super(ScyllaPodmanNode, self).rmtree(path)
 
 
-class PodmanLogManager:
-    """Manages log streaming for all containers using per-container daemon threads.
-
-    Each container's log stream runs a ``podman logs -f`` process in a dedicated
-    daemon thread so that log streaming is available for every container regardless
-    of cluster size.
-    """
-
-    def __init__(self):
-        self._streams: dict[str, "_LogStreamState"] = {}
-
-    def start_stream(self, container_id: str, log_file_path: str):
-        """Begin streaming logs for *container_id* to *log_file_path*."""
-        if container_id in self._streams:
-            return
-        state = _LogStreamState(log_file_path)
-        self._streams[container_id] = state
-        thread = threading.Thread(
-            target=self._stream_logs,
-            args=(container_id, state),
-            name=f"podman-log-{container_id[:12]}",
-            daemon=True,
-        )
-        thread.start()
-        state.thread = thread
-
-    def stop_stream(self, container_id: str):
-        """Stop the log stream for *container_id*."""
-        state = self._streams.pop(container_id, None)
-        if state is not None:
-            state.stop_event.set()
-
-    def stop_all(self):
-        """Stop all managed log streams."""
-        for container_id, state in list(self._streams.items()):
-            state.stop_event.set()
-        self._streams.clear()
-
-    def _stream_logs(self, container_id, state):
-        """Background: run ``podman logs -f`` and write to the log file."""
-        try:
-            with open(state.log_file_path, "a", encoding="utf-8") as f:
-                process = Popen(
-                    ["podman", "logs", "-f", container_id],
-                    stdout=PIPE,
-                    stderr=STDOUT,
-                )
-                try:
-                    for line in process.stdout:
-                        if state.stop_event.is_set():
-                            break
-                        f.write(line.decode("utf-8", errors="replace"))
-                        f.flush()
-                except Exception:
-                    LOGGER.warning(
-                        "Podman log stream exception for %s", container_id,
-                        exc_info=True,
-                    )
-                finally:
-                    process.terminate()
-                    process.wait(timeout=5)
-        except Exception:
-            LOGGER.warning(
-                "Podman log stream failed to start for %s", container_id,
-                exc_info=True,
-            )
-
-
-class _LogStreamState:
-    """Internal state for a single container's log stream."""
-    __slots__ = ("log_file_path", "stop_event", "thread")
-
-    def __init__(self, log_file_path):
-        self.log_file_path = log_file_path
-        self.stop_event = threading.Event()
-        self.thread = None
-
-
 class PodmanEventMonitor:
     """A single daemon thread that subscribes to ``podman events --stream``.
 
@@ -3150,12 +3001,14 @@ class PodmanEventMonitor:
     ``podman exec supervisorctl status`` and per-node ``PodmanLogger`` threads.
     """
 
-    def __init__(self, log_manager: PodmanLogManager):
+    def __init__(self, log_manager: ContainerLogManager):
         self._log_manager = log_manager
         self._containers: dict[str, "ScyllaPodmanNode"] = {}
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
+        self._process: Popen | None = None
+        self._process_lock = threading.Lock()
 
     def register(self, node: "ScyllaPodmanNode", container_id: str):
         """Register a node so the monitor updates its status on death events."""
@@ -3179,8 +3032,23 @@ class PodmanEventMonitor:
         self._thread.start()
 
     def stop(self):
-        """Stop the event listener thread."""
+        """Stop the event listener thread.
+
+        Setting ``_stop_event`` alone would not unblock a worker thread
+        parked in the blocking ``for line in process.stdout`` read in
+        ``_event_loop()`` on a quiet event stream. Terminate the active
+        ``podman events`` subprocess first so that read gets EOF and the
+        loop can observe the stop event and exit, letting ``join()``
+        actually succeed instead of leaking the thread and subprocess.
+        """
         self._stop_event.set()
+        with self._process_lock:
+            process = self._process
+        if process is not None:
+            try:
+                process.terminate()
+            except Exception:
+                LOGGER.debug("Failed to terminate podman events process", exc_info=True)
         if self._thread is not None:
             self._thread.join(timeout=5)
             self._thread = None
@@ -3198,6 +3066,8 @@ class PodmanEventMonitor:
                 LOGGER.warning("podman binary not found; event monitor disabled")
                 return
 
+            with self._process_lock:
+                self._process = process
             try:
                 for line in process.stdout:
                     if self._stop_event.is_set():
@@ -3211,7 +3081,14 @@ class PodmanEventMonitor:
                 LOGGER.debug("Podman event stream ended", exc_info=True)
             finally:
                 process.terminate()
-                process.wait(timeout=5)
+                try:
+                    process.wait(timeout=5)
+                except TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=5)
+                with self._process_lock:
+                    if self._process is process:
+                        self._process = None
                 if not self._stop_event.is_set():
                     time.sleep(1)
 
@@ -3233,9 +3110,3 @@ class PodmanEventMonitor:
             node._notify_container_died()
         elif event_status in ("start", "restart"):
             node._notify_container_started()
-
-    _event_statuses: dict[str, str] = {}
-
-    def get_event_status(self, container_id):
-        """Return the last-known status for *container_id* or None."""
-        return self._event_statuses.get(container_id)
