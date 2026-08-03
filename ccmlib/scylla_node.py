@@ -773,12 +773,16 @@ class ScyllaNode(Node):
         # Lets search for default overrides in SCYLLA_EXT_OPTS
         env_args = process_opts(os.getenv('SCYLLA_EXT_OPTS', "").split())
 
+        # use '--smp' from SCYLLA_EXT_OPTS unless set by the test
+        # (jvm_args may still override it below)
+        if not self._smp_set_during_test and '--smp' in env_args:
+            self._smp = int(env_args['--smp'][0])
+
         # precalculate self._mem_mb_per_cpu if --memory is given in SCYLLA_EXT_OPTS
         # and it wasn't set explicitly by the test
         if not self._mem_mb_set_during_test and '--memory' in env_args:
             memory = self.parse_size(env_args['--memory'][0])
-            smp = int(env_args['--smp'][0]) if '--smp' in env_args else self._smp
-            self._mem_mb_per_cpu = int((memory / smp) // MB)
+            self._mem_mb_per_cpu = int((memory / self._smp) // MB)
 
         cmd_args = process_opts(jvm_args)
 
