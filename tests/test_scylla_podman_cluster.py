@@ -2741,6 +2741,35 @@ class TestEncryptionOptionsRemap:
         cluster.network_topology = None
         return cluster
 
+    def test_client_encryption_options_certs_are_remapped(self, monkeypatch, tmp_path):
+        cert_path = str(tmp_path / "ccm_node.pem")
+        key_path = str(tmp_path / "ccm_node.key")
+        for p in (cert_path, key_path):
+            with open(p, "w") as f:
+                f.write("dummy")
+
+        monkeypatch.setattr(ScyllaNode, "update_yaml", lambda self: None)
+        monkeypatch.setattr(
+            ScyllaPodmanNode, "read_scylla_yaml",
+            lambda self: {"client_encryption_options": {
+                "enabled": True, "certificate": cert_path, "keyfile": key_path,
+            }},
+        )
+        monkeypatch.setattr(ScyllaPodmanNode, "_get_rack_ip", lambda self: "127.0.0.1")
+
+        node = self._make_node(tmp_path, self._make_cluster())
+        node.update_yaml()
+
+        keys_dir = os.path.join(node.get_path(), "keys")
+        assert os.path.exists(os.path.join(keys_dir, "ccm_node.pem"))
+        assert os.path.exists(os.path.join(keys_dir, "ccm_node.key"))
+
+        with open(os.path.join(node.get_conf_dir(), "scylla.yaml")) as f:
+            written = YAML().load(f)
+        opts = written["client_encryption_options"]
+        assert opts["certificate"] == "/usr/lib/scylla/keys/ccm_node.pem"
+        assert opts["keyfile"] == "/usr/lib/scylla/keys/ccm_node.key"
+
     def test_server_encryption_options_still_remapped(self, monkeypatch, tmp_path):
         """Regression guard for the pre-existing internode-SSL remap."""
         cert_path = str(tmp_path / "internode-ccm_node.pem")
