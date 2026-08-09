@@ -440,7 +440,7 @@ class Cluster(object):
         if os.path.exists(path):
             while not removed:
                 try:
-                    common.rmdirs(path)
+                    common.rmdirs(path, ignore_errors=False)
                     removed = True
                 except Exception:
                     tries = tries + 1
