@@ -265,6 +265,11 @@ class ScyllaCluster(Cluster):
         self._update_config()
 
     def enable_internode_ssl(self, node_ssl_path, internode_encryption='all'):
+        # Validate required SSL files exist before copying
+        for required_file in ['trust.pem', 'ccm_node.pem', 'ccm_node.key']:
+            file_path = os.path.join(node_ssl_path, required_file)
+            if not os.path.exists(file_path):
+                raise FileNotFoundError(f"Required SSL file not found: {file_path}")
         shutil.copyfile(os.path.join(node_ssl_path, 'trust.pem'), os.path.join(self.get_path(), 'internode-trust.pem'))
         shutil.copyfile(os.path.join(node_ssl_path, 'ccm_node.pem'), os.path.join(self.get_path(), 'internode-ccm_node.pem'))
         shutil.copyfile(os.path.join(node_ssl_path, 'ccm_node.key'), os.path.join(self.get_path(), 'internode-ccm_node.key'))
