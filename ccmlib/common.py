@@ -329,12 +329,12 @@ def replaces_or_add_into_file_tail(file, replacement_list):
     shutil.move(file_tmp, file)
 
 
-def rmdirs(path):
+def rmdirs(path, ignore_errors=True):
     if is_win():
         # Handle Windows 255 char limit
-        shutil.rmtree("\\\\?\\" + path, ignore_errors=True)
+        shutil.rmtree("\\\\?\\" + path, ignore_errors=ignore_errors)
     else:
-        shutil.rmtree(path, ignore_errors=True)
+        shutil.rmtree(path, ignore_errors=ignore_errors)
 
 
 def make_cassandra_env(install_dir, node_path, update_conf=True, hardcode_java_version: Optional[str] = None):
