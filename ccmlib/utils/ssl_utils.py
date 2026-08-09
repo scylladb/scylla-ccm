@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import logging
 
@@ -62,6 +63,9 @@ def generate_ssl_stores(base_dir, passphrase='cassandra', dns_names=None):
     subprocess.check_call(['openssl', 'rsa', '-in', os.path.join(base_dir, 'ccm_node.tmp'),
                            '-passin', f'pass:{passphrase}',
                            '-out', os.path.join(base_dir, 'ccm_node.key')])
+    # enable_internode_ssl() (scylla_cluster.py) expects a 'trust.pem' trust
+    # anchor; ccm_node.pem (cert only, no key) is exactly that.
+    shutil.copyfile(os.path.join(base_dir, 'ccm_node.pem'), os.path.join(base_dir, 'trust.pem'))
 
 
 if __name__ == "__main__":
