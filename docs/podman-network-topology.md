@@ -93,6 +93,30 @@ test/development environments.
 - `smp` defaults to **1** for podman nodes (set via `node.set_smp()` or
   `SCYLLA_EXT_OPTS="--smp N"`)
 
+## TLS and Compression
+
+Node-to-node TLS (`cluster.enable_internode_ssl()`) and CQL client TLS
+(`cluster.enable_ssl()`) work transparently with podman clusters:
+`ScyllaPodmanNode.update_yaml()` copies each cert referenced in
+`server_encryption_options`/`client_encryption_options` into the node's
+container-visible `keys/` directory and rewrites the option to the
+in-container path. `internode_compression` (`all`/`dc`/`rack`/`none`) is a
+plain scylla.yaml option, no podman-specific handling needed.
+
+```python
+# Set non-SSL options *before* enable_ssl()/enable_internode_ssl() — this
+# ordering is what's been tested; calling set_configuration_options()
+# afterward re-runs import_config_files() on every node and hasn't been
+# verified safe.
+cluster.set_configuration_options(values={"internode_compression": "rack"})
+
+generate_ssl_stores(ssl_dir)
+cluster.enable_ssl(ssl_dir, require_client_auth=False)
+cluster.enable_internode_ssl(ssl_dir)
+
+cluster.start(wait_for_binary_proto=True)
+```
+
 ## Usage
 
 ### CLI

@@ -2061,18 +2061,25 @@ class ScyllaPodmanNode(ScyllaNode):
         # host and chowned to the scylla user by _prepare_bind_mounts.
         data["workdir,W"] = os.path.join(self.base_data_path, "workdir")
 
-        # Handle server encryption options
-        server_encryption_options = data.get("server_encryption_options", {})
-        if server_encryption_options:
+        # Cert/key paths in server_encryption_options and client_encryption_options
+        # are written as cluster-level host paths (see enable_ssl() /
+        # enable_internode_ssl()), which live outside anything bind-mounted
+        # into this node's container. Copy the referenced files into this
+        # node's own keys/ dir (which IS mounted) and rewrite the paths to
+        # the container-internal location.
+        def _remap_cert_paths_for_container(options):
+            if not options:
+                return
             keys_dir_path = os.path.join(self.get_path(), "keys")
             os.makedirs(keys_dir_path, exist_ok=True)
-            for key, file_path in list(server_encryption_options.items()):
+            for key, file_path in list(options.items()):
                 if isinstance(file_path, str) and os.path.isfile(file_path):
                     file_name = os.path.split(file_path)[1]
                     copyfile(src=file_path, dst=os.path.join(keys_dir_path, file_name))
-                    server_encryption_options[key] = os.path.join(
-                        self.base_data_path, "keys", file_name
-                    )
+                    options[key] = os.path.join(self.base_data_path, "keys", file_name)
+
+        _remap_cert_paths_for_container(data.get("server_encryption_options", {}))
+        _remap_cert_paths_for_container(data.get("client_encryption_options", {}))
 
         with open(conf_file, "w", encoding="utf-8") as f:
             YAML().dump(data, f)

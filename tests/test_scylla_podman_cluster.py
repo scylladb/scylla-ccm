@@ -2583,3 +2583,109 @@ class TestImageConfCache:
 
         assert extract_calls == [], "_extract_image_conf must not be called when cache exists"
         assert result == cache_dir
+
+
+class TestEncryptionOptionsRemap:
+    """enable_ssl()/enable_internode_ssl() write cert/key paths at the cluster
+    level, outside anything bind-mounted into a node's container.
+    ScyllaPodmanNode.update_yaml() must copy those files into this node's own
+    keys/ dir (which IS mounted) and rewrite the paths to be container-internal,
+    for both client and internode (server) encryption options.
+    """
+
+    def _make_node(self, tmp_path, cluster):
+        node_dir = str(tmp_path / "node1")
+        node_conf_dir = os.path.join(node_dir, "conf")
+        os.makedirs(node_conf_dir, exist_ok=True)
+        # scylla.yaml must already exist so update_yaml() skips the cache-copy step.
+        with open(os.path.join(node_conf_dir, "scylla.yaml"), "w") as f:
+            f.write("cluster_name: test\n")
+
+        node = object.__new__(ScyllaPodmanNode)
+        node.cluster = cluster
+        node.local_yaml_path = node_conf_dir
+        node.name = "node1"
+        node.base_data_path = "/usr/lib/scylla"
+        node.network_interfaces = {
+            "storage": ("127.0.0.1", 7000),
+            "binary": ("127.0.0.1", 9042),
+        }
+        node.get_path = lambda: node_dir
+        return node
+
+    def _make_cluster(self):
+        cluster = object.__new__(ScyllaPodmanCluster)
+        cluster.podman_image = "docker.io/scylladb/scylla:test"
+        cluster._image_conf_cache_lock = threading.Lock()
+        cluster.network_topology = None
+        return cluster
+
+    def test_client_encryption_options_certs_are_remapped(self, monkeypatch, tmp_path):
+        cert_path = str(tmp_path / "ccm_node.pem")
+        key_path = str(tmp_path / "ccm_node.key")
+        for p in (cert_path, key_path):
+            with open(p, "w") as f:
+                f.write("dummy")
+
+        monkeypatch.setattr(ScyllaNode, "update_yaml", lambda self: None)
+        monkeypatch.setattr(
+            ScyllaPodmanNode, "read_scylla_yaml",
+            lambda self: {"client_encryption_options": {
+                "enabled": True, "certificate": cert_path, "keyfile": key_path,
+            }},
+        )
+        monkeypatch.setattr(ScyllaPodmanNode, "_get_rack_ip", lambda self: "127.0.0.1")
+
+        node = self._make_node(tmp_path, self._make_cluster())
+        node.update_yaml()
+
+        keys_dir = os.path.join(node.get_path(), "keys")
+        assert os.path.exists(os.path.join(keys_dir, "ccm_node.pem"))
+        assert os.path.exists(os.path.join(keys_dir, "ccm_node.key"))
+
+        with open(os.path.join(node.get_conf_dir(), "scylla.yaml")) as f:
+            written = YAML().load(f)
+        opts = written["client_encryption_options"]
+        assert opts["certificate"] == "/usr/lib/scylla/keys/ccm_node.pem"
+        assert opts["keyfile"] == "/usr/lib/scylla/keys/ccm_node.key"
+
+    def test_server_encryption_options_still_remapped(self, monkeypatch, tmp_path):
+        """Regression guard for the pre-existing internode-SSL remap."""
+        cert_path = str(tmp_path / "internode-ccm_node.pem")
+        key_path = str(tmp_path / "internode-ccm_node.key")
+        for p in (cert_path, key_path):
+            with open(p, "w") as f:
+                f.write("dummy")
+
+        monkeypatch.setattr(ScyllaNode, "update_yaml", lambda self: None)
+        monkeypatch.setattr(
+            ScyllaPodmanNode, "read_scylla_yaml",
+            lambda self: {"server_encryption_options": {
+                "internode_encryption": "all", "certificate": cert_path, "keyfile": key_path,
+            }},
+        )
+        monkeypatch.setattr(ScyllaPodmanNode, "_get_rack_ip", lambda self: "127.0.0.1")
+
+        node = self._make_node(tmp_path, self._make_cluster())
+        node.update_yaml()
+
+        keys_dir = os.path.join(node.get_path(), "keys")
+        assert os.path.exists(os.path.join(keys_dir, "internode-ccm_node.pem"))
+        assert os.path.exists(os.path.join(keys_dir, "internode-ccm_node.key"))
+
+        with open(os.path.join(node.get_conf_dir(), "scylla.yaml")) as f:
+            written = YAML().load(f)
+        opts = written["server_encryption_options"]
+        assert opts["certificate"] == "/usr/lib/scylla/keys/internode-ccm_node.pem"
+        assert opts["keyfile"] == "/usr/lib/scylla/keys/internode-ccm_node.key"
+
+    def test_no_encryption_options_is_a_noop(self, monkeypatch, tmp_path):
+        """update_yaml() must not blow up when no encryption is configured."""
+        monkeypatch.setattr(ScyllaNode, "update_yaml", lambda self: None)
+        monkeypatch.setattr(ScyllaPodmanNode, "read_scylla_yaml", lambda self: {})
+        monkeypatch.setattr(ScyllaPodmanNode, "_get_rack_ip", lambda self: "127.0.0.1")
+
+        node = self._make_node(tmp_path, self._make_cluster())
+        node.update_yaml()
+
+        assert not os.path.exists(os.path.join(node.get_path(), "keys"))
