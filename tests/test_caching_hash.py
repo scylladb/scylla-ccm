@@ -126,8 +126,41 @@ class TestGetUrlHash:
         
         url = "https://example.com/path/to/package.tar.gz"
         url_hash = get_url_hash(url)
-        
+
         assert url_hash == "http_etag_value"
+
+    @patch('ccmlib.utils.download.requests')
+    @patch('ccmlib.utils.download.Session')
+    def test_get_url_hash_raises_clear_error_when_http_fallback_has_no_etag(self, mock_session, mock_requests):
+        """S3 failing (e.g. 403) and the HTTP fallback having no ETag header used to
+        crash with a confusing 'NoneType' object is not subscriptable' TypeError.
+        It should raise a clear error mentioning both failures instead."""
+        mock_s3_client = MagicMock()
+        mock_s3_client.head_object.side_effect = botocore.client.ClientError(
+            {'Error': {'Code': '403', 'Message': 'Forbidden'}},
+            'head_object'
+        )
+        mock_session.return_value.client.return_value = mock_s3_client
+
+        mock_response = MagicMock()
+        mock_response.headers.get.return_value = None
+        mock_requests.head.return_value = mock_response
+
+        url = "https://example.com/path/to/package.tar.gz"
+        with pytest.raises(RuntimeError, match="Forbidden.*no ETag"):
+            get_url_hash(url)
+
+    @patch('ccmlib.utils.download.Session')
+    def test_get_url_hash_raises_clear_error_when_s3_has_no_etag(self, mock_session):
+        """S3 succeeding but returning no ETag used to crash with an uncaught
+        TypeError instead of a clear error."""
+        mock_s3_client = MagicMock()
+        mock_s3_client.head_object.return_value = {}
+        mock_session.return_value.client.return_value = mock_s3_client
+
+        url = "http://s3.amazonaws.com/bucket/path/to/package.tar.gz"
+        with pytest.raises(RuntimeError, match="no ETag"):
+            get_url_hash(url)
 
 
 class TestSourceFileOperations:

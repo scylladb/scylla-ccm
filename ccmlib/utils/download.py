@@ -189,10 +189,19 @@ def get_url_hash(url: str) -> str:
 
     try:
         metadata = s3_client.head_object(Bucket=bucket_name, Key=download_path)
-        return metadata.get('ETag')[1:-1]
-    except botocore.client.ClientError:
+        etag = metadata.get('ETag')
+        if not etag:
+            raise RuntimeError(f"S3 HeadObject for {url} returned no ETag; cannot compute hash")
+        return etag[1:-1]
+    except botocore.client.ClientError as e:
         # fallback to http
-        return requests.head(url).headers.get('ETag')[1:-1]
+        etag = requests.head(url).headers.get('ETag')
+        if not etag:
+            raise RuntimeError(
+                f"Could not get a hash for {url}: S3 HeadObject failed ({e}) "
+                "and the HTTP fallback returned no ETag header"
+            ) from e
+        return etag[1:-1]
 
 
 def save_source_file(source_file: str, version: str, url: str, url_hash: str):
