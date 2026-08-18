@@ -12,6 +12,7 @@ from _pytest.fixtures import FixtureRequest
 
 from ccmlib import common
 from ccmlib.cmds.command import Cmd
+from ccmlib.scylla_repository import get_manager_latest_reloc_url
 
 from .test_scylla_docker_cluster import TestScyllaDockerCluster
 
@@ -216,7 +217,7 @@ class TestCCMClusterManagerSctool:
         try:
             cluster_under_test.run_command(cluster_under_test.get_create_cmd(args=['-n', '3',
                 '--scylla-manager-package',
-                'http://downloads.scylladb.com.s3.amazonaws.com/manager/relocatable/unstable/master/2021-11-08T22%3A06%3A29Z/scylla-manager_2.6-dev-0.20211108.5f1e01cbb34-SNAPSHOT-5f1e01cbb34.linux_amd64.tar.gz']))
+                get_manager_latest_reloc_url()]))
             cluster_under_test.validate_command_result()
 
             cluster_under_test.run_command(cluster_under_test.get_updateconf_cmd())
