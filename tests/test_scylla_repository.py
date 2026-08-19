@@ -5,7 +5,7 @@ import tempfile
 import time
 import typing
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -83,12 +83,29 @@ class TestScyllaRepositoryRelease:
         assert packages.scylla_tools_package
         assert packages.scylla_jmx_package
 
+    @staticmethod
+    def _mock_build_manifest(unified_pack_url):
+        """
+        unstable build folders are pruned from S3 after a retention window, so these tests mock the
+        bucket listing and 00-Build.txt manifest instead of depending on specific historical builds
+        still being present.
+        """
+        response = MagicMock()
+        response.raise_for_status.return_value = None
+        response.content = f'unified-pack-url: {unified_pack_url}\n'.encode()
+        return patch('ccmlib.scylla_repository.aws_bucket_ls', return_value=['00-Build.txt']), \
+            patch('ccmlib.scylla_repository.requests.get', return_value=response)
+
     @pytest.mark.parametrize(argnames=['version', 'expected_cdir', 'scylla_debug'], argvalues=[
         ("unstable/master:2021-01-18T15:48:13Z", "2021-01-18T15:48:13Z", False),
         ("unstable/master:2021-01-18T15:48:13Z:debug", "2021-01-18T15:48:13Z", True),
     ])
     def test_setup_unstable_master_new_url(self, version, expected_cdir, scylla_debug):
-        cdir, packages = scylla_setup(version=version, verbose=True, skip_downloads=True)
+        unified_pack_url = ('s3.amazonaws.com/downloads.scylladb.com/unstable/scylla/master/relocatable/'
+                             f'{expected_cdir}/scylla-unified-package-4.4.dev.0.20210118.df3ef800c.tar.gz')
+        mock_ls, mock_get = self._mock_build_manifest(unified_pack_url)
+        with mock_ls, mock_get:
+            cdir, packages = scylla_setup(version=version, verbose=True, skip_downloads=True)
         assert re.sub(":", "_", expected_cdir) in cdir
         assert packages.scylla_unified_package == f'http://s3.amazonaws.com/downloads.scylladb.com/unstable/scylla/master/relocatable/{expected_cdir}/scylla{"-debug" if scylla_debug else ""}-unified-package-4.4.dev.0.20210118.df3ef800c.tar.gz'
 
@@ -97,7 +114,11 @@ class TestScyllaRepositoryRelease:
         ("unstable/enterprise:2023-09-10T20:18:18Z:debug", "2023-09-10T20:18:18Z", True),
     ])
     def test_setup_unstable_enterprise_new_url(self, version, expected_cdir, scylla_debug):
-        cdir, packages = scylla_setup(version=version, verbose=True, skip_downloads=True)
+        unified_pack_url = ('s3.amazonaws.com/downloads.scylladb.com/unstable/scylla-enterprise/enterprise/relocatable/'
+                             f'{expected_cdir}/scylla-enterprise-unified-2023.3.0~dev-0.20230910.4629201aceec.x86_64.tar.gz')
+        mock_ls, mock_get = self._mock_build_manifest(unified_pack_url)
+        with mock_ls, mock_get:
+            cdir, packages = scylla_setup(version=version, verbose=True, skip_downloads=True)
         assert re.sub(":", "_", expected_cdir) in cdir
         assert packages.scylla_unified_package == f'http://s3.amazonaws.com/downloads.scylladb.com/unstable/scylla-enterprise/enterprise/relocatable/{expected_cdir}/scylla-enterprise{"-debug" if scylla_debug else ""}-unified-2023.3.0~dev-0.20230910.4629201aceec.x86_64.tar.gz'
 
@@ -152,20 +173,20 @@ class TestReinstallPackages:
         - run setup again. It expected that the package will be downloaded again. The download time should be not short.
         Actually time without download should be less than 3 ms, and with download about 9 ms. I put here more than 20
         """
-        cdir, version = scylla_setup(version="unstable/master:2025-01-19T09:39:05Z", verbose=True, skip_downloads=False)
-        assert '2025-01-19T09_39_05Z' in cdir
-        assert version == '2025.1.0-dev'
+        cdir, version = scylla_setup(version="unstable/master:2026-05-17T13:55:59Z", verbose=True, skip_downloads=False)
+        assert '2026-05-17T13_55_59Z' in cdir
+        assert version == '2026.3.0-dev'
 
         self.corrupt_hash_value(Path(cdir) / CORE_PACKAGE_DIR_NAME / SOURCE_FILE_NAME)
 
         scylla_setup.cache_clear()
-        
+
         start_time = time.time()
-        cdir, version = scylla_setup(version="unstable/master:2025-01-19T09:39:05Z", verbose=True, skip_downloads=False)
+        cdir, version = scylla_setup(version="unstable/master:2026-05-17T13:55:59Z", verbose=True, skip_downloads=False)
         end_time = time.time()
         assert (end_time - start_time) > 5
-        assert '2025-01-19T09_39_05Z' in cdir
-        assert version == '2025.1.0-dev'
+        assert '2026-05-17T13_55_59Z' in cdir
+        assert version == '2026.3.0-dev'
 
 
 class TestLocalFileCaching:
@@ -353,8 +374,8 @@ class TestGetManagerFunctions:
         assert 'SNAPSHOT' in master_version
         assert architecture in master_version
 
-        branch_version = get_manager_latest_reloc_url('branch-3.1', architecture=architecture)
-        assert 'relocatable/unstable/branch-3.1' in branch_version
+        branch_version = get_manager_latest_reloc_url('branch-3.12', architecture=architecture)
+        assert 'relocatable/unstable/branch-3.12' in branch_version
         assert architecture in branch_version
 
     def test_get_manager_release_url(self, architecture):
