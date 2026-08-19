@@ -28,6 +28,7 @@ Start a multi-DC, multi-rack Scylla cluster using podman containers with optiona
 | `--pinning` | no | `false` | Pin each node to dedicated CPU cores |
 | `--keep` | no | `false` | Keep cluster running after success |
 | `--name` | no | `test-cluster` | Cluster name |
+| `--dir` | no | `/tmp` | Directory holding the cluster data (the containers' disks). Defaults to `/tmp` (tmpfs) for speed; point it at a real filesystem for large clusters |
 
 All parameters are optional. The default is a 45-node cluster across 3 DCs × 3 racks × 5 nodes.
 
@@ -91,8 +92,9 @@ if not image:
 from ccmlib.scylla_podman_cluster import ScyllaPodmanCluster
 import tempfile
 
+data_dir = dir if dir else "/tmp"
 cluster = ScyllaPodmanCluster(
-    str(tempfile.mkdtemp(prefix="ccm-podman-")),
+    str(tempfile.mkdtemp(prefix="ccm-podman-", dir=data_dir)),
     name=cluster_name,
     podman_image=image,
     inter_dc_delay_ms=inter_dc_delay,
@@ -238,6 +240,9 @@ Rack    Rack1
 
 # Keep running for investigation
 /podman-cluster --topology "dc1:rack1:2" --keep
+
+# Large cluster on a real filesystem instead of /tmp (tmpfs)
+/podman-cluster --topology "dc1:rack1:7,rack2:7,rack3:7;dc2:rack1:7,rack2:7,rack3:7;dc3:rack1:7,rack2:7,rack3:7" --dir ~/scylla-clusters
 ```
 
 ## Critical implementation constraints
