@@ -78,6 +78,10 @@ def parse_args(argv=None):
         "--smp", type=int, default=None,
         help="Shards per node (default: node default, 1)",
     )
+    parser.add_argument(
+        "--dir", default=None, metavar="DIR",
+        help="Directory to hold the cluster data (default: tempfile under /tmp, tmpfs)",
+    )
     return parser.parse_args(argv)
 
 
@@ -107,7 +111,7 @@ def main():
 
     from ccmlib.scylla_podman_cluster import ScyllaPodmanCluster
 
-    test_dir = tempfile.mkdtemp(prefix="ccm-bigcluster-")
+    test_dir = tempfile.mkdtemp(prefix="ccm-bigcluster-", dir=args.dir)
     cluster = None
     failures = 0
     try:
