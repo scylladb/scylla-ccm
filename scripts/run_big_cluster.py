@@ -78,7 +78,18 @@ def parse_args(argv=None):
         "--smp", type=int, default=None,
         help="Shards per node (default: node default, 1)",
     )
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--dir", default=None, metavar="DIR",
+        help="Directory to hold the cluster data (default: tempfile under /tmp, tmpfs)",
+    )
+    args = parser.parse_args(argv)
+    if args.concurrency is not None and args.concurrency < 1:
+        parser.error("--concurrency must be >= 1")
+    if args.smp is not None and args.smp < 1:
+        parser.error("--smp must be >= 1")
+    if args.inter_dc_delay_ms < 0 or args.inter_rack_delay_ms < 0:
+        parser.error("--inter-dc-delay-ms/--inter-rack-delay-ms must be >= 0")
+    return args
 
 
 def main():
@@ -107,7 +118,7 @@ def main():
 
     from ccmlib.scylla_podman_cluster import ScyllaPodmanCluster
 
-    test_dir = tempfile.mkdtemp(prefix="ccm-bigcluster-")
+    test_dir = tempfile.mkdtemp(prefix="ccm-bigcluster-", dir=args.dir)
     cluster = None
     failures = 0
     try:
