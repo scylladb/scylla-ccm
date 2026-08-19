@@ -2,6 +2,7 @@
 # Cassandra Cluster Management lib
 #
 
+import errno
 import fnmatch
 import fcntl
 import os
@@ -766,35 +767,52 @@ def pids_listening_on(addr: str, port: int) -> List[int]:
     return pids
 
 
-def check_socket_available(itf):
+def check_socket_available(itf, timeout=5, step=0.5):
     info = socket.getaddrinfo(itf[0], itf[1], socket.AF_UNSPEC, socket.SOCK_STREAM)
     if not info:
         raise UnavailableSocketError("Failed to get address info for [%s]:%s" % itf)
 
     (family, socktype, proto, canonname, sockaddr) = info[0]
-    s = socket.socket(family, socktype)
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-    try:
-        s.bind(sockaddr)
-        s.close()
-    except socket.error as msg:
-        s.close()
-        addr, port = itf
-        pids = pids_listening_on(addr, port)
-        if not pids:
-            logger.error('Address %s:%d used unknown process')
-        else:
-            for pid in pids:
-                p = psutil.Process(pid)
-                secs_ago = p.create_time()
-                fmt = '%H:%M:%S' if secs_ago < 60 * 60 * 24 else '%Y-%m-%d %H:%M:%S'
-                since = datetime.fromtimestamp(secs_ago).strftime(fmt)
-                logger.error('Address %s:%d used by: "%s" '
-                             '(pid: %d, since: %s, parent: "%s")',
-                             addr, port, ' '.join(p.cmdline()),
-                             p.pid, since, ' '.join(p.parent().cmdline()))
-        raise UnavailableSocketError(f'Inet address {addr}:{port} is not available: {msg}')
+    last_error = None
+
+    def _try_bind():
+        nonlocal last_error
+        s = socket.socket(family, socktype)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind(sockaddr)
+            return True
+        except OSError as e:
+            if e.errno != errno.EADDRINUSE:
+                raise
+            last_error = e
+            return False
+        finally:
+            s.close()
+
+    # A bind failure here often just means another worker's cluster is still
+    # mid-teardown and the kernel hasn't reclaimed its port yet, not that the
+    # address is genuinely stuck in use. Retry briefly with backoff before
+    # giving up, instead of failing outright on the first attempt.
+    if wait_for(_try_bind, timeout=timeout, step=step):
+        return
+
+    addr, port = itf
+    pids = pids_listening_on(addr, port)
+    if not pids:
+        logger.error('Address %s:%d used by unknown process', addr, port)
+    else:
+        for pid in pids:
+            p = psutil.Process(pid)
+            secs_ago = p.create_time()
+            fmt = '%H:%M:%S' if secs_ago < 60 * 60 * 24 else '%Y-%m-%d %H:%M:%S'
+            since = datetime.fromtimestamp(secs_ago).strftime(fmt)
+            logger.error('Address %s:%d used by: "%s" '
+                         '(pid: %d, since: %s, parent: "%s")',
+                         addr, port, ' '.join(p.cmdline()),
+                         p.pid, since, ' '.join(p.parent().cmdline()))
+    raise UnavailableSocketError(f'Inet address {addr}:{port} is not available: {last_error}')
 
 
 def check_socket_listening(itf, timeout=60):
