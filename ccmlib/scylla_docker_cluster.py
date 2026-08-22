@@ -1,6 +1,4 @@
 import os
-import shutil
-import subprocess
 import types
 import warnings
 from shutil import copyfile
@@ -17,6 +15,7 @@ from ccmlib.container_client import (
     get_container_client,
     ContainerClientError,
     ContainerImageNotFoundError,
+    ContainerLogManager,
 )
 
 LOGGER = logging.getLogger("ccm")
@@ -28,6 +27,7 @@ class ScyllaDockerCluster(ScyllaCluster):
         self.docker_image = kwargs['docker_image']
         self.container_runtime = kwargs.get('container_runtime', None)
         self._container_client = None
+        self._log_manager = None
         self.cluster_network = None
 
         # Podman requires fully-qualified image names (no short names)
@@ -52,6 +52,12 @@ class ScyllaDockerCluster(ScyllaCluster):
                 LOGGER.error(f"Failed to initialize container client: {e}")
                 raise
         return self._container_client
+
+    def get_log_manager(self):
+        """Get or create the shared log-streaming manager for this cluster's containers."""
+        if self._log_manager is None:
+            self._log_manager = ContainerLogManager(self.get_container_client())
+        return self._log_manager
     
     def _validate_docker_image(self):
         """Validate that the Docker image exists or can be pulled."""
@@ -100,9 +106,11 @@ class ScyllaDockerCluster(ScyllaCluster):
 
     def remove(self, node=None, wait_other_notice=False, other_nodes=None):
         # Remove containers first, before super().remove() deletes node dirs
-        # and before removing the network (containers must disconnect first)
-        for n in list(self.nodes.values()):
-            n.remove()
+        # and before removing the network (containers must disconnect first).
+        # Batched into one/few `rm` calls instead of one subprocess per node.
+        targets = [ref for n in list(self.nodes.values()) if (ref := (n.pid or n.docker_name))]
+        if targets:
+            self.get_container_client().remove_containers(targets, force=True, volumes=True, chunk_size=10)
 
         super(ScyllaDockerCluster, self).remove(node=node, wait_other_notice=wait_other_notice, other_nodes=other_nodes)
 
@@ -199,6 +207,10 @@ class ScyllaDockerNode(ScyllaNode):
     def get_container_client(self):
         """Get the container client from the cluster."""
         return self.cluster.get_container_client()
+
+    def get_log_manager(self):
+        """Get the shared log-streaming manager from the cluster."""
+        return self.cluster.get_log_manager()
 
     def _get_directories(self):
         dirs = {}
@@ -350,6 +362,7 @@ class ScyllaDockerNode(ScyllaNode):
                     image=self.cluster.docker_image,
                     name=self.docker_name,
                     volumes=volumes,
+                    volumes_no_relabel=['/tmp'],
                     ports=ports if ports else None,
                     network=self.cluster.cluster_network,
                     entrypoint='/bin/bash',
@@ -366,10 +379,10 @@ class ScyllaDockerNode(ScyllaNode):
                 LOGGER.error(f"Failed to create Docker container: {e}")
                 raise BaseException(f'Failed to create docker {self.docker_name}: {e}')
 
-            # Start log thread
+            # Start log streaming
             if not self.log_thread:
-                self.log_thread = DockerLogger(self, os.path.join(self.get_path(), 'logs', 'system.log'))
-                self.log_thread.start()
+                self.get_log_manager().start_stream(self.pid, os.path.join(self.get_path(), 'logs', 'system.log'))
+                self.log_thread = True
 
             self.watch_log_for("supervisord started with", from_mark=0, timeout=30)
 
@@ -382,8 +395,8 @@ class ScyllaDockerNode(ScyllaNode):
             self._has_jmx = (rc == 0)
 
         if not self.log_thread:
-            self.log_thread = DockerLogger(self, os.path.join(self.get_path(), 'logs', 'system.log'))
-            self.log_thread.start()
+            self.get_log_manager().start_stream(self.pid, os.path.join(self.get_path(), 'logs', 'system.log'))
+            self.log_thread = True
 
         # Get container IP address
         client = self.get_container_client()
@@ -681,8 +694,7 @@ class ScyllaDockerNode(ScyllaNode):
     def get_tool(self, toolname):
         """Get command to run a tool in the Docker container."""
         client = self.get_container_client()
-        runtime_path = shutil.which(client.runtime_name) or client.runtime_name
-        return [runtime_path, 'exec', '-i', f'{self.pid}', f'{toolname}']
+        return [client.runtime_path, 'exec', '-i', f'{self.pid}', f'{toolname}']
 
     def _find_cmd(self, command_name):
         return self.get_tool(command_name)
@@ -769,35 +781,3 @@ class ScyllaDockerNode(ScyllaNode):
                 stdout=PIPE, stderr=PIPE)
 
         super(ScyllaDockerNode, self).rmtree(path)
-
-
-class DockerLogger:
-    def __init__(self, node, target_log_file: str):
-        self._node = node
-        self._target_log_file = target_log_file
-        self._process = None
-        self._thread = None
-
-    def _stream_logs(self):
-        """Read from docker logs pipe and write each line to file immediately."""
-        try:
-            with open(self._target_log_file, 'a') as f:
-                for line in self._process.stdout:
-                    f.write(line)
-                    f.flush()
-        except (ValueError, OSError):
-            pass
-
-    def start(self):
-        import threading
-        client = self._node.get_container_client()
-        runtime_path = shutil.which(client.runtime_name) or client.runtime_name
-        self._process = subprocess.Popen(
-            [runtime_path, 'logs', '-f', self._node.pid],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            universal_newlines=True,
-            bufsize=1,
-        )
-        self._thread = threading.Thread(target=self._stream_logs, daemon=True)
-        self._thread.start()

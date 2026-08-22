@@ -799,3 +799,7 @@ class Cluster(object):
     @staticmethod
     def is_docker():
         return False
+
+    @staticmethod
+    def is_podman():
+        return False

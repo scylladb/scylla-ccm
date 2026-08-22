@@ -1,17 +1,177 @@
+import json
 import logging
 import os
+import shutil
 from datetime import datetime
 from pathlib import Path
+from subprocess import DEVNULL, PIPE, run
 
 import pytest
-from tests.test_config import RESULTS_DIR, TEST_ID, SCYLLA_DOCKER_IMAGE, SCYLLA_RELOCATABLE_VERSION
+from tests.test_config import RESULTS_DIR, TEST_ID, SCYLLA_DOCKER_IMAGE, SCYLLA_RELOCATABLE_VERSION, SCYLLA_PODMAN_IMAGE
 
 from ccmlib.scylla_cluster import ScyllaCluster
 from ccmlib.scylla_docker_cluster import ScyllaDockerCluster
+from ccmlib.scylla_podman_cluster import (
+    PODMAN_RESOURCE_OWNER_LABEL,
+    PODMAN_TEST_SESSION_ENV,
+    PODMAN_TEST_SESSION_LABEL,
+    ScyllaPodmanCluster,
+)
 from .ccmcluster import CCMCluster
 
 
 LOGGER = logging.getLogger(__name__)
+
+# Mark every podman container/network created during this test session so
+# that stale-resource pruning (below) can be scoped to test-created
+# resources. Without this, pruning would also delete "ccm-"-named resources
+# from a normal interactive `ccm create ... -s` CLI invocation: that CLI
+# process exits right after startup while the cluster it created keeps
+# running, so its containers would otherwise look identical to an abandoned
+# crashed-test-run leftover (dead owner PID). `setdefault` lets a caller
+# override the value (or explicitly unset labeling isn't supported, but a
+# custom session id can be supplied) while still defaulting it for us.
+os.environ.setdefault(PODMAN_TEST_SESSION_ENV, "pytest")
+
+
+def _pid_is_alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _resource_owner_pid(labels):
+    if not isinstance(labels, dict):
+        return None
+    owner_pid = labels.get(PODMAN_RESOURCE_OWNER_LABEL)
+    if owner_pid is None:
+        return None
+    try:
+        return int(owner_pid)
+    except (TypeError, ValueError):
+        return None
+
+
+def _has_test_session_label(labels):
+    """Return True if *labels* marks the resource as created by a test session.
+
+    Used to scope stale-resource pruning to resources tests themselves
+    created, never resources from an interactive `ccm` CLI invocation.
+    """
+    if not isinstance(labels, dict):
+        return False
+    return bool(labels.get(PODMAN_TEST_SESSION_LABEL))
+
+
+def _prune_stale_ccm_podman_resources():
+    """Remove any leftover CCM podman containers and networks from previous test runs.
+
+    Only resources owned by a dead pytest session are removed. This avoids
+    tearing down a concurrently running CCM podman session on the same host.
+
+    Scoped to resources carrying the test-session label (see
+    ``PODMAN_TEST_SESSION_LABEL`` / ``os.environ.setdefault`` above): a
+    "ccm-"-named container with a dead owner PID is not necessarily stale --
+    a plain `ccm create ... -s` CLI invocation exits right after starting
+    the cluster, while the cluster/containers it created keep running. Only
+    resources tagged as test-created are eligible for this sweep.
+    """
+    CCM_CONTAINER_PREFIX = "ccm-"
+    CCM_NETWORK_PREFIX = "ccm-"
+
+    stale_container_names = []
+    try:
+        res = run(
+            ["podman", "ps", "-a", "--format", "json"],
+            stdout=PIPE,
+            stderr=PIPE,
+            text=True,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            containers = json.loads(res.stdout)
+            for c in containers:
+                names = c.get("Names", [])
+                name = names[0] if names else c.get("Name", "")
+                state = c.get("State", "")
+                labels = c.get("Labels", {})
+                owner_pid = _resource_owner_pid(labels)
+                if (
+                    name.startswith(CCM_CONTAINER_PREFIX)
+                    and _has_test_session_label(labels)
+                    and owner_pid is not None
+                    and not _pid_is_alive(owner_pid)
+                ):
+                    LOGGER.info(
+                        "Pruning stale CCM container: %s (state=%s)", name, state
+                    )
+                    rm_res = run(["podman", "rm", "-f", name], stdout=DEVNULL, stderr=DEVNULL)
+                    if rm_res.returncode == 0:
+                        stale_container_names.append(name)
+    except Exception:
+        LOGGER.debug("Failed to prune stale CCM containers", exc_info=True)
+
+    stale_container_names = set(stale_container_names)
+    try:
+        res = run(
+            ["podman", "network", "ls", "--format", "json"],
+            stdout=PIPE,
+            stderr=PIPE,
+            text=True,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            networks = json.loads(res.stdout)
+            for net in networks:
+                name = net.get("name", "")
+                labels = net.get("labels", {})
+                owner_pid = _resource_owner_pid(labels)
+                if not name.startswith(CCM_NETWORK_PREFIX):
+                    continue
+                if not _has_test_session_label(labels):
+                    continue
+                if owner_pid is None or _pid_is_alive(owner_pid):
+                    continue
+                inspect_res = run(
+                    ["podman", "network", "inspect", name],
+                    stdout=PIPE,
+                    stderr=PIPE,
+                    text=True,
+                )
+                if inspect_res.returncode != 0 or not inspect_res.stdout.strip():
+                    continue
+                inspect_data = json.loads(inspect_res.stdout)
+                containers_on_net = (
+                    inspect_data[0].get("containers", {}) if inspect_data else {}
+                )
+                attached_names = {
+                    details.get("name")
+                    for details in containers_on_net.values()
+                    if isinstance(details, dict) and details.get("name")
+                }
+                if attached_names - stale_container_names:
+                    continue
+                LOGGER.info("Pruning stale CCM network: %s", name)
+                run(
+                    ["podman", "network", "rm", "-f", name],
+                    stdout=DEVNULL,
+                    stderr=DEVNULL,
+                )
+    except Exception:
+        LOGGER.debug("Failed to prune stale CCM networks", exc_info=True)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def prune_stale_podman_resources():
+    """Auto-use fixture: prune stale CCM podman containers/networks before and after the session."""
+    if not shutil.which("podman"):
+        yield
+        return
+    _prune_stale_ccm_podman_resources()
+    yield
+    _prune_stale_ccm_podman_resources()
 
 
 @pytest.fixture(scope="session")
@@ -39,7 +199,7 @@ def test_dir(test_id, results_dir):
 
     if dir_count >= max_test_dirs:
         LOGGER.critical(f"Number of test directories is '{dir_count}'. Max allowed: '{max_test_dirs}'")
-        assert dir_count >= max_test_dirs
+        assert dir_count < max_test_dirs
     test_dir = os.getcwd() / test_dir
     test_dir.mkdir()
     LOGGER.info(f"Test directory '{test_dir}' created.")
@@ -148,3 +308,34 @@ def ccm_reloc_latest_cluster():
 def cluster_under_test(request):
     cluster = request.getfixturevalue(request.param)
     return cluster
+
+
+@pytest.fixture(scope="session")
+def podman_cluster(test_dir, test_id):
+    if not shutil.which("podman"):
+        pytest.skip("podman binary not found")
+    cluster_name = f"podman_cluster_{test_id}"
+    cluster = None
+    try:
+        cluster = ScyllaPodmanCluster(
+            str(test_dir),
+            name=cluster_name,
+            podman_image=SCYLLA_PODMAN_IMAGE,
+            inter_dc_delay_ms=40,
+            inter_rack_delay_ms=1,
+        )
+        cluster.populate({"dc1": {"rack1": 1, "rack2": 1}, "dc2": {"rack1": 1}})
+        cluster.set_configuration_options(
+            values={
+                "read_request_timeout_in_ms": 10000,
+                "range_request_timeout_in_ms": 10000,
+                "write_request_timeout_in_ms": 10000,
+                "truncate_request_timeout_in_ms": 10000,
+                "request_timeout_in_ms": 10000,
+            }
+        )
+        cluster.start(wait_for_binary_proto=True)
+        yield cluster
+    finally:
+        if cluster is not None:
+            cluster.remove()
