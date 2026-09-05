@@ -1,0 +1,279 @@
+// Vendored from scylla-cluster-tests (data_dir/latte/latte_cs_alike.rn).
+// That copy is the source of truth and gets fixed/updated there from time to
+// time; this file can drift out of sync and needs a manual re-sync against it
+// periodically (there is no automated way to keep the two in lockstep).
+//
+// This rune script is designed to be used with latte to mimic cassandra-stress schema and queries
+//
+// Create schema (all parameters are optional because of the defaults):
+// $ latte schema /path/to/latte_cs_alike.rn %IP%
+//     -P replication_factor=3 \
+//     -P compression=\"LZ4Compressor\" \
+//     -P compaction_strategy=\"TimeWindowCompactionStrategy\" \
+//     -P keyspace=\"keyspace1\" \
+//     -P table=\"standard1\"
+//
+// Run a single function:
+// $ latte run /path/to/latte_cs_alike.rn %IP% -q \
+//     -f write \
+//     --retry-number 0 \
+//     --retry-interval 500ms,5s \
+//     -r 300 \
+//     -d 2500 \
+//     -P row_count=2_200 \
+//     -P offset=5000
+//
+// Run 2 functions with 1 write to 2 reads proportion:
+// $ latte run /path/to/latte_cs_alike.rn %IP% -q \
+//     -f write:1 \
+//     -f read:2 \
+//     --retry-number 0 \ # default is "10"
+//     --retry-interval 500ms,5s \
+//     -r 300 \ # or "--rate=300"
+//     -d 2500 \ # or "--duration=2500" or "--duration=1m"
+//     -P row_count=2_200 \ # or "-P row_count=2200"
+//     -P offset=5000
+
+use latte::*;
+
+const REPLICATION_FACTOR = latte::param!("replication_factor", 3);
+const COMPRESSION = latte::param!("compression", "");
+const COMPACTION_STRATEGY = latte::param!("compaction_strategy", "");
+const SPECULATIVE_RETRY = latte::param!("speculative_retry", "");
+const STORAGE_ENGINE = latte::param!("storage_engine", "");
+const MIN_PER_SHARD_TABLET_COUNT = latte::param!("min_per_shard_tablet_count", 0);
+pub const KEYSPACE = latte::param!("keyspace", "keyspace1");
+pub const TABLE = latte::param!("table", "standard1");
+const COUNTER_TABLE = latte::param!("counter_table", "");
+pub const KEY_SIZE = latte::param!("key_size", 10);
+pub const COLUMN_SIZE = latte::param!("column_size", 128);
+pub const COLUMN_COUNT = latte::param!("column_count", 8);
+pub const ROW_COUNT = latte::param!("row_count", 1_000_000);
+pub const OFFSET = latte::param!("offset", 0);
+// Used only when 'distribution' is set to "gauss"/"normal"
+const GAUSS_MEAN = latte::param!("gauss_mean", 0);
+const GAUSS_STDDEV = latte::param!("gauss_stddev", 0);
+// Key access distribution:
+// - "sequential" (default) walks keys in cycle order (i % ROW_COUNT).
+// - "random" scatters keys uniformly via hash_range(i, ROW_COUNT). Use it together with an
+//   unbounded cycle range (no --end-cycle) so the key sequence never repeats within a timed run.
+// - "gauss" (alias "normal") samples keys from a normal distribution defined by the
+//   'gauss_mean' and 'gauss_stddev' params.
+pub const DISTRIBUTION = latte::param!("distribution", "sequential");
+
+pub const P_STMT_WRITE = "latte_prep_stmt__write";
+pub const P_STMT_READ = "latte_prep_stmt__read";
+const P_STMT_COUNTER_WRITE = "latte_prep_stmt__counter_write";
+const P_STMT_COUNTER_READ = "latte_prep_stmt__counter_read";
+
+//////////////////////////////
+// LATTE-SPECIFIC FUNCTIONS //
+//////////////////////////////
+
+pub async fn schema(db) {
+    // Create keyspace
+    db.execute(`CREATE KEYSPACE IF NOT EXISTS ${KEYSPACE}
+        WITH REPLICATION = { 'class': 'NetworkTopologyStrategy', 'replication_factor': ${REPLICATION_FACTOR} }
+        AND durable_writes = true
+    `).await?;
+
+    // Prepare tables params
+    if COLUMN_COUNT < 1 {
+        return Err("'column_count' cannot be less than '1'")
+    }
+    let columns_def = "";
+    let counter_columns_def = "";
+    for i in 0..=COLUMN_COUNT-1 {
+        columns_def += ", \"C" + `${i}` + "\" blob";
+        counter_columns_def += ", \"C" + `${i}` + "\" counter";
+    }
+    let compression = ") WITH compression = {";
+    if COMPRESSION.is_empty() { // This is the default like in the C-S case
+        // Result: "AND compression = {}"
+        compression += "}";
+    } else {
+        // Result: "AND compression = {'sstable_compression': 'org.apache.cassandra.io.compress.LZ4Compressor'}"
+        compression += " 'sstable_compression' : '" + COMPRESSION + "' }"
+    }
+    let compaction = "";
+    if !COMPACTION_STRATEGY.is_empty() {
+        // Result: WITH COMPACTION = { 'class': 'IncrementalCompactionStrategy' }
+        compaction += " AND COMPACTION = { 'class' : '" + COMPACTION_STRATEGY + "' }"
+    }
+    let speculative_retry = "";
+    if !SPECULATIVE_RETRY.is_empty() {
+        // Result: WITH speculative_retry = "NONE"
+        speculative_retry += " AND speculative_retry = '" + SPECULATIVE_RETRY + "' "
+    }
+    let storage_engine = "";
+    if !STORAGE_ENGINE.is_empty() {
+        // Result: AND storage_engine = 'logstor'
+        storage_engine += " AND storage_engine = '" + STORAGE_ENGINE + "'"
+    }
+    let tablets = "";
+    if MIN_PER_SHARD_TABLET_COUNT > 0 {
+        // Result: AND tablets = {'min_per_shard_tablet_count': '32'}
+        tablets += ` AND tablets = {'min_per_shard_tablet_count': '${MIN_PER_SHARD_TABLET_COUNT}'}`
+    }
+    let comment = " AND comment='Created by latte'";
+
+    // Create blob table
+    db.execute(
+        `CREATE TABLE IF NOT EXISTS ${KEYSPACE}.${TABLE}` +
+        `(key blob PRIMARY KEY${columns_def}${compression}${compaction}${speculative_retry}${storage_engine}${tablets}${comment}`
+    ).await?;
+
+    if !COUNTER_TABLE.is_empty() {
+        // Create counter table
+        db.execute(
+            `CREATE TABLE IF NOT EXISTS ${KEYSPACE}.${COUNTER_TABLE}` +
+            `(key blob PRIMARY KEY${counter_columns_def}${compression}${compaction}${comment}`
+        ).await?;
+    }
+}
+
+pub async fn erase(db) {
+    db.execute(`TRUNCATE TABLE ${KEYSPACE}.${TABLE}`).await?;
+    if !COUNTER_TABLE.is_empty() {
+        db.execute(`TRUNCATE TABLE ${KEYSPACE}.${COUNTER_TABLE}`).await?;
+    }
+}
+
+pub async fn prepare(db) {
+    if COLUMN_COUNT < 1 {
+        return Err("'column_count' cannot be less than '1'")
+    }
+    // NOTE: Print the 'keyspace' name for the SCT stats exporter
+    println!("debug: Keyspace: {keyspace}", keyspace=KEYSPACE);
+
+    let columns_keys = "";
+    let columns_values = "";
+    let counter_columns = "";
+    for i in 0..=COLUMN_COUNT-1 {
+        columns_keys += ", \"C" + `${i}` + "\"";
+        columns_values += `, :C${i}`;
+        let counter_prefix = "";
+        if i > 0 {
+            counter_prefix = ", ";
+        }
+        counter_columns += `${counter_prefix}` + "\"C" + `${i}` + "\" = \"C" + `${i}` + "\" + " + `:C${i}`;
+    }
+
+    db.prepare(
+        P_STMT_WRITE,
+        `INSERT INTO ${KEYSPACE}.${TABLE}(key${columns_keys}) VALUES (:key${columns_values})`
+    ).await?;
+    db.prepare(P_STMT_READ, `SELECT * FROM ${KEYSPACE}.${TABLE} WHERE key = :key`).await?;
+
+    if !COUNTER_TABLE.is_empty() {
+        db.prepare(
+            P_STMT_COUNTER_WRITE,
+            `UPDATE ${KEYSPACE}.${COUNTER_TABLE}` +
+            ` SET ${counter_columns}` +
+            " WHERE key = :key"
+        ).await?;
+        db.prepare(P_STMT_COUNTER_READ, `SELECT * FROM ${KEYSPACE}.${COUNTER_TABLE} WHERE key = :key`).await?;
+    }
+
+    validate_distribution(db).await
+}
+
+///////////////////////
+// UTILITY FUNCTIONS //
+///////////////////////
+
+/// Utility function that validates the 'distribution' param and its dependent params
+pub async fn validate_distribution(db) {
+    if DISTRIBUTION == "gauss" || DISTRIBUTION == "normal" {
+        if GAUSS_MEAN <= 0 || GAUSS_STDDEV <= 0 {
+            return Err(format!(
+                "'distribution'='{distribution}' requires 'gauss_mean' and 'gauss_stddev' " +
+                "to be set in range of '{min}..{max}' (offset..(offset+row_count))",
+                distribution=DISTRIBUTION, min=OFFSET, max=OFFSET+ROW_COUNT))
+        }
+        // Convert once here instead of in each 'get_partition_idx' call
+        db.data.gauss_mean = GAUSS_MEAN as f64;
+        db.data.gauss_stddev = GAUSS_STDDEV as f64;
+        println!(
+            "debug: Gauss/normal distribution is enabled: mean='{mean}', stddev='{stddev}'",
+            mean=GAUSS_MEAN, stddev=GAUSS_STDDEV);
+    } else if DISTRIBUTION == "sequential" || DISTRIBUTION == "random" {
+        if GAUSS_MEAN != 0 || GAUSS_STDDEV != 0 {
+            return Err(format!(
+                "'gauss_mean' and 'gauss_stddev' are set, but 'distribution' is " +
+                "'{distribution}'. Set 'distribution' to 'gauss'/'normal' to use them.",
+                distribution=DISTRIBUTION))
+        }
+        println!("debug: '{distribution}' distribution is enabled", distribution=DISTRIBUTION);
+    } else {
+        Err(format!(
+            "Unsupported 'distribution' value: '{distribution}'. " +
+            "Supported values are 'sequential', 'random' and 'gauss'/'normal'.",
+            distribution=DISTRIBUTION))
+    }
+}
+
+/// Utility function which generates partition index based on the cycle id and distribution type
+async fn get_partition_idx(db, i) {
+    if DISTRIBUTION == "gauss" || DISTRIBUTION == "normal" {
+        let current_idx = normal(i, db.data.gauss_mean, db.data.gauss_stddev) as i64;
+        if current_idx >= OFFSET + ROW_COUNT {
+            current_idx = OFFSET + ROW_COUNT - 1;
+        } else if current_idx < OFFSET {
+            current_idx = OFFSET;
+        }
+        return current_idx;
+    } else if DISTRIBUTION == "random" {
+        // Uniform random: hash the (monotonically increasing) cycle id into [0, ROW_COUNT).
+        return OFFSET + hash_range(i, ROW_COUNT);
+    } else {
+        return i % ROW_COUNT + OFFSET;
+    }
+}
+
+/// Utility function to be used by the 'write' public function
+pub async fn get_blob_columns_data(key, idx) {
+    let columns = [key];
+    for current_column_idx in 0..=COLUMN_COUNT-1 {
+        columns.push(blob(idx + current_column_idx * ROW_COUNT, COLUMN_SIZE));
+    }
+    return columns
+}
+
+/// Utility function to be used by the 'counter_write' public function
+async fn get_counter_columns_data(key, idx) {
+    let columns = [];
+    for current_column_idx in 0..=COLUMN_COUNT-1 {
+        columns.push(1);
+    }
+    columns.push(key);
+    return columns
+}
+
+///////////////////////////
+// USER-FACING FUNCTIONS //
+///////////////////////////
+
+pub async fn write(db, i) {
+    let partition_idx = get_partition_idx(db, i).await;
+    let key = blob(partition_idx, KEY_SIZE);
+    db.execute_prepared(P_STMT_WRITE, get_blob_columns_data(key, partition_idx).await).await?
+}
+
+pub async fn read(db, i) {
+    let partition_idx = get_partition_idx(db, i).await;
+    let key = blob(partition_idx, KEY_SIZE);
+    db.execute_prepared(P_STMT_READ, [key]).await?
+}
+
+pub async fn counter_write(db, i) {
+    let partition_idx = get_partition_idx(db, i).await;
+    let key = blob(partition_idx, KEY_SIZE);
+    db.execute_prepared(P_STMT_COUNTER_WRITE, get_counter_columns_data(key, partition_idx).await).await?
+}
+
+pub async fn counter_read(db, i) {
+    let partition_idx = get_partition_idx(db, i).await;
+    let key = blob(partition_idx, KEY_SIZE);
+    db.execute_prepared(P_STMT_COUNTER_READ, [key]).await?
+}

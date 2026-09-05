@@ -46,6 +46,7 @@ exclude = ["ccmlib.resources*", "ccmlib.scylla_test_ssl"]
 ccmlib = [
     "resources/bin/*.sh",
     "resources/docker/sniproxy/*",
+    "resources/*.rn",
     "scylla_test_ssl/scylla-manager-agent.key",
     "scylla_test_ssl/scylla-manager-agent.crt"
 ]

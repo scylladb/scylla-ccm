@@ -104,7 +104,8 @@ class ScyllaDockerCluster(ScyllaCluster):
             # even that it's not correct one, but we need this for `Cluster.add_node()`
             return super().get_node_ip(nodeid)
 
-    def remove(self, node=None, wait_other_notice=False, other_nodes=None, keep_monitoring=False):
+    def remove(self, node=None, wait_other_notice=False, other_nodes=None, remove_node_dir=True,
+               keep_monitoring=False, keep_loaders=False):
         # Remove containers first, before super().remove() deletes node dirs
         # and before removing the network (containers must disconnect first).
         # Batched into one/few `rm` calls instead of one subprocess per node.
@@ -112,7 +113,9 @@ class ScyllaDockerCluster(ScyllaCluster):
         if targets:
             self.get_container_client().remove_containers(targets, force=True, volumes=True, chunk_size=10)
 
-        super(ScyllaDockerCluster, self).remove(node=node, wait_other_notice=wait_other_notice, other_nodes=other_nodes,
+        # keep_loaders: docker clusters don't support loaders, nothing to keep.
+        super(ScyllaDockerCluster, self).remove(node=node, wait_other_notice=wait_other_notice,
+                                                 other_nodes=other_nodes, remove_node_dir=remove_node_dir,
                                                  keep_monitoring=keep_monitoring)
 
         # Clean up cluster network after containers are gone

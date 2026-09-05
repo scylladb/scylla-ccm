@@ -65,6 +65,9 @@ def _get_podman_client():
 DEFAULT_RACK_SUBNET_PREFIX = "10.89"
 RACK_GATEWAY_HOST = 254
 CLIENT_CONTAINER_HOST = 100
+# Reserved band for latte loader containers within each rack (see ccmlib/scylla_loaders.py).
+LOADER_HOST_BASE = 150
+LOADER_HOST_MAX = 249  # inclusive; up to 100 loaders per rack
 SUBNET_PREFIX_ENV = "CCM_PODMAN_SUBNET_PREFIX"
 CONTAINER_NET_INTERFACE = os.environ.get("CCM_PODMAN_NET_INTERFACE", "eth0")
 if not re.fullmatch(r"[a-zA-Z0-9._-]{1,15}", CONTAINER_NET_INTERFACE):
@@ -652,6 +655,15 @@ class PodmanNetworkTopology:
                         f"max {RACK_GATEWAY_HOST - 1} nodes per rack "
                         f"(gateway is at .{RACK_GATEWAY_HOST})"
                     )
+                # Reserve the loader band (.{LOADER_HOST_BASE}-.{LOADER_HOST_MAX}) in
+                # every rack, not just the first, so loaders can later be added to
+                # any rack without renumbering nodes.
+                if node_count >= LOADER_HOST_BASE:
+                    raise ValueError(
+                        f"Too many nodes ({node_count}) in {dc}/{rack}: "
+                        f"max {LOADER_HOST_BASE - 1} nodes per rack "
+                        f"(loader band starts at .{LOADER_HOST_BASE})"
+                    )
 
                 self.rack_networks[(dc, rack)] = {
                     "network_name": network_name,
@@ -987,6 +999,7 @@ class ScyllaPodmanCluster(ScyllaCluster):
         self.packet_loss_percent = kwargs.pop("packet_loss_percent", 0.0)
         self.pinning = kwargs.pop("pinning", False)
         self.network_topology = None
+        self.loader_set = None  # LoaderSet; created lazily, see get_loader_set()
         self._client_container_id = None
         self._cpu_assignments = {}
         self._cpu_assignments_lock = threading.Lock()
@@ -1046,6 +1059,13 @@ class ScyllaPodmanCluster(ScyllaCluster):
     def get_container_client(self):
         """Return the shared PodmanClient used for all container operations."""
         return _get_podman_client()
+
+    def get_loader_set(self):
+        """Return this cluster's LoaderSet, creating it on first use."""
+        from ccmlib.scylla_loaders import LoaderSet
+        if self.loader_set is None:
+            self.loader_set = LoaderSet(self)
+        return self.loader_set
 
     def populate(
         self,
@@ -1748,9 +1768,14 @@ class ScyllaPodmanCluster(ScyllaCluster):
 
     def remove(
         self, node=None, wait_other_notice=False, other_nodes=None, remove_node_dir=True,
-        keep_monitoring=False
+        keep_monitoring=False, keep_loaders=False,
     ):
         """Remove the cluster or a single node: stop containers, remove networks."""
+        if node is None and not keep_loaders and getattr(self, "loader_set", None):
+            try:
+                self.loader_set.remove()
+            except Exception:
+                LOGGER.warning("Failed to remove loader containers during remove()", exc_info=True)
         if node is not None:
             # Let the base class do orderly teardown first (removes from
             # self.nodes, honours wait_other_notice, calls node.stop()).
@@ -1806,7 +1831,7 @@ class ScyllaPodmanCluster(ScyllaCluster):
                     keep_monitoring=keep_monitoring,
                 )
             finally:
-                if self.network_topology:
+                if self.network_topology and not keep_loaders:
                     try:
                         self.network_topology.destroy_networks()
                     except Exception:
@@ -1837,6 +1862,8 @@ class ScyllaPodmanCluster(ScyllaCluster):
         }
         if self.network_topology:
             cluster_config["network_topology"] = self.network_topology.to_dict()
+        if self.loader_set:
+            cluster_config["loaders"] = self.loader_set.to_dict()
 
         with open(filename, "w", encoding="utf-8") as f:
             YAML().dump(cluster_config, f)

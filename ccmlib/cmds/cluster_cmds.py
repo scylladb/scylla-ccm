@@ -10,6 +10,10 @@ from ccmlib.common import ArgumentError
 from ccmlib.dse_cluster import DseCluster
 from ccmlib.scylla_cluster import ScyllaCluster
 from ccmlib.scylla_docker_cluster import ScyllaDockerCluster, ScyllaDockerNode
+from ccmlib.scylla_loaders import (
+    LoaderSet, DEFAULT_LOADER_IMAGE, LB_POLICIES, DEFAULT_LB_POLICY,
+    WORKLOAD_MODES, DEFAULT_WORKLOAD_MODE,
+)
 from ccmlib.scylla_podman_cluster import ScyllaPodmanCluster
 from ccmlib.scylla_monitoring import MonitoringStack
 from ccmlib.scylla_node import ScyllaNode
@@ -49,7 +53,8 @@ def cluster_cmds():
         "showlastlog",
         "jconsole",
         "sctool",
-        "monitoring"
+        "monitoring",
+        "loaders"
     ]
 
 
@@ -595,6 +600,9 @@ class ClusterRemoveCmd(Cmd):
         parser.add_option('--keep-monitoring', action="store_true", dest="keep_monitoring",
                           help="Keep the monitoring stack (Prometheus, Grafana, Alertmanager) running after removing the cluster",
                           default=False)
+        parser.add_option('--keep-loaders', action="store_true", dest="keep_loaders",
+                          help="Keep loader containers running after removing the cluster",
+                          default=False)
         return parser
 
     def validate(self, parser, options, args):
@@ -617,13 +625,13 @@ class ClusterRemoveCmd(Cmd):
         if self.other_cluster:
             # Remove the specified cluster:
             cluster = ClusterFactory.load(self.path, self.other_cluster)
-            cluster.remove(keep_monitoring=self.options.keep_monitoring)
+            cluster.remove(keep_monitoring=self.options.keep_monitoring, keep_loaders=self.options.keep_loaders)
             # Remove CURRENT flag if the specified cluster is the current cluster:
             if self.other_cluster == common.current_cluster_name(self.path):
                 os.remove(os.path.join(self.path, 'CURRENT'))
         else:
             # Remove the current cluster:
-            self.cluster.remove(keep_monitoring=self.options.keep_monitoring)
+            self.cluster.remove(keep_monitoring=self.options.keep_monitoring, keep_loaders=self.options.keep_loaders)
             os.remove(os.path.join(self.path, 'CURRENT'))
 
 
@@ -1368,3 +1376,159 @@ class ClusterMonitoringCmd(Cmd):
                 print(f"  Targets:    {total} node(s)")
             except Exception as e:
                 print(f"Warning: could not read monitoring targets: {e}", file=sys.stderr)
+
+
+class ClusterLoadersCmd(Cmd):
+
+    def description(self):
+        return "Manage latte loader containers for the current podman cluster"
+
+    def get_parser(self):
+        usage = "usage: ccm loaders <subcommand> [options]\n\nSubcommands: add, remove, status, configure"
+        parser = self._get_default_parser(usage, self.description())
+        parser.add_option('--racks', type="string", dest="racks", default=None,
+                          help="Comma-separated dc:rack=count list (add) or dc:rack list (remove), "
+                               "e.g. dc1:rack1=5,dc1:rack2=3")
+        parser.add_option('--image', type="string", dest="image", default=DEFAULT_LOADER_IMAGE,
+                          help=f"Loader container image [default: {DEFAULT_LOADER_IMAGE}]")
+        parser.add_option('--all', action="store_true", dest="all_loaders", default=False,
+                          help="With 'remove': remove all loader containers")
+        parser.add_option('--lb-policy', type="choice", choices=list(LB_POLICIES), dest="lb_policy",
+                          default=DEFAULT_LB_POLICY,
+                          help=f"With 'add': load-balancing policy for the new loaders -- which nodes "
+                               f"their latte driver targets -- one of {LB_POLICIES} "
+                               f"[default: {DEFAULT_LB_POLICY}]")
+        parser.add_option('--workload', type="choice", choices=list(WORKLOAD_MODES), dest="workload_mode",
+                          default=DEFAULT_WORKLOAD_MODE,
+                          help=f"With 'add': workload mode for every rack given in this call "
+                               f"(assigned per rack-group, not per loader), one of {list(WORKLOAD_MODES)} "
+                               f"[default: {DEFAULT_WORKLOAD_MODE}]")
+        parser.add_option('--keyspace-index', type="int", dest="keyspace_index", default=0,
+                          help="With 'add': index of the target keyspace (0-based) for this rack-group "
+                               "[default: 0]")
+        parser.add_option('--table-index', type="int", dest="table_index", default=0,
+                          help="With 'add': index of the target table within the keyspace (0-based) "
+                               "for this rack-group [default: 0]")
+        parser.add_option('--keyspaces', type="int", dest="keyspaces", default=None,
+                          help="With 'configure': number of keyspaces for the latte workload")
+        parser.add_option('--tables', type="int", dest="tables_per_keyspace", default=None,
+                          help="With 'configure': number of tables per keyspace")
+        parser.add_option('--replication-factor', type="int", dest="replication_factor", default=None,
+                          help="With 'configure': replication factor for generated keyspaces")
+        return parser
+
+    def validate(self, parser, options, args):
+        Cmd.validate(self, parser, options, args, load_cluster=True)
+        if not isinstance(self.cluster, ScyllaPodmanCluster):
+            print("Loaders are only supported for podman-based Scylla clusters.", file=sys.stderr)
+            sys.exit(1)
+        if len(args) == 0:
+            print("Missing loaders subcommand (add, remove, status, configure)", file=sys.stderr)
+            parser.print_help()
+            sys.exit(1)
+        self.subcmd = args[0]
+        if self.subcmd not in ('add', 'remove', 'status', 'configure'):
+            print(f"Unknown loaders subcommand: {self.subcmd}", file=sys.stderr)
+            parser.print_help()
+            sys.exit(1)
+
+    def run(self):
+        cluster = self.cluster
+        if cluster.loader_set is None:
+            cluster.loader_set = LoaderSet(cluster)
+        loader_set = cluster.loader_set
+
+        if self.subcmd == 'add':
+            self._do_add(loader_set)
+        elif self.subcmd == 'remove':
+            self._do_remove(loader_set)
+        elif self.subcmd == 'status':
+            self._do_status(loader_set)
+        elif self.subcmd == 'configure':
+            self._do_configure(loader_set)
+
+    @staticmethod
+    def _parse_racks(spec):
+        entries = []
+        for item in spec.split(','):
+            item = item.strip()
+            if not item:
+                continue
+            dc_rack, _, count_str = item.partition('=')
+            if count_str:
+                try:
+                    count = int(count_str)
+                except ValueError:
+                    raise ArgumentError(f"Invalid count in rack spec {item!r}: {count_str!r} is not an integer")
+            else:
+                count = 1
+            if count < 1:
+                raise ArgumentError(f"Invalid count in rack spec {item!r}: count must be >= 1")
+            dc, sep, rack = dc_rack.partition(':')
+            if not sep or not dc or not rack:
+                raise ArgumentError(f"Invalid rack spec {item!r}, expected dc:rack[=count]")
+            entries.append((dc, rack, count))
+        return entries
+
+    def _do_add(self, loader_set):
+        if not self.options.racks:
+            print("Missing --racks dc:rack=count[,...]", file=sys.stderr)
+            sys.exit(1)
+        try:
+            entries = self._parse_racks(self.options.racks)
+        except ArgumentError as e:
+            print(str(e), file=sys.stderr)
+            sys.exit(1)
+        for dc, rack, count in entries:
+            try:
+                created = loader_set.add(dc, rack, count=count, image=self.options.image,
+                                          lb_policy=self.options.lb_policy,
+                                          workload_mode=self.options.workload_mode,
+                                          keyspace_index=self.options.keyspace_index,
+                                          table_index=self.options.table_index)
+            except Exception as e:
+                print(f"Error adding loaders to {dc}/{rack}: {e}", file=sys.stderr)
+                sys.exit(1)
+            for loader in created:
+                print(f"Started {loader.container_name()} ({loader.ip}) in {dc}/{rack}, "
+                      f"lb-policy={loader.lb_policy}, workload={loader.workload_mode} "
+                      f"(keyspace {loader.keyspace_index}, table {loader.table_index})")
+
+    def _do_remove(self, loader_set):
+        if self.options.all_loaders or not self.options.racks:
+            names = None
+        else:
+            try:
+                entries = self._parse_racks(self.options.racks)
+            except ArgumentError as e:
+                print(str(e), file=sys.stderr)
+                sys.exit(1)
+            racks = {(dc, rack) for dc, rack, _ in entries}
+            names = [n for n, l in loader_set.loaders.items() if (l.dc, l.rack) in racks]
+        loader_set.remove(names)
+        print("Loaders removed.")
+
+    def _do_status(self, loader_set):
+        print(f"Schema config: {loader_set.schema_config}")
+        if not loader_set.loaders:
+            print("No loaders configured.")
+            return
+        for name, running in loader_set.status().items():
+            loader = loader_set.loaders[name]
+            print(f"{name}: {'running' if running else 'stopped'} ({loader.dc}/{loader.rack}, "
+                  f"{loader.image}, lb-policy={loader.lb_policy}, workload={loader.workload_mode}, "
+                  f"keyspace={loader.keyspace_index}, table={loader.table_index})")
+
+    def _do_configure(self, loader_set):
+        if (self.options.keyspaces is None and self.options.tables_per_keyspace is None
+                and self.options.replication_factor is None):
+            print(f"Current schema config: {loader_set.schema_config}")
+            return
+        try:
+            loader_set.configure_schema(keyspaces=self.options.keyspaces,
+                                         tables_per_keyspace=self.options.tables_per_keyspace,
+                                         replication_factor=self.options.replication_factor)
+        except ValueError as e:
+            print(str(e), file=sys.stderr)
+            sys.exit(1)
+        print(f"Schema config updated: {loader_set.schema_config}")

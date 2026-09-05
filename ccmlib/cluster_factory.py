@@ -48,6 +48,9 @@ class ClusterFactory():
                 # populate() is never called on load; wire the shared managers so
                 # loaded nodes get working log streaming and event monitoring.
                 cluster._ensure_managers()
+                if 'loaders' in data:
+                    from ccmlib.scylla_loaders import LoaderSet
+                    cluster.loader_set = LoaderSet.from_dict(cluster, data['loaders'])
             elif 'docker_image' in data and data['docker_image']:
                 cluster = ScyllaDockerCluster(path, data['name'], docker_image=data['docker_image'],
                                               container_runtime=data.get('container_runtime'),
