@@ -449,7 +449,7 @@ class Cluster(object):
         tokens.extend(new_tokens)
         return tokens
 
-    def remove(self, node: ScyllaNode=None, wait_other_notice=False, other_nodes=None, remove_node_dir=True, keep_monitoring=False):
+    def remove(self, node: ScyllaNode=None, wait_other_notice=False, other_nodes=None, remove_node_dir=True, keep_monitoring=False, keep_loaders=False):
         if node is not None:
             if node.name not in self.nodes:
                 return
