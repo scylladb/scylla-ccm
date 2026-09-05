@@ -2336,6 +2336,12 @@ class TestCpuPinning:
         cluster.ipprefix = "127.0.0."
         cluster.nodes = OrderedDict()
         cluster.seeds = []
+        cluster.monitoring_enabled = False
+        cluster.monitoring_dir = None
+        cluster.grafana_port = 3000
+        cluster.prometheus_port = 9090
+        cluster.alertmanager_port = 9093
+        cluster.loader_set = None
 
         monkeypatch.setattr(cluster, "get_path", lambda: str(tmp_path))
 
@@ -2364,6 +2370,12 @@ class TestCpuPinning:
         cluster.ipprefix = "127.0.0."
         cluster.nodes = OrderedDict()
         cluster.seeds = []
+        cluster.monitoring_enabled = False
+        cluster.monitoring_dir = None
+        cluster.grafana_port = 3000
+        cluster.prometheus_port = 9090
+        cluster.alertmanager_port = 9093
+        cluster.loader_set = None
 
         monkeypatch.setattr(cluster, "get_path", lambda: str(tmp_path))
 
