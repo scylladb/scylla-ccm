@@ -449,7 +449,7 @@ class Cluster(object):
         tokens.extend(new_tokens)
         return tokens
 
-    def remove(self, node: ScyllaNode=None, wait_other_notice=False, other_nodes=None, remove_node_dir=True, keep_monitoring=False):
+    def remove(self, node: ScyllaNode=None, wait_other_notice=False, other_nodes=None, remove_node_dir=True, keep_monitoring=False, keep_loaders=False):
         if node is not None:
             if node.name not in self.nodes:
                 return
@@ -471,6 +471,11 @@ class Cluster(object):
         if remove_node_dir:
             if node is None and keep_monitoring:
                 self._preserve_monitoring_dir()
+            if node is None and keep_loaders:
+                loader_set = getattr(self, 'loader_set', None)
+                names = [l.container_name() for l in loader_set.loaders.values()] if loader_set else []
+                if names:
+                    self._preserve_subdir('loaders', names, 'podman')
             node_path = node.get_path() if node is not None else self.get_path()
             self.remove_dir_with_retry(node_path)
 

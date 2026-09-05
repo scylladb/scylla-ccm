@@ -1927,7 +1927,7 @@ class TestConfigPersistence:
             podman_image='img', container_runtime=None, cluster_network=None, pinning=False,
             inter_rack_delay_ms=1, inter_dc_delay_ms=50, packet_loss_percent=0.0, network_topology=None,
             monitoring_enabled=True, monitoring_dir='/mon', grafana_port=3011,
-            prometheus_port=9101, alertmanager_port=9104,
+            prometheus_port=9101, alertmanager_port=9104, loader_set=None,
         )
         cluster._update_config()
         with open(tmp_path / 'test' / 'cluster.conf') as f:
