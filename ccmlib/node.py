@@ -2087,11 +2087,17 @@ def _get_load_from_info_output(info):
         raise RuntimeError(msg)
     load_line = load_lines[0].split()
 
-    unit_multipliers = {'KB': 1,
-                        'MB': 1024,
-                        'GB': 1024 * 1024,
-                        'TB': 1024 * 1024 * 1024}
+    unit_multipliers = {'KiB': 1,
+                        'MiB': 1024,
+                        'GiB': 1024 * 1024,
+                        'TiB': 1024 * 1024 * 1024}
     load_num, load_units = load_line[2], load_line[3]
+
+    # Nodetool divides sizes by 1024, so the values are base-2 ones. Older
+    # versions label them with base-10 unit names (KB, MB, ...) anyway, so
+    # accept both spellings.
+    if len(load_units) == 2:
+        load_units = load_units[0] + 'iB'
 
     try:
         load_mult = unit_multipliers[load_units]
