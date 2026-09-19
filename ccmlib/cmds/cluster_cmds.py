@@ -13,7 +13,7 @@ from ccmlib.scylla_docker_cluster import ScyllaDockerCluster, ScyllaDockerNode
 from ccmlib.scylla_node import ScyllaNode
 from ccmlib.dse_node import DseNode
 from ccmlib.node import Node, NodeError
-from ccmlib.utils.ssl_utils import generate_ssl_stores
+from ccmlib.utils.ssl_utils import generate_ssl_stores, generate_ssl_stores_openssl
 
 os.environ['SCYLLA_CCM_STANDALONE'] = '1'
 
@@ -118,6 +118,10 @@ class ClusterCreateCmd(Cmd):
                           help="Enable client authentication (only vaid with --ssl)", default=False)
         parser.add_option('--node-ssl', type="string", dest="node_ssl_path",
                           help="Path to keystore.jks and truststore.jks for internode encryption", default=None)
+        parser.add_option('--gen-ssl', action="store_true", dest="gen_ssl",
+                          help="Generate a CA-signed cert with openssl into the --ssl/--node-ssl dir if missing", default=False)
+        parser.add_option('--gen-ssl-key-type', type="string", dest="gen_ssl_key_type",
+                          help="Key type for --gen-ssl: 'rsa:<bits>' or an EC curve name (default: secp384r1)", default="secp384r1")
         parser.add_option("--scylla", action="store_true", dest="scylla",
                           help="Must specify --install-dir holding Scylla")
         parser.add_option("--scylla-manager", type="string", dest="scyllamanager",
@@ -272,6 +276,10 @@ class ClusterCreateCmd(Cmd):
 
         if not (self.options.ipprefix or self.options.ipformat):
             self.options.ipformat = '127.0.0.%d'
+
+        if self.options.gen_ssl:
+            for d in filter(None, {self.options.ssl_path, self.options.node_ssl_path}):
+                generate_ssl_stores_openssl(d, key_type=self.options.gen_ssl_key_type)
 
         if self.options.ssl_path:
             cluster.enable_ssl(self.options.ssl_path, self.options.require_client_auth)
