@@ -2,7 +2,6 @@ import os
 import random
 import re
 import tempfile
-import time
 import typing
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -18,6 +17,7 @@ from ccmlib.scylla_repository import (
     get_manager_latest_reloc_url,
     Architecture,
     directory_name,
+    download_packages,
 )
 from ccmlib.utils.download import get_url_hash, save_source_file
 from ccmlib.utils.scylla_versions import get_supported_scylla_versions, get_latest_scylla_release
@@ -129,8 +129,7 @@ class TestReinstallPackages:
         - download the Scylla packages. Packages hash will be saved in the "source.txt" file under relevant package folder
         - change the hash to be wrong for one of the packages (choose the package randomly). No matter hash of which package is wrong -
         all packages should be re-downloaded
-        - run setup again. It expected that the packages will be downloaded again. The download time should be not short.
-        Actually time without download should be around 5 ms, and with download about 35 ms. I put here more than 20
+        - run setup again. It expected that the packages will be downloaded again.
         """
         cdir, version = scylla_setup(version="unstable/master:2021-01-18T15:48:13Z", verbose=True, skip_downloads=False)
         assert '2021-01-18T15_48_13Z' in cdir
@@ -139,10 +138,9 @@ class TestReinstallPackages:
         package_to_corrupt = random.choice([CORE_PACKAGE_DIR_NAME, "scylla-tools-java", "scylla-jmx"])
         self.corrupt_hash_value(Path(cdir) / package_to_corrupt / SOURCE_FILE_NAME)
 
-        start_time = time.time()
-        cdir, version = scylla_setup(version="unstable/master:2021-01-18T15:48:13Z", verbose=True, skip_downloads=False)
-        end_time = time.time()
-        assert (end_time - start_time) > 20
+        with patch("ccmlib.scylla_repository.download_packages", wraps=download_packages) as download_spy:
+            cdir, version = scylla_setup(version="unstable/master:2021-01-18T15:48:13Z", verbose=True, skip_downloads=False)
+        download_spy.assert_called_once()
 
         assert '2021-01-18T15_48_13Z' in cdir
         assert version == '4.4.dev'
@@ -152,21 +150,23 @@ class TestReinstallPackages:
         Validate that if package hash is changed, new package will be downloaded.
         - download the unified package. Package hash will be saved in the "source.txt" file
         - change the hash to be wrong
-        - run setup again. It expected that the package will be downloaded again. The download time should be not short.
-        Actually time without download should be less than 3 ms, and with download about 9 ms. I put here more than 20
+        - run setup again. It expected that the package will be downloaded again and the hash restored.
         """
         cdir, version = scylla_setup(version="unstable/master:2026-05-17T13:55:59Z", verbose=True, skip_downloads=False)
         assert '2026-05-17T13_55_59Z' in cdir
         assert version == '2026.3.0-dev'
 
-        self.corrupt_hash_value(Path(cdir) / CORE_PACKAGE_DIR_NAME / SOURCE_FILE_NAME)
+        source_file = Path(cdir) / CORE_PACKAGE_DIR_NAME / SOURCE_FILE_NAME
+        original_hash = get_installed_scylla_package_hash(source_file)
+        self.corrupt_hash_value(source_file)
+        assert get_installed_scylla_package_hash(source_file) != original_hash
 
         scylla_setup.cache_clear()
 
-        start_time = time.time()
-        cdir, version = scylla_setup(version="unstable/master:2026-05-17T13:55:59Z", verbose=True, skip_downloads=False)
-        end_time = time.time()
-        assert (end_time - start_time) > 5
+        with patch("ccmlib.scylla_repository.download_packages", wraps=download_packages) as download_spy:
+            cdir, version = scylla_setup(version="unstable/master:2026-05-17T13:55:59Z", verbose=True, skip_downloads=False)
+        download_spy.assert_called_once()
+        assert get_installed_scylla_package_hash(source_file) == original_hash
         assert '2026-05-17T13_55_59Z' in cdir
         assert version == '2026.3.0-dev'
 
