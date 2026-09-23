@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from tests.test_config import RESULTS_DIR, TEST_ID, SCYLLA_DOCKER_IMAGE, SCYLLA_RELOCATABLE_VERSION
+from tests.test_config import RESULTS_DIR, TEST_ID, SCYLLA_DOCKER_IMAGE, get_scylla_relocatable_version
 
 from ccmlib.scylla_cluster import ScyllaCluster
 from ccmlib.scylla_docker_cluster import ScyllaDockerCluster
@@ -69,7 +69,7 @@ def docker_cluster(test_dir, test_id):
 @pytest.fixture(scope="session")
 def relocatable_cluster(test_dir, test_id):
     cluster_name = f"relocatable_cluster_{test_id}"
-    cluster = ScyllaCluster(str(test_dir), name=cluster_name, version=SCYLLA_RELOCATABLE_VERSION)
+    cluster = ScyllaCluster(str(test_dir), name=cluster_name, version=get_scylla_relocatable_version())
     timeout = 10000
     cluster.set_configuration_options(values={
         'read_request_timeout_in_ms': timeout,
@@ -122,13 +122,13 @@ def ccm_docker_cluster():
 
 @pytest.fixture(scope="session")
 def ccm_reloc_cluster():
-    cluster = CCMCluster(test_id="reloc", relocatable_version=SCYLLA_RELOCATABLE_VERSION)
+    cluster = CCMCluster(test_id="reloc", relocatable_version=get_scylla_relocatable_version())
     return cluster
 
 
 @pytest.fixture(scope="session")
 def ccm_reloc_with_manager_cluster():
-    cluster = CCMCluster(test_id="reloc_manager", relocatable_version=SCYLLA_RELOCATABLE_VERSION)
+    cluster = CCMCluster(test_id="reloc_manager", relocatable_version=get_scylla_relocatable_version())
     return cluster
 
 

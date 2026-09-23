@@ -20,19 +20,17 @@ from ccmlib.scylla_repository import (
     directory_name,
 )
 from ccmlib.utils.download import get_url_hash, save_source_file
+from ccmlib.utils.scylla_versions import get_supported_scylla_versions, get_latest_scylla_release
+
+# test only the releases that are currently supported (according to the docs), so EOL versions drop out automatically
+SUPPORTED_RELEASES = [pytest.param(f"release:{major}{debug}", major, id=f"{major}{debug}")
+                      for major in get_supported_scylla_versions() for debug in ("", ":debug")]
 
 
 @pytest.mark.repo_tests
 @pytest.mark.skip("slow integration test")
 class TestScyllaRepository:
-    @pytest.mark.parametrize(argnames=['version', 'expected_version_string'], argvalues=[
-        ("release:2020.1", '2020.1'),
-        ("release:2021.1", '2021.1'),
-        ("release:2024.2", '2024.2'),
-        ("release:2024.2:debug", '2024.2'),
-        ("release:2026.1", '2026.1'),
-        ("release:2026.2", '2026.2'),
-    ])
+    @pytest.mark.parametrize(argnames=['version', 'expected_version_string'], argvalues=SUPPORTED_RELEASES)
     def test_setup_release_enterprise(self, version, expected_version_string):
         cdir, version = scylla_setup(version=version, verbose=True)
         assert expected_version_string in version
@@ -55,33 +53,17 @@ class TestScyllaRepository:
 
 
 class TestScyllaRepositoryRelease:
-    @pytest.mark.parametrize(argnames=['version', 'expected_cdir'], argvalues=[
-        ("release:2021.1", '2021.1'),
-        ("release:2021.1.10", '2021.1.10'),
-        ("release:2024.2~rc0", '2024.2.0~rc0'),
-        ("release:2024.2", '2024.2'),
-        ("release:2024.2:debug", '2024.2'),
-        ("release:2026.1", '2026.1'),
-        ("release:2026.1:debug", '2026.1'),
-        ("release:2026.2", '2026.2'),
-        ("release:2026.2:debug", '2026.2'),
-    ])
-    def test_setup_release_enterprise(self, version, expected_cdir):
+    @pytest.mark.parametrize(argnames=['version', 'expected_cdir'], argvalues=SUPPORTED_RELEASES)
+    def test_setup_release(self, version, expected_cdir):
         cdir, packages = scylla_setup(version=version, verbose=True, skip_downloads=True)
         assert expected_cdir in cdir
         assert packages.scylla_unified_package
 
-    @pytest.mark.parametrize(argnames=['version', 'expected_cdir'], argvalues=[
-        ("release:2020.1", '2020.1'),
-        ("release:2020.1.10", '2020.1.10'),
-    ])
-    def test_setup_release_enterprise_no_unified_package(self, version, expected_cdir):
-        cdir, packages = scylla_setup(version=version, verbose=True, skip_downloads=True)
-        assert expected_cdir in cdir
-        assert packages.scylla_unified_package is None
-        assert packages.scylla_package
-        assert packages.scylla_tools_package
-        assert packages.scylla_jmx_package
+    def test_setup_latest_release(self):
+        latest = get_latest_scylla_release()
+        cdir, packages = scylla_setup(version=f"release:{latest}", verbose=True, skip_downloads=True)
+        assert cdir.endswith(latest)
+        assert f"-{latest}-" in packages.scylla_unified_package
 
     @staticmethod
     def _mock_build_manifest(unified_pack_url):
