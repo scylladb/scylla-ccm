@@ -4,7 +4,7 @@ import subprocess
 
 import pytest
 
-from ccmlib.common import get_scylla_full_version, get_scylla_version, get_default_scylla_yaml
+from ccmlib.common import get_scylla_full_version, get_scylla_version, get_default_scylla_yaml, get_tools_java_dir
 from ccmlib.node import Node, ToolError
 from tests.test_config import get_scylla_relocatable_version
 
@@ -38,6 +38,10 @@ class TestScyllaRelocatableCluster:
         time.sleep(5)
 
     def test_node_stress(self, relocatable_cluster):
+        if get_tools_java_dir(relocatable_cluster.get_install_dir()) is None:
+            # newer scylla releases don't ship scylla-tools-java (cassandra-stress),
+            # stress() should fall back to a cassandra-stress container - https://scylladb.atlassian.net/browse/DTEST-267
+            pytest.skip("cassandra-stress isn't available in this scylla version (DTEST-267)")
         node1, *_ = relocatable_cluster.nodelist()
         node1: Node
         ret = node1.stress(['write', 'n=10'])
@@ -67,7 +71,7 @@ class TestScyllaRelocatableCluster:
 
         node1.run_cqlsh(
             '''
-            CREATE KEYSPACE ks WITH replication = { 'class' :'SimpleStrategy', 'replication_factor': 3};
+            CREATE KEYSPACE ks WITH replication = { 'class' :'NetworkTopologyStrategy', 'replication_factor': 1};
             USE ks;
             CREATE TABLE test (key int PRIMARY KEY);
             INSERT INTO test (key) VALUES (1);
