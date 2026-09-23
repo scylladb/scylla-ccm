@@ -14,20 +14,38 @@ on:
      - next*
 
 jobs:
+  resolve-scylla-version:
+    # test against the latest scylla release (not unstable/master, since master builds are cleared from S3 once in a while)
+    name: Resolve latest scylla release
+    runs-on: ubuntu-latest
+    outputs:
+      scylla_version: ${{ steps.resolve.outputs.scylla_version }}
+    steps:
+    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      with:
+        persist-credentials: false
+    - name: Install uv
+      uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+      with:
+        enable-cache: true
+    - name: Resolve latest scylla release
+      id: resolve
+      run: |
+        version="release:$(uv run python -m ccmlib.utils.scylla_versions latest)"
+        echo "Using scylla version: ${version}"
+        echo "scylla_version=${version}" >> "$GITHUB_OUTPUT"
   ci-without-nix:
     name: CCM Integration tests
+    needs: resolve-scylla-version
     uses: ./.github/workflows/integration-tests.yml
     with:
-      # use a fixed release (not unstable/master), since master builds are cleared from S3 once in a while
-      # bump it to the latest scylla release from time to time
-      scylla_version: "release:2026.3.1"
+      scylla_version: ${{ needs.resolve-scylla-version.outputs.scylla_version }}
   ci-with-nix:
     name: CCM Integration tests (using Nix)
+    needs: resolve-scylla-version
     uses: ./.github/workflows/nix.yml
     with:
-      # use a fixed release (not unstable/master), since master builds are cleared from S3 once in a while
-      # bump it to the latest scylla release from time to time
-      scylla_version: "release:2026.3.1"
+      scylla_version: ${{ needs.resolve-scylla-version.outputs.scylla_version }}
   ci-docker:
     name: Docker/Podman Integration tests
     uses: ./.github/workflows/docker-tests.yml

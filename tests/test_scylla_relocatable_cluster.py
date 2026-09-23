@@ -1,3 +1,4 @@
+import re
 import time
 import subprocess
 
@@ -5,17 +6,27 @@ import pytest
 
 from ccmlib.common import get_scylla_full_version, get_scylla_version, get_default_scylla_yaml
 from ccmlib.node import Node, ToolError
+from tests.test_config import get_scylla_relocatable_version
+
+
+def expected_release_version():
+    version_type, _, version = get_scylla_relocatable_version().partition(":")
+    if version_type != "release":
+        pytest.skip(f"expected version is known only for release versions, not {get_scylla_relocatable_version()}")
+    return version
 
 
 @pytest.mark.reloc
 class TestScyllaRelocatableCluster:
     def test_get_scylla_full_version(self, relocatable_cluster):
         install_dir = relocatable_cluster.get_install_dir()
-        assert get_scylla_full_version(install_dir) == '2024.2.3-0.20250108.931ce203dcf5'
+        # e.g. 2026.3.1-0.20260904.97cbf7898aae
+        assert re.fullmatch(rf"{re.escape(expected_release_version())}-0\.\d{{8}}\.[0-9a-f]+",
+                            get_scylla_full_version(install_dir))
 
     def test_get_scylla_version(self, relocatable_cluster):
         install_dir = relocatable_cluster.get_install_dir()
-        assert get_scylla_version(install_dir) == '2024.2.3'
+        assert get_scylla_version(install_dir) == expected_release_version()
 
     def test_nodetool_timeout(self, relocatable_cluster):
         node1: Node = relocatable_cluster.nodelist()[0]
