@@ -18,12 +18,16 @@ jobs:
     name: CCM Integration tests
     uses: ./.github/workflows/integration-tests.yml
     with:
-      reloc_version: "2025-01-19T09:39:05Z"
+      # use a fixed release (not unstable/master), since master builds are cleared from S3 once in a while
+      # bump it to the latest scylla release from time to time
+      scylla_version: "release:2026.3.1"
   ci-with-nix:
     name: CCM Integration tests (using Nix)
     uses: ./.github/workflows/nix.yml
     with:
-      reloc_version: "2025-01-19T09:39:05Z"
+      # use a fixed release (not unstable/master), since master builds are cleared from S3 once in a while
+      # bump it to the latest scylla release from time to time
+      scylla_version: "release:2026.3.1"
   ci-docker:
     name: Docker/Podman Integration tests
     uses: ./.github/workflows/docker-tests.yml
