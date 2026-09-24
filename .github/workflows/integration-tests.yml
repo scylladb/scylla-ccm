@@ -55,8 +55,6 @@ jobs:
       run: |
         uv run ./ccm create temp -n 1 --scylla --version $SCYLLA_VERSION
         uv run ./ccm remove
-        uv run ./ccm create temp-cas -n 1 --version 3.11.4 > /dev/null
-        uv run ./ccm remove
 
     - name: Test with pytest
       run: |
