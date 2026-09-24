@@ -13,6 +13,7 @@ readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
     "ruamel-yaml",
+    "pyyaml",
     "psutil",
     "requests",
     "packaging",
@@ -63,10 +64,12 @@ log_date_format = "%Y-%m-%d %H:%M:%S"
 log_file = "tests/test_results/ccm.log"
 markers = [
   "docker: Run tests with docker image",
+  "network_topology: Run tests with container-based network topology simulation",
   "reloc: Run tests with relocatable packages",
   "cassandra: Run tests with cassandra binaries",
   "repo_tests: Run test for testing get versions",
-  "slow: Run slow tests that take longer to execute"
+  "slow: Run slow tests that take longer to execute",
+  "integration: Slow integration tests requiring Docker and real Scylla"
 ]
 filterwarnings = ["error", "ignore::ResourceWarning"]
 

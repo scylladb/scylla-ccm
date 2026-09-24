@@ -10,6 +10,8 @@ from ccmlib.common import ArgumentError
 from ccmlib.dse_cluster import DseCluster
 from ccmlib.scylla_cluster import ScyllaCluster
 from ccmlib.scylla_docker_cluster import ScyllaDockerCluster, ScyllaDockerNode
+from ccmlib.scylla_podman_cluster import ScyllaPodmanCluster
+from ccmlib.scylla_monitoring import MonitoringStack
 from ccmlib.scylla_node import ScyllaNode
 from ccmlib.dse_node import DseNode
 from ccmlib.node import Node, NodeError
@@ -46,7 +48,8 @@ def cluster_cmds():
         "checklogerror",
         "showlastlog",
         "jconsole",
-        "sctool"
+        "sctool",
+        "monitoring"
     ]
 
 
@@ -145,6 +148,27 @@ class ClusterCreateCmd(Cmd):
         parser.add_option('--scylla-unified-package-uri', type="string", dest="scylla_unified_package_uri",
                           help="The path scylla relocatable unified package", default=None)
 
+        parser.add_option("--podman-image", type="string", dest="podman_image",
+                          help="Create a podman-based Scylla cluster using this container image", default=None)
+        parser.add_option("--inter-rack-delay", type="float", dest="inter_rack_delay",
+                          help="Simulated latency in ms between racks in the same DC (podman only)", default=1)
+        parser.add_option("--inter-dc-delay", type="float", dest="inter_dc_delay",
+                          help="Simulated latency in ms between DCs (podman only)", default=50)
+        parser.add_option("--packet-loss", type="float", dest="packet_loss",
+                          help="Simulated packet loss percentage for cross-DC traffic (podman only)", default=0.0)
+        parser.add_option("--pinning", action="store_true", dest="pinning",
+                          help="Pin each podman node to dedicated CPU cores (podman only, requires enough host CPUs)", default=False)
+        parser.add_option('--monitoring', action="store_true", dest="monitoring",
+                          help="Enable automatic monitoring (scylla-monitoring stack) for this cluster", default=False)
+        parser.add_option('--monitoring-dir', type="string", dest="monitoring_dir",
+                          help="Path to scylla-monitoring checkout (default: SCYLLA_MONITORING_DIR env var)", default=None)
+        parser.add_option('--grafana-port', type="int", dest="grafana_port",
+                          help="Grafana port for monitoring [default: %default]", default=3000)
+        parser.add_option('--prometheus-port', type="int", dest="prometheus_port",
+                          help="Prometheus port for monitoring [default: %default]", default=9090)
+        parser.add_option('--alertmanager-port', type="int", dest="alertmanager_port",
+                          help="Alertmanager port for monitoring [default: %default]", default=9093)
+
         parser.epilog = """
         
         Examples of using relocatable packages:
@@ -179,10 +203,21 @@ class ClusterCreateCmd(Cmd):
         return parser
 
     def validate(self, parser, options, args):
-        # Docker-based clusters don't need install_dir
-        if options.scylla and not options.install_dir and not options.docker_image:
-            parser.error("must specify install_dir or --docker-image when using scylla")
+        # Docker/Podman-based clusters don't need install_dir
+        if options.scylla and not options.install_dir and not options.docker_image and not options.podman_image:
+            parser.error("must specify install_dir, --docker-image, or --podman-image when using scylla")
+        if options.podman_image and not options.scylla:
+            parser.error("--podman-image requires --scylla")
+        if options.podman_image and options.docker_image:
+            parser.error("--podman-image and --docker-image cannot be used together")
         Cmd.validate(self, parser, options, args, cluster_name=True)
+        if options.inter_rack_delay is not None and options.inter_rack_delay < 0:
+            parser.error("--inter-rack-delay must be non-negative")
+        if options.inter_dc_delay is not None and options.inter_dc_delay < 0:
+            parser.error("--inter-dc-delay must be non-negative")
+        if options.packet_loss is not None:
+            if options.packet_loss < 0 or options.packet_loss > 100:
+                parser.error("--packet-loss must be between 0 and 100")
         if options.ipprefix and options.ipformat:
             parser.print_help()
             parser.error(f"{parser.get_option('-i')} and {parser.get_option('-I')} may not be used together")
@@ -198,7 +233,7 @@ class ClusterCreateCmd(Cmd):
             parser.print_help()
             sys.exit(1)
 
-        if not options.version and not options.docker_image:
+        if not options.version and not options.docker_image and not options.podman_image:
             try:
                 common.validate_install_dir(options.install_dir)
             except ArgumentError:
@@ -226,7 +261,16 @@ class ClusterCreateCmd(Cmd):
     def run(self):
         try:
             if self.options.scylla:
-                if self.options.docker_image:
+                if self.options.podman_image:
+                    cluster = ScyllaPodmanCluster(
+                        self.path, self.name,
+                        podman_image=self.options.podman_image,
+                        inter_rack_delay_ms=self.options.inter_rack_delay,
+                        inter_dc_delay_ms=self.options.inter_dc_delay,
+                        packet_loss_percent=self.options.packet_loss,
+                        pinning=self.options.pinning,
+                    )
+                elif self.options.docker_image:
                     # Create Docker-based Scylla cluster
                     cluster = ScyllaDockerCluster(
                         self.path, 
@@ -251,6 +295,36 @@ class ClusterCreateCmd(Cmd):
             print(f'Cannot create cluster: {str(e)}\n{traceback.format_exc()}', file=sys.stderr)
             sys.exit(1)
 
+        # CCM_MONITORING env var acts as a default for --monitoring at cluster creation time.
+        # Once persisted to cluster.conf, the env var is no longer consulted.
+        if not self.options.monitoring:
+            ccm_monitoring = os.environ.get('CCM_MONITORING', '')
+            if ccm_monitoring and ccm_monitoring != '0':
+                self.options.monitoring = True
+
+        if self.options.monitoring:
+            if not isinstance(cluster, ScyllaCluster):
+                print("Warning: --monitoring is only supported for Scylla clusters, ignoring.", file=sys.stderr)
+            else:
+                cluster.monitoring_enabled = True
+                cluster.monitoring_dir = self.options.monitoring_dir
+                # Auto-assign ports from cluster ID if user didn't specify custom ports
+                grafana_port = self.options.grafana_port
+                prometheus_port = self.options.prometheus_port
+                alertmanager_port = self.options.alertmanager_port
+                if self.options.id and self.options.id != 0:
+                    defaults = MonitoringStack.default_ports(self.options.id)
+                    if grafana_port == 3000:
+                        grafana_port = defaults['grafana_port']
+                    if prometheus_port == 9090:
+                        prometheus_port = defaults['prometheus_port']
+                    if alertmanager_port == 9093:
+                        alertmanager_port = defaults['alertmanager_port']
+                cluster.grafana_port = grafana_port
+                cluster.prometheus_port = prometheus_port
+                cluster.alertmanager_port = alertmanager_port
+                cluster._update_config()
+
         if self.options.partitioner:
             cluster.set_partitioner(self.options.partitioner)
 
@@ -274,7 +348,7 @@ class ClusterCreateCmd(Cmd):
             common.switch_cluster(self.path, self.name)
             print(f'Current cluster is now: {self.name}')
 
-        if not (self.options.ipprefix or self.options.ipformat):
+        if not cluster.is_podman() and not (self.options.ipprefix or self.options.ipformat):
             self.options.ipformat = '127.0.0.%d'
 
         if self.options.gen_ssl:
@@ -381,6 +455,11 @@ class ClusterAddCmd(Cmd):
         self.initial_token = options.initial_token
 
     def run(self):
+        if self.cluster.is_podman():
+            print("ccm add is not supported for podman clusters yet; "
+                  "recreate the cluster with the full topology instead",
+                  file=sys.stderr)
+            sys.exit(1)
         try:
             if self.options.scylla_node:
                 if self.cluster.is_docker():
@@ -435,7 +514,7 @@ class ClusterPopulateCmd(Cmd):
             if self.cluster.cassandra_version() >= "1.2" and self.options.vnodes:
                 self.cluster.set_configuration_options({'num_tokens': 256})
 
-            if not (self.options.ipprefix or self.options.ipformat):
+            if not self.cluster.is_podman() and not (self.options.ipprefix or self.options.ipformat):
                 self.options.ipformat = '127.0.0.%d'
 
             self.cluster.populate(self.nodes, self.options.debug, use_vnodes=self.options.vnodes, ipprefix=self.options.ipprefix, ipformat=self.options.ipformat)
@@ -513,6 +592,9 @@ class ClusterRemoveCmd(Cmd):
     def get_parser(self):
         usage = "usage: ccm remove [options] [cluster_name]"
         parser = self._get_default_parser(usage, self.description())
+        parser.add_option('--keep-monitoring', action="store_true", dest="keep_monitoring",
+                          help="Keep the monitoring stack (Prometheus, Grafana, Alertmanager) running after removing the cluster",
+                          default=False)
         return parser
 
     def validate(self, parser, options, args):
@@ -535,13 +617,13 @@ class ClusterRemoveCmd(Cmd):
         if self.other_cluster:
             # Remove the specified cluster:
             cluster = ClusterFactory.load(self.path, self.other_cluster)
-            cluster.remove()
+            cluster.remove(keep_monitoring=self.options.keep_monitoring)
             # Remove CURRENT flag if the specified cluster is the current cluster:
             if self.other_cluster == common.current_cluster_name(self.path):
                 os.remove(os.path.join(self.path, 'CURRENT'))
         else:
             # Remove the current cluster:
-            self.cluster.remove()
+            self.cluster.remove(keep_monitoring=self.options.keep_monitoring)
             os.remove(os.path.join(self.path, 'CURRENT'))
 
 
@@ -1074,3 +1156,215 @@ class ClusterSctoolCmd(Cmd):
         stdout, stderr = self.cluster.sctool(self.sctool_options)
         print(stderr)
         print(stdout)
+
+
+class ClusterMonitoringCmd(Cmd):
+
+    def description(self):
+        return "Manage the scylla-monitoring stack for the current cluster"
+
+    def get_parser(self):
+        usage = "usage: ccm monitoring <subcommand> [options]\n\nSubcommands: start, stop, enable, disable, sync, status"
+        parser = self._get_default_parser(usage, self.description())
+        parser.add_option('--monitoring-dir', type="string", dest="monitoring_dir",
+                          help="Path to scylla-monitoring checkout (default: SCYLLA_MONITORING_DIR env var)", default=None)
+        parser.add_option('--grafana-port', type="int", dest="grafana_port",
+                          help="Grafana port [default: cluster setting or 3000]", default=None)
+        parser.add_option('--prometheus-port', type="int", dest="prometheus_port",
+                          help="Prometheus port [default: cluster setting or 9090]", default=None)
+        parser.add_option('--alertmanager-port', type="int", dest="alertmanager_port",
+                          help="Alertmanager port [default: cluster setting or 9093]", default=None)
+        return parser
+
+    def validate(self, parser, options, args):
+        Cmd.validate(self, parser, options, args, load_cluster=True)
+        if not isinstance(self.cluster, ScyllaCluster):
+            print("Monitoring is only supported for Scylla clusters.", file=sys.stderr)
+            sys.exit(1)
+        if len(args) == 0:
+            print("Missing monitoring subcommand (start, stop, enable, disable, sync, status)", file=sys.stderr)
+            parser.print_help()
+            sys.exit(1)
+        self.subcmd = args[0]
+        if self.subcmd not in ('start', 'stop', 'enable', 'disable', 'sync', 'status'):
+            print(f"Unknown monitoring subcommand: {self.subcmd}", file=sys.stderr)
+            parser.print_help()
+            sys.exit(1)
+
+    def run(self):
+        subcmd = self.subcmd
+        cluster = self.cluster
+
+        if subcmd == 'start':
+            self._do_start(cluster)
+        elif subcmd == 'stop':
+            self._do_stop(cluster)
+        elif subcmd == 'enable':
+            self._do_enable(cluster)
+        elif subcmd == 'disable':
+            self._do_disable(cluster)
+        elif subcmd == 'sync':
+            self._do_sync(cluster)
+        elif subcmd == 'status':
+            self._do_status(cluster)
+
+    @staticmethod
+    def _print_stack_info(stack):
+        """Print Grafana and Prometheus host/port details."""
+        grafana_host, grafana_port = stack.grafana_address()
+        prometheus_host, prometheus_port = stack.prometheus_address()
+        print(f"  Grafana:    {stack.grafana_url()} (host={grafana_host}, port={grafana_port})")
+        print(f"  Prometheus: {stack.prometheus_url()} (host={prometheus_host}, port={prometheus_port})")
+
+    def _get_or_create_stack(self, cluster):
+        if cluster.monitoring_stack:
+            return cluster.monitoring_stack
+        monitoring_dir = self.options.monitoring_dir or cluster.monitoring_dir
+        grafana_port = self.options.grafana_port or cluster.grafana_port
+        prometheus_port = self.options.prometheus_port or cluster.prometheus_port
+        alertmanager_port = self.options.alertmanager_port or cluster.alertmanager_port
+        cluster.monitoring_stack = MonitoringStack(
+            cluster,
+            monitoring_dir=monitoring_dir,
+            grafana_port=grafana_port,
+            prometheus_port=prometheus_port,
+            alertmanager_port=alertmanager_port,
+        )
+        return cluster.monitoring_stack
+
+    def _do_start(self, cluster):
+        """Start monitoring for running cluster (manual mode)."""
+        stack = self._get_or_create_stack(cluster)
+        if stack.is_running():
+            print("Monitoring is already running.")
+            print(f"  Grafana:    {stack.grafana_url()}")
+            print(f"  Prometheus: {stack.prometheus_url()}")
+            return
+        try:
+            stack.start()
+            print("Monitoring started.")
+            print(f"  Grafana:    {stack.grafana_url()}")
+            print(f"  Prometheus: {stack.prometheus_url()}")
+        except Exception as e:
+            print(f"Error starting monitoring: {e}", file=sys.stderr)
+            sys.exit(1)
+
+    def _do_stop(self, cluster):
+        """Stop monitoring."""
+        # Reconnect to containers left by a previous process
+        if not cluster.monitoring_stack or not cluster.monitoring_stack.is_running():
+            stack = MonitoringStack(
+                cluster,
+                monitoring_dir=cluster.monitoring_dir,
+                grafana_port=cluster.grafana_port,
+                prometheus_port=cluster.prometheus_port,
+                alertmanager_port=cluster.alertmanager_port,
+            )
+            if stack.is_running():
+                cluster.monitoring_stack = stack
+        if not cluster.monitoring_stack or not cluster.monitoring_stack.is_running():
+            print("Monitoring is not running.")
+            return
+        try:
+            cluster.monitoring_stack.stop()
+            print("Monitoring stopped.")
+        except Exception as e:
+            print(f"Error stopping monitoring: {e}", file=sys.stderr)
+            sys.exit(1)
+
+    def _do_enable(self, cluster):
+        """Set auto mode, start monitoring if cluster has running nodes, sync targets."""
+        cluster.monitoring_enabled = True
+        # Persist monitoring dir and port overrides
+        if self.options.monitoring_dir:
+            cluster.monitoring_dir = self.options.monitoring_dir
+        if self.options.grafana_port is not None:
+            cluster.grafana_port = self.options.grafana_port
+        if self.options.prometheus_port is not None:
+            cluster.prometheus_port = self.options.prometheus_port
+        if self.options.alertmanager_port is not None:
+            cluster.alertmanager_port = self.options.alertmanager_port
+        # Auto-assign ports from cluster ID if still at defaults
+        if hasattr(cluster, 'id') and cluster.id and cluster.id != 0:
+            defaults = MonitoringStack.default_ports(cluster.id)
+            if cluster.grafana_port == 3000:
+                cluster.grafana_port = defaults['grafana_port']
+            if cluster.prometheus_port == 9090:
+                cluster.prometheus_port = defaults['prometheus_port']
+            if cluster.alertmanager_port == 9093:
+                cluster.alertmanager_port = defaults['alertmanager_port']
+        cluster._update_config()
+
+        # Start monitoring if any nodes are running
+        running_nodes = [n for n in cluster.nodes.values() if n.is_running()]
+        if running_nodes:
+            stack = self._get_or_create_stack(cluster)
+            if not stack.is_running():
+                try:
+                    stack.start()
+                except Exception as e:
+                    print(f"Warning: Failed to start monitoring: {e}", file=sys.stderr)
+            stack.update_targets()
+            print("Automatic monitoring enabled and running.")
+            print(f"  Grafana:    {stack.grafana_url()}")
+            print(f"  Prometheus: {stack.prometheus_url()}")
+        else:
+            print("Automatic monitoring enabled. Will start when cluster starts.")
+
+    def _do_disable(self, cluster):
+        """Unset auto mode, stop monitoring."""
+        cluster.monitoring_enabled = False
+        cluster._update_config()
+
+        if cluster.monitoring_stack and cluster.monitoring_stack.is_running():
+            try:
+                cluster.monitoring_stack.stop()
+            except Exception as e:
+                print(f"Warning: Failed to stop monitoring: {e}", file=sys.stderr)
+
+        print("Automatic monitoring disabled.")
+
+    def _do_sync(self, cluster):
+        """Force-regenerate targets from current cluster state."""
+        cluster._reconnect_monitoring_stack()
+        if not cluster.monitoring_stack or not cluster.monitoring_stack.is_running():
+            print("Monitoring is not running. Use 'ccm monitoring start' first.", file=sys.stderr)
+            sys.exit(1)
+        cluster.monitoring_stack.update_targets()
+        print("Monitoring targets synced.")
+
+    def _do_status(self, cluster):
+        """Show monitoring status."""
+        print(f"Automatic monitoring: {'enabled' if cluster.monitoring_enabled else 'disabled'}")
+        if cluster.monitoring_stack and cluster.monitoring_stack.is_running():
+            stack = cluster.monitoring_stack
+            print(f"Monitoring stack:     running")
+            self._print_stack_info(stack)
+        else:
+            # Check if containers might still be running from a previous session
+            stack = MonitoringStack(
+                cluster,
+                monitoring_dir=cluster.monitoring_dir,
+                grafana_port=cluster.grafana_port,
+                prometheus_port=cluster.prometheus_port,
+                alertmanager_port=cluster.alertmanager_port,
+            )
+            if stack.is_running():
+                print(f"Monitoring stack:     running (from previous session)")
+                self._print_stack_info(stack)
+                # Reconnect the stack
+                cluster.monitoring_stack = stack
+            else:
+                print(f"Monitoring stack:     not running")
+
+        # Show target count
+        targets_file = os.path.join(cluster.get_path(), 'monitoring', 'prometheus', 'targets', 'scylla_servers.yml')
+        if os.path.exists(targets_file):
+            import json
+            try:
+                with open(targets_file) as f:
+                    targets = json.load(f)
+                total = sum(len(entry.get('targets', [])) for entry in targets)
+                print(f"  Targets:    {total} node(s)")
+            except Exception as e:
+                print(f"Warning: could not read monitoring targets: {e}", file=sys.stderr)
