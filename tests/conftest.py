@@ -133,12 +133,6 @@ def ccm_reloc_with_manager_cluster():
 
 
 @pytest.fixture(scope="session")
-def ccm_cassandra_cluster():
-    cluster = CCMCluster(use_scylla=False, test_id="cassandra")
-    return cluster
-
-
-@pytest.fixture(scope="session")
 def ccm_reloc_latest_cluster():
     cluster = CCMCluster(test_id="reloc_master", relocatable_version="unstable/master:latest")
     return cluster

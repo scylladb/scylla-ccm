@@ -36,8 +36,6 @@ class CCMCluster:
             cmd_args += ["--scylla", "--docker", self.docker_image]
         elif not self.use_scylla and self.docker_image:
             cmd_args = ["--docker", self.docker_image]
-        else:
-            cmd_args += ["-v", "3.11.4"]
 
         if args:
             cmd_args += args

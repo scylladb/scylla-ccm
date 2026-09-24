@@ -64,7 +64,6 @@ log_file = "tests/test_results/ccm.log"
 markers = [
   "docker: Run tests with docker image",
   "reloc: Run tests with relocatable packages",
-  "cassandra: Run tests with cassandra binaries",
   "repo_tests: Run test for testing get versions",
   "slow: Run slow tests that take longer to execute"
 ]

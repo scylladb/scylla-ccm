@@ -46,7 +46,6 @@ uv run python -m pytest ./tests -x
 Tests use pytest markers defined in `pyproject.toml`:
 - `@pytest.mark.docker` - Tests requiring Docker
 - `@pytest.mark.reloc` - Tests using relocatable packages
-- `@pytest.mark.cassandra` - Tests using Cassandra binaries
 - `@pytest.mark.repo_tests` - Repository version tests
 
 ## Project Layout
