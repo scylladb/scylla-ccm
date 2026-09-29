@@ -64,6 +64,9 @@ def docker_cluster(test_dir, test_id):
         yield cluster
     finally:
         cluster.clear()
+        # clear() only stops scylla; the containers and cluster network would
+        # otherwise outlive the session.
+        cluster.remove()
 
 
 @pytest.fixture(scope="session")
