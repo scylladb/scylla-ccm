@@ -191,6 +191,8 @@ Requirements
     sudo ifconfig lo0 alias 127.0.0.3 up
     # ... add more as needed
     ```
+  - With `manager_own_db`, scylla-manager's DB node also needs `127.0.0.201` (on the cluster's ipprefix)
+  - `manager_db_install_dir` must be a Scylla source tree dir (with `build/<mode>/scylla`), not a relocatable package dir
 
 By default ccm will look for Java in `/usr/lib/jvm` directory. If you have a custom Java installation directory,
 you can provide `CUSTOM_JAVA_HOME` env variable. When this environment, ccm will assume Java binary is available
