@@ -225,6 +225,9 @@ def extract_major_version(version):
     return major_version
 
 
+PINNED_TIMESTAMP_RE = re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$')
+
+
 @lru_cache(maxsize=None)
 def setup(version, verbose=True, skip_downloads=False):
     """
@@ -273,6 +276,9 @@ def setup(version, verbose=True, skip_downloads=False):
     # Compare hash of saved version (it is saved in the 'scylla-core-package/source.txt' file) and hash of a new package.
     # If it is same - skip the download. If not - remove existing folder and download again.
     validate_by_hash = version_dir is not None and type_n_version[0] != "release"
+    # A pinned timestamped build is immutable and already validated; avoid S3 so an outage can't fail startup.
+    if validate_by_hash and PINNED_TIMESTAMP_RE.match(type_n_version[-1]) and not any(packages_from_env() or ()):
+        validate_by_hash = False
 
     if len(type_n_version) == 2 and (version_dir is None or validate_by_hash):
         s3_version = type_n_version[1]
