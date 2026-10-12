@@ -7,17 +7,17 @@ import hashlib
 from functools import lru_cache
 
 import tqdm
-import requests
 from boto3.session import Session
 from boto3.s3.transfer import S3Transfer, TransferConfig
 import botocore
 import botocore.client
+from ccmlib.utils.net import http_get, http_session, s3_config
 
 
 @lru_cache(maxsize=None)
 def s3_client():
     # creating a boto3 session/client costs ~80ms, so share one (clients are thread-safe)
-    return Session().client('s3', config=botocore.client.Config(signature_version=botocore.UNSIGNED))
+    return Session().client('s3', config=s3_config(signature_version=botocore.UNSIGNED))
 
 
 def url_filename(url: str):
@@ -115,7 +115,7 @@ def download_file(url: str, target_path: str = None, verbose: bool = False):
     """
 
     chunk_size = 2 * 1024 * 1024
-    with requests.get(url, stream=True) as resp:
+    with http_get(url, stream=True) as resp:
         resp.raise_for_status()
 
         total = int(resp.headers.get('content-length', 0))
@@ -200,7 +200,7 @@ def get_url_hash(url: str) -> str:
         return etag[1:-1]
     except botocore.client.ClientError as e:
         # fallback to http
-        etag = requests.head(url).headers.get('ETag')
+        etag = http_session().head(url, timeout=60).headers.get('ETag')
         if not etag:
             raise RuntimeError(
                 f"Could not get a hash for {url}: S3 HeadObject failed ({e}) "
