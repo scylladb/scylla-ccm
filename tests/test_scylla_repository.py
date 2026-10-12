@@ -403,3 +403,41 @@ def test_setup_scylla_manager_keeps_local_tarball(tmp_path, monkeypatch):
     assert tarball.exists()
     assert (install_dir / 'sctool').exists()
     assert not list(tmp_path.glob('ccm-manager-*'))
+
+
+class TestPinnedBuildSkipsS3:
+    X86_URL = "url=http://s3/unstable/scylla/master/relocatable/x/scylla-unified-2026.3.0~dev-0.20261011.abc.x86_64.tar.gz"
+
+    @pytest.mark.parametrize("version,source,arch,network", [
+        ("unstable/master:2026-10-11T11:02:24Z", X86_URL, "x86_64", False),
+        ("unstable/master:latest", X86_URL, "x86_64", True),
+        ("unstable/master:2026-10-11T11:02:24Z", None, "x86_64", True),  # not cached
+        ("unstable/master:2026-10-11T11:02:24Z", "", "x86_64", True),  # cached without source.txt
+        ("unstable/master:2026-10-11T11:02:24Z", X86_URL, "aarch64", True),  # cached for another arch
+    ])
+    def test_network_calls(self, version, source, arch, network, monkeypatch, tmp_path):
+        import ccmlib.scylla_repository as repo
+        for var in ("SCYLLA_JMX_PACKAGE", "SCYLLA_TOOLS_JAVA_PACKAGE", "SCYLLA_JAVA_TOOLS_PACKAGE",
+                    "SCYLLA_CORE_PACKAGE", "SCYLLA_UNIFIED_PACKAGE", "SCYLLA_MANAGER_PACKAGE"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setenv("SCYLLA_ARCH", arch)
+        cache_dir = None
+        if source is not None:
+            cache_dir = str(tmp_path)
+            if source:
+                (tmp_path / CORE_PACKAGE_DIR_NAME).mkdir()
+                (tmp_path / CORE_PACKAGE_DIR_NAME / SOURCE_FILE_NAME).write_text(f"version=x\n{source}\nhash=h\n")
+        repo.setup.cache_clear()
+        with patch.object(repo, "version_directory", return_value=cache_dir), \
+                patch.object(repo, "get_relocatable_s3_url", return_value=("s3://x", [])) as url, \
+                patch.object(repo, "read_build_manifest", side_effect=RuntimeError("stop")) as manifest, \
+                patch.object(repo, "aws_bucket_ls", side_effect=RuntimeError("stop")) as ls, \
+                patch.object(repo, "get_scylla_version", return_value="1.0"):
+            if network:
+                with pytest.raises(Exception):
+                    repo.setup(version)
+                assert url.called and manifest.called
+            else:
+                assert repo.setup(version) == (cache_dir, "1.0")
+                assert not (url.called or manifest.called or ls.called)
+        repo.setup.cache_clear()

@@ -225,6 +225,19 @@ def extract_major_version(version):
     return major_version
 
 
+PINNED_TIMESTAMP_RE = re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$')
+
+
+def _installed_for_arch(version_dir, arch):
+    """True if the cached install recorded its source and it was built for *arch* (the cache dir omits arch)."""
+    try:
+        source = (Path(version_dir) / CORE_PACKAGE_DIR_NAME / SOURCE_FILE_NAME).read_text()
+    except OSError:
+        return False
+    url = next((line[len('url='):] for line in source.splitlines() if line.startswith('url=')), '')
+    return f'.{arch}.' in url or f'-{arch}-' in url
+
+
 @lru_cache(maxsize=None)
 def setup(version, verbose=True, skip_downloads=False):
     """
@@ -273,6 +286,10 @@ def setup(version, verbose=True, skip_downloads=False):
     # Compare hash of saved version (it is saved in the 'scylla-core-package/source.txt' file) and hash of a new package.
     # If it is same - skip the download. If not - remove existing folder and download again.
     validate_by_hash = version_dir is not None and type_n_version[0] != "release"
+    # A pinned timestamped build is immutable and already validated; avoid S3 so an outage can't fail startup.
+    if (validate_by_hash and PINNED_TIMESTAMP_RE.match(type_n_version[-1]) and not any(packages_from_env() or ())
+            and _installed_for_arch(version_dir, scylla_arch)):
+        validate_by_hash = False
 
     if len(type_n_version) == 2 and (version_dir is None or validate_by_hash):
         s3_version = type_n_version[1]
