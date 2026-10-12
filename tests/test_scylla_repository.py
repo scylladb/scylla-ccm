@@ -77,7 +77,7 @@ class TestScyllaRepositoryRelease:
         response.raise_for_status.return_value = None
         response.content = f'unified-pack-url: {unified_pack_url}\n'.encode()
         return patch('ccmlib.scylla_repository.aws_bucket_ls', return_value=['00-Build.txt']), \
-            patch('ccmlib.scylla_repository.requests.get', return_value=response)
+            patch('ccmlib.scylla_repository.http_get', return_value=response)
 
     @pytest.mark.parametrize(argnames=['version', 'expected_cdir', 'scylla_debug'], argvalues=[
         ("unstable/master:2021-01-18T15:48:13Z", "2021-01-18T15:48:13Z", False),
