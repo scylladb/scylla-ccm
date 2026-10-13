@@ -437,15 +437,11 @@ class ScyllaNode(Node):
             jmx_log.write(f"{message}\n")
             self._process_jmx = subprocess.Popen(args, stdout=jmx_log, stderr=jmx_log, close_fds=True, env=env)
         self._process_jmx.poll()
-        # When running on ccm standalone, the waiter thread would block
-        # the create commands. Besides in that mode, waiting is unnecessary,
-        # since the original popen reference is garbage collected.
-        standalone = os.environ.get('SCYLLA_CCM_STANDALONE', None)
-        if standalone is None:
-            self._process_jmx_waiter = threading.Thread(target=self._wait_for_jmx)
-            # Don't block the main thread on abnormal shutdown
-            self._process_jmx_waiter.daemon = True
-            self._process_jmx_waiter.start()
+        # Always reap the child, else an exited process stays a zombie and looks running.
+        self._process_jmx_waiter = threading.Thread(target=self._wait_for_jmx)
+        # Don't block the main thread on abnormal shutdown
+        self._process_jmx_waiter.daemon = True
+        self._process_jmx_waiter.start()
         pid_filename = os.path.join(self.get_path(), 'scylla-jmx.pid')
         with open(pid_filename, 'w') as pid_file:
             pid_file.write(str(self._process_jmx.pid))
@@ -504,15 +500,11 @@ class ScyllaNode(Node):
             self._process_scylla = \
                 subprocess.Popen(args, stdout=scylla_log, stderr=scylla_log, close_fds=True, env=env)
         self._process_scylla.poll()
-        # When running on ccm standalone, the waiter thread would block
-        # the create commands. Besides in that mode, waiting is unnecessary,
-        # since the original popen reference is garbage collected.
-        standalone = os.environ.get('SCYLLA_CCM_STANDALONE', None)
-        if standalone is None:
-            self._process_scylla_waiter = threading.Thread(target=self._wait_for_scylla)
-            # Don't block the main thread on abnormal shutdown
-            self._process_scylla_waiter.daemon = True
-            self._process_scylla_waiter.start()
+        # Always reap the child, else an exited process stays a zombie and looks running.
+        self._process_scylla_waiter = threading.Thread(target=self._wait_for_scylla)
+        # Don't block the main thread on abnormal shutdown
+        self._process_scylla_waiter.daemon = True
+        self._process_scylla_waiter.start()
         pid_filename = os.path.join(self.get_path(), 'cassandra.pid')
         with open(pid_filename, 'w') as pid_file:
             pid_file.write(str(self._process_scylla.pid))
@@ -594,15 +586,11 @@ class ScyllaNode(Node):
         with open(log_file, 'a') as agent_log:
             self._process_agent = subprocess.Popen(args, stdout=agent_log, stderr=agent_log, close_fds=True)
         self._process_agent.poll()
-        # When running on ccm standalone, the waiter thread would block
-        # the create commands. Besides in that mode, waiting is unnecessary,
-        # since the original popen reference is garbage collected.
-        standalone = os.environ.get('SCYLLA_CCM_STANDALONE', None)
-        if standalone is None:
-            self._process_agent_waiter = threading.Thread(target=self._wait_for_agent)
-            # Don't block the main thread on abnormal shutdown
-            self._process_agent_waiter.daemon = True
-            self._process_agent_waiter.start()
+        # Always reap the child, else an exited process stays a zombie and looks running.
+        self._process_agent_waiter = threading.Thread(target=self._wait_for_agent)
+        # Don't block the main thread on abnormal shutdown
+        self._process_agent_waiter.daemon = True
+        self._process_agent_waiter.start()
         pid_filename = os.path.join(self.get_path(), 'scylla-agent.pid')
         with open(pid_filename, 'w') as pid_file:
             pid_file.write(str(self._process_agent.pid))
