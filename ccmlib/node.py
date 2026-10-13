@@ -28,6 +28,19 @@ from ccmlib.utils.version import parse_version
 if TYPE_CHECKING:
     from ccmlib.scylla_cluster import ScyllaCluster
 
+
+def _is_zombie(pid):
+    # kill(pid, 0) succeeds on an unreaped zombie, so check /proc. A zombie leader whose
+    # other threads still run is alive; leave reaping to the Popen waiter to keep its exit status.
+    try:
+        with open(f'/proc/{pid}/stat') as f:
+            if f.read().rpartition(')')[2].split()[0] != 'Z':
+                return False
+        return len(os.listdir(f'/proc/{pid}/task')) <= 1
+    except OSError:
+        return False
+
+
 class Status():
     UNINITIALIZED = "UNINITIALIZED"
     UP = "UP"
@@ -1802,6 +1815,8 @@ class Node(object):
         else:
             try:
                 os.kill(self.pid, 0)
+                if _is_zombie(self.pid):
+                    raise ProcessLookupError(errno.ESRCH, 'zombie')
             except OSError as err:
                 if err.errno == errno.ESRCH:
                     # not running
