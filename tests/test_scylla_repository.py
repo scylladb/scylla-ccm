@@ -15,6 +15,7 @@ from ccmlib.scylla_repository import (
     SOURCE_FILE_NAME,
     get_manager_release_url,
     get_manager_latest_reloc_url,
+    BASE_DOWNLOADS_URL,
     Architecture,
     directory_name,
     download_packages,
@@ -348,19 +349,25 @@ class TestLocalFileCaching:
 @pytest.mark.parametrize('architecture', argvalues=typing.get_args(Architecture))
 class TestGetManagerFunctions:
     def test_get_manager_latest_reloc_url(self, architecture):
-        master_version = get_manager_latest_reloc_url(architecture=architecture)
-        # the URL looks like
-        # https://s3.amazonaws.com/downloads.scylladb.com/manager/
-        #   relocatable/unstable/master/2026-06-28T21:54:42Z/scylla-manager_3.12.0-dev.0.20260628.d78e5dcc9.SNAPSHOT_linux_x86_64.tar.gz
-        assert 'relocatable/unstable/master' in master_version
-        assert 'SNAPSHOT' in master_version
-        assert architecture in master_version
+        # S3 listing is mocked: real branches get pruned, so don't depend on them
+        def listing(branch):
+            return [f"manager/relocatable/unstable/{branch}/{ts}/scylla-manager_3.0.0.SNAPSHOT_linux_{arch}.tar.gz"
+                    for ts in ("2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z")
+                    for arch in typing.get_args(Architecture)]
 
-        branch_version = get_manager_latest_reloc_url('branch-3.12', architecture=architecture)
-        assert 'relocatable/unstable/branch-3.12' in branch_version
-        assert architecture in branch_version
+        for branch in ("master", "branch-x.y"):
+            with patch('ccmlib.scylla_repository.aws_bucket_ls', return_value=listing(branch)):
+                url = get_manager_latest_reloc_url(branch, architecture=architecture)
+            assert url == (f"{BASE_DOWNLOADS_URL}/manager/relocatable/unstable/{branch}/2026-01-02T00:00:00Z/"
+                           f"scylla-manager_3.0.0.SNAPSHOT_linux_{architecture}.tar.gz")
+
+    def test_get_manager_latest_reloc_url_missing_branch(self, architecture):
+        with patch('ccmlib.scylla_repository.aws_bucket_ls', return_value=[]):
+            with pytest.raises(ValueError, match=f"branch-gone.*{architecture}.*relocatable/unstable/branch-gone/"):
+                get_manager_latest_reloc_url('branch-gone', architecture=architecture)
 
     def test_get_manager_release_url(self, architecture):
-        specific_version = get_manager_release_url('3.1.1', architecture=architecture)
-        assert specific_version == 'https://s3.amazonaws.com/downloads.scylladb.com/downloads/scylla-manager/' \
-                                   f'relocatable/scylladb-manager-3.1/scylla-manager_3.1.1-0.20230612.401edeb8_linux_{architecture}.tar.gz'
+        url = get_manager_release_url('3.12', architecture=architecture)
+        assert url.startswith('https://s3.amazonaws.com/downloads.scylladb.com/downloads/scylla-manager/'
+                              'relocatable/scylladb-manager-3.12/scylla-manager_3.12.')
+        assert url.endswith(f'_linux_{architecture}.tar.gz')
