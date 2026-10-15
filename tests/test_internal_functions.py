@@ -90,3 +90,19 @@ def test_parse_tasks(output, expected_tasks):
     for ks, cf, expected in expected_tasks:
         n = Node._parse_tasks(output, ks, cf)
         assert n == expected, f"Expected {expected} tasks for {ks}.{cf}, but got {n}"
+
+
+@pytest.mark.parametrize("cassandra_version, java_version", [("5.0.9", "11"), ("4.1.5", "8"), ("3.11.4", "8")])
+def test_cassandra_node_java_version(monkeypatch, cassandra_version, java_version):
+    used = []
+    monkeypatch.setattr("ccmlib.common.make_cassandra_env",
+                        lambda *args, hardcode_java_version=None: used.append(hardcode_java_version))
+    monkeypatch.setattr(Node, "get_install_dir", lambda self: "")
+    monkeypatch.setattr(Node, "get_path", lambda self: "")
+    monkeypatch.setattr(Node, "get_cassandra_version", lambda self: cassandra_version)
+    node = Node.__new__(Node)
+    node._Node__conf_updated = True
+
+    node.get_env()
+
+    assert used == [java_version]
