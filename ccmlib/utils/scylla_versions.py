@@ -9,7 +9,7 @@ import argparse
 import re
 from functools import lru_cache
 
-import requests
+from ccmlib.utils.net import http_get
 from packaging.version import Version
 
 SUPPORTED_VERSIONS_URL = (
@@ -25,7 +25,7 @@ def get_supported_scylla_versions(url: str = SUPPORTED_VERSIONS_URL) -> tuple[st
 
     e.g. ("2026.3", "2026.2", "2026.1", "2025.1")
     """
-    response = requests.get(url, timeout=30)
+    response = http_get(url, timeout=30)
     response.raise_for_status()
 
     supported = set()
@@ -48,7 +48,7 @@ def get_latest_scylla_release(url: str = CHECK_VERSION_URL) -> str:
 
     e.g. "2026.3.1"
     """
-    response = requests.get(url, timeout=30)
+    response = http_get(url, timeout=30)
     response.raise_for_status()
     return response.json()["version"]
 
