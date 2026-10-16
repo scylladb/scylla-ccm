@@ -1,4 +1,6 @@
 # ccm clusters
+import glob
+import logging
 import os
 import shutil
 import time
@@ -9,6 +11,7 @@ from typing import List, Tuple
 import uuid
 import datetime
 
+import psutil
 from ruamel.yaml import YAML
 
 from ccmlib import common
@@ -19,13 +22,15 @@ from ccmlib import scylla_repository
 from ccmlib.utils.version import ComparableScyllaVersion
 
 SNITCH = 'org.apache.cassandra.locator.GossipingPropertyFileSnitch'
+MANAGER_DB_NAME = 'manager-db'
 
 
 class ScyllaCluster(Cluster):
 
     def __init__(self, path, name, partitioner=None, install_dir=None,
                  create_directory=True, version=None, verbose=False,
-                 force_wait_for_cluster_start=False, manager=None, skip_manager_server=False, **kwargs):
+                 force_wait_for_cluster_start=False, manager=None, skip_manager_server=False,
+                 manager_own_db=False, manager_db_install_dir=None, **kwargs):
         install_func = common.scylla_extract_install_dir_and_mode
 
         cassandra_version = kwargs.get('cassandra_version', version)
@@ -50,6 +55,9 @@ class ScyllaCluster(Cluster):
         self.force_wait_for_cluster_start = force_wait_for_cluster_start
         self._scylla_manager = None
         self.skip_manager_server = skip_manager_server
+        self.manager_own_db = manager_own_db
+        # Must be a Scylla source tree dir (has build/<mode>/scylla), not a relocatable package dir.
+        self.manager_db_install_dir = os.path.abspath(manager_db_install_dir) if manager_db_install_dir else None
         self.scylla_version = cassandra_version
 
         super(ScyllaCluster, self).__init__(path, name, partitioner,
@@ -61,6 +69,11 @@ class ScyllaCluster(Cluster):
         # Set timeouts after parent init, as scylla_mode may be set in load_from_repository
         self.__set_default_timeouts()
         self.debug(f"ScyllaCluster: cassandra_version={cassandra_version} docker_image={docker_image} install_dir={install_dir} scylla_mode={self.scylla_mode} default_wait_other_notice_timeout={self.default_wait_other_notice_timeout} default_wait_for_binary_proto={self.default_wait_for_binary_proto}")
+
+        # The manager's helper DB cluster must never get a manager of its own. A user cluster with
+        # this name can't be told apart from the helper here, so it silently gets none.
+        if name == MANAGER_DB_NAME:
+            return
 
         if not manager:
             scylla_ext_opts = os.getenv('SCYLLA_EXT_OPTS', "").split()
@@ -210,11 +223,29 @@ class ScyllaCluster(Cluster):
         return [node for node in nodes if not node.is_running()]
 
     def stop(self, wait=True, gently=True, wait_other_notice=False, other_nodes=None, wait_seconds=None):
-        if self._scylla_manager and not self.skip_manager_server:
-            self._scylla_manager.stop(gently)
         kwargs = dict(**locals())
         del kwargs['self']
-        return self.stop_nodes(**kwargs)
+        errors = []
+        if self._scylla_manager and not self.skip_manager_server:
+            # A failing manager/DB stop must not leave the nodes running.
+            for stop in (self._scylla_manager.stop, self._scylla_manager.stop_db):
+                try:
+                    stop(gently)
+                except Exception as e:
+                    errors.append(e)
+        stopped = self.stop_nodes(**kwargs)
+        for e in errors[1:]:
+            logging.error("additional failure while stopping scylla-manager: %r", e)
+        if errors:
+            raise errors[0]
+        return stopped
+
+    def clear(self):
+        super().clear()
+        # Manager state (clusters, tasks) lives in the helper DB, so it goes too.
+        db = self._scylla_manager.db_cluster if self._scylla_manager else None
+        if db is not None:
+            db.clear()
 
     def get_scylla_mode(self):
         return self.scylla_mode
@@ -305,6 +336,11 @@ class ScyllaCluster(Cluster):
         if self._scylla_manager and self._scylla_manager.install_dir:
             data['scylla_manager_install_path'] = self._scylla_manager.install_dir
 
+        if self.manager_own_db:
+            data['manager_own_db'] = True
+        if self.manager_db_install_dir:
+            data['manager_db_install_dir'] = self.manager_db_install_dir
+
         with open(filename, 'w') as f:
             YAML().dump(data, f)
 
@@ -354,6 +390,9 @@ class ScyllaManager:
         self._pid = None
         self.auth_token = str(uuid.uuid4())
         self.install_dir = install_dir
+        # Manager's DB hosts; None means node 1 of the managed cluster (the historical default).
+        self.db_hosts = None
+        self._db_cluster = None
         if install_dir:
             if not os.path.exists(self._get_path()):
                 os.mkdir(self._get_path())
@@ -383,8 +422,8 @@ class ScyllaManager:
         data['http'] = self._get_api_address()
         if 'database' not in data:
             data['database'] = {}
-        data['database']['hosts'] = [self.scylla_cluster.get_node_ip(1)]
-        data['database']['replication_factor'] = 3
+        data['database']['hosts'] = self.db_hosts or [self.scylla_cluster.get_node_ip(1)]
+        data['database']['replication_factor'] = min(3, len(self.db_hosts)) if self.db_hosts else 3
         if install_dir and self.version < ComparableScyllaVersion("2.5"):
             data['database']['migrate_dir'] = os.path.join(install_dir, 'schema', 'cql')
         if 'https' in data:
@@ -468,7 +507,122 @@ class ScyllaManager:
         except IOError as e:
             raise NodeError(f'Problem starting scylla-manager due to {e}')
 
+    def _get_db_cluster(self, create):
+        """Return the manager's own DB cluster, loading it from disk or (if create) building it."""
+        if self._db_cluster is not None:
+            return self._db_cluster
+        from ccmlib.cluster_factory import ClusterFactory
+        cluster = self.scylla_cluster
+        db_path = os.path.join(cluster.get_path(), MANAGER_DB_NAME)
+        if os.path.exists(os.path.join(db_path, 'cluster.conf')):
+            db = ClusterFactory.load(cluster.get_path(), MANAGER_DB_NAME)
+        elif create:
+            install_dir = self._db_install_dir(cluster)
+            try:
+                # A dir without cluster.conf is a leftover that would break populate().
+                shutil.rmtree(db_path, ignore_errors=True)
+                db = self._create_db_cluster(cluster, install_dir)
+            except BaseException:
+                # A half-created dir would make the next start load a cluster without nodes.
+                shutil.rmtree(db_path, ignore_errors=True)
+                raise
+        else:
+            return None
+        if not cluster.manager_db_install_dir:
+            # With an override the helper derives mode and timeouts from its own install dir.
+            db.scylla_mode = cluster.scylla_mode
+            db.default_wait_for_binary_proto = cluster.default_wait_for_binary_proto
+        for node in db.nodelist():
+            node.set_smp(1)
+        self._db_cluster = db
+        return db
+
+    @staticmethod
+    def _db_install_dir(cluster):
+        install_dir = cluster.get_install_dir()
+        if install_dir is None:
+            raise NodeError("manager_own_db is not supported for docker clusters")
+        if cluster.manager_db_install_dir:
+            return cluster.manager_db_install_dir
+        if not cluster.is_scylla_reloc():
+            # get_install_dir() is the source root; the mode comes from the build/<mode> path.
+            install_dir = os.path.join(install_dir, 'build', cluster.scylla_mode)
+        return install_dir
+
+    def _create_db_cluster(self, cluster, install_dir):
+        db = ScyllaCluster(cluster.get_path(), MANAGER_DB_NAME, install_dir=install_dir)
+        if cluster.is_scylla_reloc() and not cluster.manager_db_install_dir:
+            # Reuse the resolved package dir: passing the version would re-run the network setup.
+            db.scylla_reloc = True
+            db.scylla_version = cluster.scylla_version
+        # TODO(scylladb/scylladb#13408): set per-table allow_auto_snapshot on the scylla_manager keyspace instead.
+        db.set_configuration_options({'auto_snapshot': False})
+        # Fixed last octet .201 can't collide with managed nodes .1-.N; ports are shared, the IP is what differs.
+        prefix = cluster.get_ipprefix()
+        db.populate(1, ipprefix=prefix, ipformat=prefix + "20%d")
+        return db
+
+    @property
+    def db_cluster(self):
+        """The manager's own DB cluster, or None if it was never created."""
+        return self._get_db_cluster(create=False)
+
+    def start_db(self):
+        db = self._get_db_cluster(create=True)
+        if not db.nodelist():
+            raise NodeError(f"{MANAGER_DB_NAME} cluster has no nodes, remove {db.get_path()} and retry")
+        node = db.nodelist()[0]
+        if not node.is_running():
+            db.start(wait_for_binary_proto=True)
+        self.db_hosts = [node.address()]
+
+    def stop_db(self, gently=True):
+        # Data is kept; the next start() restarts the DB on the same dir.
+        try:
+            db = self._get_db_cluster(create=False)
+        except Exception:
+            # A corrupt helper dir must not block Cluster.remove(); kill it by pidfile instead.
+            logging.exception("failed to load %s, stopping it by pidfile", MANAGER_DB_NAME)
+            self._kill_db_by_pidfile(gently)
+            return
+        if db is not None:
+            db.stop(gently=gently)
+
+    def _kill_db_by_pidfile(self, gently):
+        db_path = os.path.join(self.scylla_cluster.get_path(), MANAGER_DB_NAME)
+        for pidfile in glob.glob(os.path.join(db_path, 'node*', 'cassandra.pid')):
+            try:
+                with open(pidfile) as f:
+                    pid = int(f.read().strip())
+                # The pidfile may be stale; only signal a process running from this dir.
+                if any(db_path in arg for arg in psutil.Process(pid).cmdline()):
+                    os.kill(pid, signal.SIGTERM if gently else signal.SIGKILL)
+            except (OSError, ValueError, psutil.Error):
+                pass
+
     def start(self):
+        if not getattr(self.scylla_cluster, 'manager_own_db', False):
+            return self._start_manager()
+        spawned_before = self._process_scylla_manager
+        try:
+            self.start_db()
+            return self._start_manager()
+        except BaseException:
+            # Cleanup failures must not mask the original error.
+            # A manager this call did not spawn may be a stale PID from a previous run: don't signal it.
+            if self._process_scylla_manager is not spawned_before:
+                self._cleanup(self.stop)
+            self._cleanup(self.stop_db)
+            raise
+
+    @staticmethod
+    def _cleanup(stop):
+        try:
+            stop(gently=False)
+        except Exception:
+            logging.exception("failed to clean up after a failed scylla-manager start")
+
+    def _start_manager(self):
         # some configurations are set post initialisation (cluster id) so
         # we are forced to update the config prior to calling start
         self._update_config(self.install_dir)
