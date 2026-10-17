@@ -13,7 +13,7 @@ from ccmlib.scylla_docker_cluster import ScyllaDockerCluster, ScyllaDockerNode
 from ccmlib.scylla_node import ScyllaNode
 from ccmlib.dse_node import DseNode
 from ccmlib.node import Node, NodeError
-from ccmlib.utils.ssl_utils import generate_ssl_stores, generate_ssl_stores_openssl
+from ccmlib.utils.ssl_utils import generate_ssl_stores_openssl
 
 os.environ['SCYLLA_CCM_STANDALONE'] = '1'
 
@@ -113,13 +113,15 @@ class ClusterCreateCmd(Cmd):
         parser.add_option('--profile-opts', type="string", action="store", dest="profile_options",
                           help="Yourkit options when profiling", default=None)
         parser.add_option('--ssl', type="string", dest="ssl_path",
-                          help="Path to keystore.jks and cassandra.crt files (and truststore.jks [not required])", default=None)
+                          help="Dir with client-encryption files. Scylla: ccm_node.pem, ccm_node.key (+ ccm_node.cer with --require_client_auth). "
+                               "Cassandra/DSE: keystore.jks, cassandra.crt (+ truststore.jks for client auth)", default=None)
         parser.add_option('--require_client_auth', action="store_true", dest="require_client_auth",
                           help="Enable client authentication (only vaid with --ssl)", default=False)
         parser.add_option('--node-ssl', type="string", dest="node_ssl_path",
-                          help="Path to keystore.jks and truststore.jks for internode encryption", default=None)
+                          help="Dir with internode-encryption files. Scylla: trust.pem, ccm_node.pem, ccm_node.key. "
+                               "Cassandra/DSE: keystore.jks, truststore.jks", default=None)
         parser.add_option('--gen-ssl', action="store_true", dest="gen_ssl",
-                          help="Generate a CA-signed cert with openssl into the --ssl/--node-ssl dir if missing", default=False)
+                          help="Generate the Scylla PEM set (not Cassandra/DSE JKS) with openssl into the --ssl/--node-ssl dir if incomplete", default=False)
         parser.add_option('--gen-ssl-key-type', type="string", dest="gen_ssl_key_type",
                           help="Key type for --gen-ssl: 'rsa:<bits>' or an EC curve name (default: secp384r1)", default="secp384r1")
         parser.add_option("--scylla", action="store_true", dest="scylla",

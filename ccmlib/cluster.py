@@ -15,7 +15,7 @@ from ruamel.yaml import YAML
 
 from ccmlib import common, repository
 from ccmlib.node import Node, NodeError, NodetoolError
-from ccmlib.common import logger
+from ccmlib.common import CCMError, logger
 from ccmlib.scylla_node import ScyllaNode
 from ccmlib.utils.version import parse_version
 
@@ -749,7 +749,15 @@ class Cluster(object):
                 f.write(f"dc={dc}\n")
                 f.write(f"rack={rack}\n")
 
+    @staticmethod
+    def _require_jks(path, names):
+        missing = [n for n in names if not os.path.isfile(os.path.join(path, n))]
+        if missing:
+            raise CCMError(f"Missing {', '.join(missing)} in {path}: Cassandra/DSE need JKS stores (e.g. from keytool); "
+                           "generate_ssl_stores()/--gen-ssl produce only the Scylla PEM set")
+
     def enable_ssl(self, ssl_path, require_client_auth):
+        self._require_jks(ssl_path, ['keystore.jks', 'cassandra.crt'] + (['truststore.jks'] if require_client_auth else []))
         shutil.copyfile(os.path.join(ssl_path, 'keystore.jks'), os.path.join(self.get_path(), 'keystore.jks'))
         shutil.copyfile(os.path.join(ssl_path, 'cassandra.crt'), os.path.join(self.get_path(), 'cassandra.crt'))
         ssl_options = {'enabled': True,
@@ -771,6 +779,7 @@ class Cluster(object):
         self._update_config()
 
     def enable_internode_ssl(self, node_ssl_path, internode_encryption='all'):
+        self._require_jks(node_ssl_path, ['keystore.jks', 'truststore.jks'])
         shutil.copyfile(os.path.join(node_ssl_path, 'keystore.jks'), os.path.join(self.get_path(), 'internode-keystore.jks'))
         shutil.copyfile(os.path.join(node_ssl_path, 'truststore.jks'), os.path.join(self.get_path(), 'internode-truststore.jks'))
         node_ssl_options = {
