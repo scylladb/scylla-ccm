@@ -20,6 +20,10 @@ dependencies = [
     "tqdm",
     "urllib3",
 ]
+[project.optional-dependencies]
+# make_dashboards.py (scylla-monitoring) needs pyyaml; without it the built-in dashboard is used.
+monitoring = ["pyyaml"]
+
 [project.urls]
 Repository = "https://github.com/scylladb/scylla-ccm"
 Issues = "https://github.com/scylladb/scylla-ccm/issues"
@@ -45,6 +49,7 @@ exclude = ["ccmlib.resources*", "ccmlib.scylla_test_ssl"]
 ccmlib = [
     "resources/bin/*.sh",
     "resources/docker/sniproxy/*",
+    "resources/*.rn",
     "scylla_test_ssl/scylla-manager-agent.key",
     "scylla_test_ssl/scylla-manager-agent.crt"
 ]
@@ -63,9 +68,11 @@ log_date_format = "%Y-%m-%d %H:%M:%S"
 log_file = "tests/test_results/ccm.log"
 markers = [
   "docker: Run tests with docker image",
+  "network_topology: Run tests with container-based network topology simulation",
   "reloc: Run tests with relocatable packages",
   "repo_tests: Run test for testing get versions",
-  "slow: Run slow tests that take longer to execute"
+  "slow: Run slow tests that take longer to execute",
+  "integration: Slow integration tests requiring Docker and real Scylla"
 ]
 filterwarnings = ["error", "ignore::ResourceWarning"]
 
