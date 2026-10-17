@@ -666,7 +666,9 @@ def get_manager_latest_reloc_url(branch: str = "master", architecture: Architect
     url = f"{BASE_DOWNLOADS_URL}/manager/relocatable/unstable/{branch}/"
     # filter only specific architecture
     all_packages = reversed(aws_bucket_ls(url))
-    latest_package = next(filter(lambda tar: architecture in tar, all_packages))
+    latest_package = next(filter(lambda tar: architecture in tar, all_packages), None)
+    if latest_package is None:
+        raise ValueError(f"no manager relocatable package for branch '{branch}', architecture '{architecture}' at {url}")
 
     # return latest
     return f'{BASE_DOWNLOADS_URL}/{latest_package}'
@@ -685,6 +687,8 @@ def get_manager_release_url(version: str = '', architecture: Architecture = None
     version_regex = re.compile('scylla-manager_(.*)_')
     # filter only specific architecture and version
     all_packages = reversed(aws_bucket_ls(url))
-    latest_package = next(filter(lambda tar: architecture in tar and version in version_regex.search(tar)[0], all_packages))
+    latest_package = next(filter(lambda tar: architecture in tar and version in version_regex.search(tar)[0], all_packages), None)
+    if latest_package is None:
+        raise ValueError(f"no manager release package for version '{version}', architecture '{architecture}' at {url}")
 
     return f'{BASE_DOWNLOADS_URL}/downloads/scylla-manager/relocatable/{latest_package}'
