@@ -8,8 +8,6 @@ import sys
 import glob
 import urllib
 import logging
-import random
-import time
 from functools import lru_cache
 from pathlib import Path
 from typing import NamedTuple, Literal
@@ -372,9 +370,6 @@ def setup(version, verbose=True, skip_downloads=False):
         # Create version folder and add placeholder file to prevent parallel downloading from another test.
         version_dir = directory_name(version)
         download_in_progress_file = Path(version_dir) / DOWNLOAD_IN_PROGRESS_FILE
-
-        # Give a chance not to start few downloads in the exactly same second
-        time.sleep(random.randint(0, 5))
 
         os.makedirs(version_dir, exist_ok=True)
         with LockFile(download_in_progress_file) as f:
