@@ -217,6 +217,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 git clone https://github.com/scylladb/scylla-ccm.git
 cd scylla-ccm
 uv sync
+# optional: ~40% faster extraction of downloaded relocatable packages (needs isal wheels for your Python)
+uv sync --extra fast
 
 # Run CCM directly
 ./ccm --help

@@ -1,5 +1,6 @@
 import os
 import tarfile
+import gzip
 import tempfile
 import shutil
 import subprocess
@@ -21,6 +22,12 @@ from ccmlib.common import (
     DOWNLOAD_IN_PROGRESS_FILE, print_if_standalone, LockFile, get_installed_scylla_package_hash)
 from ccmlib.utils.download import download_file, download_version_from_s3, get_url_hash, save_source_file
 from ccmlib.utils.version import parse_version
+
+try:
+    # isal (`pip install ccm[fast]`) decompresses ~40% faster than the stdlib gzip
+    from isal.igzip import open as gzip_open
+except ImportError:
+    from gzip import open as gzip_open
 
 
 GIT_REPO = "http://github.com/scylladb/scylla.git"
@@ -536,13 +543,12 @@ def download_version(version, url=None, verbose=False, target_dir=None, unified=
 
         if verbose:
             print(f"Extracting {target} ({url}, {target_dir}) as version {version} ...")
-        tar = tarfile.open(target)
         if sys.version_info >= (3, 12):
             kwargs = {'path': target_dir, 'filter': 'data'}
         else:
             kwargs = {'path': target_dir}
-        tar.extractall(**kwargs)
-        tar.close()
+        with gzip_open(target) as gz, tarfile.open(fileobj=gz, mode='r:') as tar:
+            tar.extractall(**kwargs)
 
         # if relocatable package format >= 2, need to extract files under subdir
         package_version_files = glob.glob(f"{Path(target_dir)}/.relocatable_package_version") + \
@@ -581,7 +587,7 @@ def download_version(version, url=None, verbose=False, target_dir=None, unified=
         msg = f"Invalid version {version}" if url is None else f"Invalid url {url}"
         msg = msg + f" (underlying error is: {str(e)})"
         raise ArgumentError(msg)
-    except tarfile.ReadError as e:
+    except (tarfile.ReadError, gzip.BadGzipFile, EOFError) as e:
         raise ArgumentError(
             f"Unable to uncompress downloaded file: {str(e)}")
     finally:
