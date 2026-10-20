@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import urllib.parse
 import hashlib
+from functools import lru_cache
 
 import tqdm
 import requests
@@ -11,6 +12,12 @@ from boto3.session import Session
 from boto3.s3.transfer import S3Transfer, TransferConfig
 import botocore
 import botocore.client
+
+
+@lru_cache(maxsize=None)
+def s3_client():
+    # creating a boto3 session/client costs ~80ms, so share one (clients are thread-safe)
+    return Session().client('s3', config=botocore.client.Config(signature_version=botocore.UNSIGNED))
 
 
 def url_filename(url: str):
@@ -140,10 +147,9 @@ def download_version_from_s3(url: str, target_path: str, verbose=False):
     target_path = str(target_path)
     parts = urllib.parse.urlparse(url)
     _, bucket_name, download_path = parts.path.split('/', maxsplit=2)
-    s3_client = Session().client('s3', config=botocore.client.Config(signature_version=botocore.UNSIGNED))
 
     try:
-        metadata = s3_client.head_object(Bucket=bucket_name, Key=download_path)
+        metadata = s3_client().head_object(Bucket=bucket_name, Key=download_path)
     except botocore.client.ClientError as ex:
         error_message = ex.response['Error']['Message']
         if error_message in ('NoSuchBucket', 'NoSuchKey', 'Not Found'):
@@ -161,7 +167,7 @@ def download_version_from_s3(url: str, target_path: str, verbose=False):
     with tqdm.tqdm(desc=f'S3 download: {url_filename(url)}', total=total,
                    unit='B', unit_scale=1, position=0,
                    bar_format='{desc:<10}{percentage:3.0f}%|{bar:10}{r_bar}', disable=None if verbose else True) as progress:
-        transfer = S3Transfer(s3_client, config=TransferConfig(max_concurrency=20))
+        transfer = S3Transfer(s3_client(), config=TransferConfig(max_concurrency=20))
         transfer.download_file(bucket_name, download_path, target_path, callback=progress.update)
 
     return target_path
@@ -185,10 +191,9 @@ def get_url_hash(url: str) -> str:
     # first try is on s3
     parts = urllib.parse.urlparse(url)
     _, bucket_name, download_path = parts.path.split('/', maxsplit=2)
-    s3_client = Session().client('s3', config=botocore.client.Config(signature_version=botocore.UNSIGNED))
 
     try:
-        metadata = s3_client.head_object(Bucket=bucket_name, Key=download_path)
+        metadata = s3_client().head_object(Bucket=bucket_name, Key=download_path)
         etag = metadata.get('ETag')
         if not etag:
             raise RuntimeError(f"S3 HeadObject for {url} returned no ETag; cannot compute hash")

@@ -24,9 +24,8 @@ from pathlib import Path
 
 import psutil
 from ruamel.yaml import YAML
-from boto3.session import Session
-from botocore import UNSIGNED
-from botocore.client import Config
+
+from ccmlib.utils.download import s3_client
 
 
 BIN_DIR = "bin"
@@ -1106,15 +1105,12 @@ def assert_jdk_valid_for_cassandra_version(cassandra_version):
 
 
 def aws_bucket_ls(s3_url: str) -> List[str]:
-    bucket_object = s3_url.replace('https://s3.amazonaws.com/', '').split('/')
-    prefix = '/'.join(bucket_object[1:])
+    bucket, _, prefix = s3_url.replace('https://s3.amazonaws.com/', '').partition('/')
 
-    s3_resource = Session().resource(service_name='s3', config=Config(signature_version=UNSIGNED))
-    bucket = s3_resource.Bucket(bucket_object[0])
+    pages = s3_client().get_paginator('list_objects_v2').paginate(Bucket=bucket, Prefix=prefix)
+    files_in_bucket = [obj for page in pages for obj in page.get('Contents', [])]
 
-    files_in_bucket = bucket.objects.filter(Prefix=prefix)
-
-    return [f.key.replace(prefix + "/", '') for f in sorted(files_in_bucket, key=lambda x: x.last_modified)]
+    return [f['Key'].replace(prefix + "/", '') for f in sorted(files_in_bucket, key=lambda x: x['LastModified'])]
 
 
 def grouper(n, iterable, padvalue=None):
