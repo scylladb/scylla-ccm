@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from ccmlib.common import get_installed_scylla_package_hash, rmdirs
 from ccmlib.scylla_repository import (
@@ -19,6 +20,7 @@ from ccmlib.scylla_repository import (
     Architecture,
     directory_name,
     download_packages,
+    RelocatablePackages,
 )
 from ccmlib.utils.download import get_url_hash, save_source_file
 from ccmlib.utils.scylla_versions import get_supported_scylla_versions, get_latest_scylla_release
@@ -344,6 +346,19 @@ class TestLocalFileCaching:
                 
                 # This hash mismatch should trigger cache invalidation in setup()
                 # The version_dir would be removed and re-created
+
+
+def test_download_packages_failure_leaves_no_temp_dir(tmp_path):
+    """a failed attempt must not leave its partial download in version_dir, setup() may retry with other packages"""
+    def fail(target_dir, **kwargs):
+        os.makedirs(target_dir, exist_ok=True)
+        (Path(target_dir) / 'partial').touch()
+        raise requests.HTTPError('404 Client Error')
+
+    with patch('ccmlib.scylla_repository.download_version', side_effect=fail), pytest.raises(requests.HTTPError):
+        download_packages(version_dir=str(tmp_path), packages=RelocatablePackages(scylla_unified_package='http://x/y.tar.gz'),
+                          s3_url='http://x', version='v', verbose=False)
+    assert list(tmp_path.iterdir()) == []
 
 
 @pytest.mark.parametrize('architecture', argvalues=typing.get_args(Architecture))

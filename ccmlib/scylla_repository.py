@@ -440,23 +440,28 @@ def download_packages(version_dir, packages, s3_url, version, verbose):
                                    "('SCYLLA_TOOLS_JAVA_PACKAGE' or 'SCYLLA_JAVA_TOOLS_PACKAGE) and"
                                    "'SCYLLA_CORE_PACKAGE'")
 
-    tmp_download = tempfile.mkdtemp()
-    if packages.scylla_unified_package:
-        package_version = download_version(version=version, verbose=verbose, url=packages.scylla_unified_package,
-                                           target_dir=tmp_download, unified=True)
-        target_dir = Path(version_dir) / CORE_PACKAGE_DIR_NAME
-        target_dir.parent.mkdir(parents=False, exist_ok=True)
-        shutil.move(tmp_download, target_dir)
-    else:
-        package_version = download_version(version=version, verbose=verbose, url=packages.scylla_package,
-                                           target_dir=os.path.join(tmp_download, CORE_PACKAGE_DIR_NAME))
+    # download next to the final location, so moving into place is a rename
+    os.makedirs(version_dir, exist_ok=True)
+    tmp_download = tempfile.mkdtemp(dir=version_dir, prefix='.download-')
+    try:
+        if packages.scylla_unified_package:
+            package_version = download_version(version=version, verbose=verbose, url=packages.scylla_unified_package,
+                                               target_dir=tmp_download, unified=True)
+            shutil.move(tmp_download, Path(version_dir) / CORE_PACKAGE_DIR_NAME)
+        else:
+            package_version = download_version(version=version, verbose=verbose, url=packages.scylla_package,
+                                               target_dir=os.path.join(tmp_download, CORE_PACKAGE_DIR_NAME))
 
-        download_version(version=version, verbose=verbose, url=packages.scylla_tools_package,
-                         target_dir=os.path.join(tmp_download, 'scylla-tools-java'))
+            download_version(version=version, verbose=verbose, url=packages.scylla_tools_package,
+                             target_dir=os.path.join(tmp_download, 'scylla-tools-java'))
 
-        download_version(version=version, verbose=verbose, url=packages.scylla_jmx_package,
-                         target_dir=os.path.join(tmp_download, 'scylla-jmx'))
-        shutil.copytree(tmp_download, version_dir, dirs_exist_ok=True)
+            download_version(version=version, verbose=verbose, url=packages.scylla_jmx_package,
+                             target_dir=os.path.join(tmp_download, 'scylla-jmx'))
+            for p in Path(tmp_download).iterdir():
+                shutil.move(p, Path(version_dir) / p.name)
+    finally:
+        # a failed attempt (e.g. 404 before setup() retries with fallback packages) must not stay in version_dir
+        shutil.rmtree(tmp_download, ignore_errors=True)
 
     return package_version, packages
 
@@ -517,6 +522,7 @@ def download_version(version, url=None, verbose=False, target_dir=None, unified=
     """
     Download, scylla relocatable package tarballs.
     """
+    target = None
     try:
         if os.path.exists(url) and url.endswith('.tar.gz'):
             target = url
@@ -579,6 +585,9 @@ def download_version(version, url=None, verbose=False, target_dir=None, unified=
     except tarfile.ReadError as e:
         raise ArgumentError(
             f"Unable to uncompress downloaded file: {str(e)}")
+    finally:
+        if target and target != url:
+            os.unlink(target)
 
 
 def directory_name(version):
