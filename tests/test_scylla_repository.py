@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
-from ccmlib.common import get_installed_scylla_package_hash, rmdirs
+from ccmlib.common import ArgumentError, get_installed_scylla_package_hash, rmdirs
 from ccmlib.scylla_repository import (
     setup as scylla_setup,
     CORE_PACKAGE_DIR_NAME,
@@ -21,6 +21,7 @@ from ccmlib.scylla_repository import (
     directory_name,
     download_packages,
     RelocatablePackages,
+    download_version,
 )
 from ccmlib.utils.download import get_url_hash, save_source_file
 from ccmlib.utils.scylla_versions import get_supported_scylla_versions, get_latest_scylla_release
@@ -386,3 +387,12 @@ class TestGetManagerFunctions:
         assert url.startswith('https://s3.amazonaws.com/downloads.scylladb.com/downloads/scylla-manager/'
                               'relocatable/scylladb-manager-3.12/scylla-manager_3.12.')
         assert url.endswith(f'_linux_{architecture}.tar.gz')
+
+
+@pytest.mark.parametrize('content', [b'not a gzip file', b'\x1f\x8b\x08\x00truncated'])
+def test_download_version_bad_tarball(tmp_path, content):
+    tarball = tmp_path / 'bad.tar.gz'
+    tarball.write_bytes(content)
+    with pytest.raises(ArgumentError, match='Unable to uncompress'):
+        download_version(version='bad', url=str(tarball), target_dir=str(tmp_path / 'out'))
+    assert tarball.exists()  # local tarballs are never deleted
