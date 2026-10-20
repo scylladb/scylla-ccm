@@ -55,7 +55,7 @@ class RelocatablePackages(NamedTuple):
     scylla_unified_package: str = None
 
 
-def release_packages(s3_url, version, arch='x86_64', scylla_product='scylla'):
+def release_packages(s3_url, files_in_bucket, version, arch='x86_64', scylla_product='scylla'):
     """
     Choose RELEASE relocatable packages for download.
     It covers 3 cases:
@@ -66,16 +66,11 @@ def release_packages(s3_url, version, arch='x86_64', scylla_product='scylla'):
     3. If the version was not released yet, relocatables for latest release candidate (rc0..) will be selected.
 
     :param s3_url:
+    :param files_in_bucket: listing of s3_url, as returned by get_relocatable_s3_url()
     :param version:
     :return:
     """
-    major_version = extract_major_version(version)
-    files_in_bucket = aws_bucket_ls(s3_url)
-
     known_archs = ['x86_64', 'aarch64']
-    if not files_in_bucket:
-        raise RuntimeError(
-            f"Failed to get release packages list for version {major_version}. URL: {s3_url}.")
     all_unified_packages = [name for name in files_in_bucket if
                             (
                                 # let's accept all unified packages namings:
@@ -180,9 +175,9 @@ def release_packages(s3_url, version, arch='x86_64', scylla_product='scylla'):
 def get_relocatable_s3_url(branch, s3_version, links):
     for reloc_url in links:
         s3_url = reloc_url.format(branch, s3_version)
-        resp = aws_bucket_ls(s3_url)
-        if resp:
-            return s3_url
+        files_in_bucket = aws_bucket_ls(s3_url)
+        if files_in_bucket:
+            return s3_url, files_in_bucket
     raise CCMError(f"s3 url was not found for {branch}:{s3_version}")
 
 
@@ -279,15 +274,16 @@ def setup(version, verbose=True, skip_downloads=False):
             scylla_product = 'scylla-enterprise' if parsed_major > parse_version("2018.1") and parsed_major < parse_version("2025.1") else 'scylla'
             major_version = extract_major_version(s3_version)
 
-            s3_url = get_relocatable_s3_url('', major_version, RELEASE_RELOCATABLE_URLS_BASE)
+            s3_url, files_in_bucket = get_relocatable_s3_url('', major_version, RELEASE_RELOCATABLE_URLS_BASE)
 
-            packages, type_n_version[1] = release_packages(s3_url=s3_url, version=s3_version, arch=scylla_arch, scylla_product=scylla_product + scylla_mode_suffix)
+            packages, type_n_version[1] = release_packages(s3_url=s3_url, version=s3_version, arch=scylla_arch, scylla_product=scylla_product + scylla_mode_suffix,
+                                                         files_in_bucket=files_in_bucket)
         else:
             type_prefix, branch = type_n_version[0].split("/", 1)
             if type_prefix == 'hotfix':
-                s3_url = get_relocatable_s3_url(branch, s3_version, HOTFIX_RELOCATABLE_URLS_BASE)
+                s3_url, aws_files = get_relocatable_s3_url(branch, s3_version, HOTFIX_RELOCATABLE_URLS_BASE)
             else:
-                s3_url = get_relocatable_s3_url(branch, s3_version, RELOCATABLE_URLS_BASE)
+                s3_url, aws_files = get_relocatable_s3_url(branch, s3_version, RELOCATABLE_URLS_BASE)
 
             try:
                 build_manifest = read_build_manifest(s3_url)
@@ -307,8 +303,6 @@ def setup(version, verbose=True, skip_downloads=False):
                 scylla_noarch_package_path = f'{scylla_product}-package.tar.gz'
                 scylla_java_reloc = f'{scylla_product}-tools-package.tar.gz'
                 scylla_jmx_reloc = f'{scylla_product}-jmx-package.tar.gz'
-
-                aws_files = aws_bucket_ls(s3_url)
 
                 if scylla_arch_package_path not in aws_files and scylla_package_path not in aws_files:
                     scylla_java_reloc = list(filter(re.compile(f'{scylla_product}-tools-[0-9].*.noarch.tar.gz').match, aws_files))[0]
