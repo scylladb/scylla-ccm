@@ -8,10 +8,17 @@ from tests.test_config import RESULTS_DIR, TEST_ID, SCYLLA_DOCKER_IMAGE, get_scy
 
 from ccmlib.scylla_cluster import ScyllaCluster
 from ccmlib.scylla_docker_cluster import ScyllaDockerCluster
+from ccmlib.utils.download import s3_client
 from .ccmcluster import CCMCluster
 
 
 LOGGER = logging.getLogger(__name__)
+
+
+@pytest.fixture(autouse=True)
+def clear_s3_client_cache():
+    # tests patch ccmlib.utils.download.Session, so don't let them get a client cached by an earlier test
+    s3_client.cache_clear()
 
 
 @pytest.fixture(scope="session")
