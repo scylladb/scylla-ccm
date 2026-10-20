@@ -31,8 +31,12 @@ class ScyllaCluster(Cluster):
         cassandra_version = kwargs.get('cassandra_version', version)
         docker_image = kwargs.get('docker_image')
 
+        self._loaded_install_dir = None
         if cassandra_version:
             self.scylla_reloc = True
+            # loading an existing cluster: reuse the install_dir from cluster.conf instead of
+            # re-resolving the version (S3 listing + sleep) on every ccm command, see #771
+            self._loaded_install_dir = None if create_directory else install_dir
             # If install_dir is provided (e.g., when loading from disk), extract the mode from it
             # Otherwise, it will be set later in load_from_repository
             if install_dir:
@@ -77,7 +81,10 @@ class ScyllaCluster(Cluster):
             self._scylla_manager = ScyllaManager(self)
 
     def load_from_repository(self, version, verbose):
-        install_dir, version = scylla_repository.setup(version, verbose)
+        if self._loaded_install_dir:
+            install_dir, version = self._loaded_install_dir, common.get_scylla_version(self._loaded_install_dir)
+        else:
+            install_dir, version = scylla_repository.setup(version, verbose)
         install_dir, self.scylla_mode = common.scylla_extract_install_dir_and_mode(install_dir)
         assert self.scylla_mode is not None
         self.__set_default_timeouts()
