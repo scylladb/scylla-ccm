@@ -76,3 +76,26 @@ class TestScyllaDockerCluster:
         ret = node1.stress(['write', 'n=1000'])
         assert '1,000 [WRITE: 1,000]' in ret.stdout
         assert 'END' in ret.stdout
+
+
+def test_remove_retries_failed_batch_and_still_cleans_up():
+    from unittest.mock import MagicMock, patch
+    from ccmlib.container_client import ContainerExecError
+    from ccmlib.scylla_docker_cluster import ScyllaDockerCluster
+
+    cluster = object.__new__(ScyllaDockerCluster)
+    cluster.nodes = {
+        "node1": MagicMock(pid="c1", docker_name="n1"),
+        "node2": MagicMock(pid="c2", docker_name="n2"),
+    }
+    cluster.cluster_network = None
+    client = MagicMock()
+    client.remove_containers.return_value = ["c1", "c2"]
+    cluster.get_container_client = lambda: client
+
+    # c1 was already removed by the batch; its retry error must not skip c2.
+    client.remove_container.side_effect = [ContainerExecError("no such container"), None]
+    with patch("ccmlib.scylla_cluster.ScyllaCluster.remove") as base_remove:
+        cluster.remove()
+        base_remove.assert_called_once()
+    assert [c.args[0] for c in client.remove_container.call_args_list] == ["c1", "c2"]
