@@ -194,8 +194,10 @@ class ClusterCreateCmd(Cmd):
         # Docker/Podman-based clusters don't need install_dir
         if options.scylla and not options.install_dir and not options.docker_image and not options.podman_image:
             parser.error("must specify install_dir, --docker-image, or --podman-image when using scylla")
-        if options.podman_image and not options.scylla:
-            parser.error("--podman-image requires --scylla")
+        if options.podman_image and options.dse:
+            parser.error("--podman-image and --dse cannot be used together")
+        if options.podman_image:
+            options.scylla = True  # podman clusters are always Scylla
         if options.podman_image and options.docker_image:
             parser.error("--podman-image and --docker-image cannot be used together")
         Cmd.validate(self, parser, options, args, cluster_name=True)
