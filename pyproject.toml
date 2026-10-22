@@ -20,6 +20,9 @@ dependencies = [
     "tqdm",
     "urllib3",
 ]
+[project.optional-dependencies]
+fast = ["isal"]
+
 [project.urls]
 Repository = "https://github.com/scylladb/scylla-ccm"
 Issues = "https://github.com/scylladb/scylla-ccm/issues"

@@ -1,5 +1,6 @@
 import os
 import tarfile
+import gzip
 import tempfile
 import shutil
 import subprocess
@@ -8,8 +9,6 @@ import sys
 import glob
 import urllib
 import logging
-import random
-import time
 from functools import lru_cache
 from pathlib import Path
 from typing import NamedTuple, Literal
@@ -23,6 +22,12 @@ from ccmlib.common import (
     DOWNLOAD_IN_PROGRESS_FILE, print_if_standalone, LockFile, get_installed_scylla_package_hash)
 from ccmlib.utils.download import download_file, download_version_from_s3, get_url_hash, save_source_file
 from ccmlib.utils.version import parse_version
+
+try:
+    # isal (`pip install ccm[fast]`) decompresses ~40% faster than the stdlib gzip
+    from isal.igzip import open as gzip_open
+except ImportError:
+    from gzip import open as gzip_open
 
 
 GIT_REPO = "http://github.com/scylladb/scylla.git"
@@ -57,7 +62,7 @@ class RelocatablePackages(NamedTuple):
     scylla_unified_package: str = None
 
 
-def release_packages(s3_url, version, arch='x86_64', scylla_product='scylla'):
+def release_packages(s3_url, files_in_bucket, version, arch='x86_64', scylla_product='scylla'):
     """
     Choose RELEASE relocatable packages for download.
     It covers 3 cases:
@@ -68,11 +73,11 @@ def release_packages(s3_url, version, arch='x86_64', scylla_product='scylla'):
     3. If the version was not released yet, relocatables for latest release candidate (rc0..) will be selected.
 
     :param s3_url:
+    :param files_in_bucket: listing of s3_url, as returned by get_relocatable_s3_url()
     :param version:
     :return:
     """
     major_version = extract_major_version(version)
-    files_in_bucket = aws_bucket_ls(s3_url)
 
     known_archs = ['x86_64', 'aarch64']
     if not files_in_bucket:
@@ -182,9 +187,9 @@ def release_packages(s3_url, version, arch='x86_64', scylla_product='scylla'):
 def get_relocatable_s3_url(branch, s3_version, links):
     for reloc_url in links:
         s3_url = reloc_url.format(branch, s3_version)
-        resp = aws_bucket_ls(s3_url)
-        if resp:
-            return s3_url
+        files_in_bucket = aws_bucket_ls(s3_url)
+        if files_in_bucket:
+            return s3_url, files_in_bucket
     raise CCMError(f"s3 url was not found for {branch}:{s3_version}")
 
 
@@ -281,15 +286,16 @@ def setup(version, verbose=True, skip_downloads=False):
             scylla_product = 'scylla-enterprise' if parsed_major > parse_version("2018.1") and parsed_major < parse_version("2025.1") else 'scylla'
             major_version = extract_major_version(s3_version)
 
-            s3_url = get_relocatable_s3_url('', major_version, RELEASE_RELOCATABLE_URLS_BASE)
+            s3_url, files_in_bucket = get_relocatable_s3_url('', major_version, RELEASE_RELOCATABLE_URLS_BASE)
 
-            packages, type_n_version[1] = release_packages(s3_url=s3_url, version=s3_version, arch=scylla_arch, scylla_product=scylla_product + scylla_mode_suffix)
+            packages, type_n_version[1] = release_packages(s3_url=s3_url, version=s3_version, arch=scylla_arch, scylla_product=scylla_product + scylla_mode_suffix,
+                                                         files_in_bucket=files_in_bucket)
         else:
             type_prefix, branch = type_n_version[0].split("/", 1)
             if type_prefix == 'hotfix':
-                s3_url = get_relocatable_s3_url(branch, s3_version, HOTFIX_RELOCATABLE_URLS_BASE)
+                s3_url, aws_files = get_relocatable_s3_url(branch, s3_version, HOTFIX_RELOCATABLE_URLS_BASE)
             else:
-                s3_url = get_relocatable_s3_url(branch, s3_version, RELOCATABLE_URLS_BASE)
+                s3_url, aws_files = get_relocatable_s3_url(branch, s3_version, RELOCATABLE_URLS_BASE)
 
             try:
                 build_manifest = read_build_manifest(s3_url)
@@ -309,8 +315,6 @@ def setup(version, verbose=True, skip_downloads=False):
                 scylla_noarch_package_path = f'{scylla_product}-package.tar.gz'
                 scylla_java_reloc = f'{scylla_product}-tools-package.tar.gz'
                 scylla_jmx_reloc = f'{scylla_product}-jmx-package.tar.gz'
-
-                aws_files = aws_bucket_ls(s3_url)
 
                 if scylla_arch_package_path not in aws_files and scylla_package_path not in aws_files:
                     scylla_java_reloc = list(filter(re.compile(f'{scylla_product}-tools-[0-9].*.noarch.tar.gz').match, aws_files))[0]
@@ -372,9 +376,6 @@ def setup(version, verbose=True, skip_downloads=False):
         # Create version folder and add placeholder file to prevent parallel downloading from another test.
         version_dir = directory_name(version)
         download_in_progress_file = Path(version_dir) / DOWNLOAD_IN_PROGRESS_FILE
-
-        # Give a chance not to start few downloads in the exactly same second
-        time.sleep(random.randint(0, 5))
 
         os.makedirs(version_dir, exist_ok=True)
         with LockFile(download_in_progress_file) as f:
@@ -445,23 +446,28 @@ def download_packages(version_dir, packages, s3_url, version, verbose):
                                    "('SCYLLA_TOOLS_JAVA_PACKAGE' or 'SCYLLA_JAVA_TOOLS_PACKAGE) and"
                                    "'SCYLLA_CORE_PACKAGE'")
 
-    tmp_download = tempfile.mkdtemp()
-    if packages.scylla_unified_package:
-        package_version = download_version(version=version, verbose=verbose, url=packages.scylla_unified_package,
-                                           target_dir=tmp_download, unified=True)
-        target_dir = Path(version_dir) / CORE_PACKAGE_DIR_NAME
-        target_dir.parent.mkdir(parents=False, exist_ok=True)
-        shutil.move(tmp_download, target_dir)
-    else:
-        package_version = download_version(version=version, verbose=verbose, url=packages.scylla_package,
-                                           target_dir=os.path.join(tmp_download, CORE_PACKAGE_DIR_NAME))
+    # download next to the final location, so moving into place is a rename
+    os.makedirs(version_dir, exist_ok=True)
+    tmp_download = tempfile.mkdtemp(dir=version_dir, prefix='.download-')
+    try:
+        if packages.scylla_unified_package:
+            package_version = download_version(version=version, verbose=verbose, url=packages.scylla_unified_package,
+                                               target_dir=tmp_download, unified=True)
+            shutil.move(tmp_download, Path(version_dir) / CORE_PACKAGE_DIR_NAME)
+        else:
+            package_version = download_version(version=version, verbose=verbose, url=packages.scylla_package,
+                                               target_dir=os.path.join(tmp_download, CORE_PACKAGE_DIR_NAME))
 
-        download_version(version=version, verbose=verbose, url=packages.scylla_tools_package,
-                         target_dir=os.path.join(tmp_download, 'scylla-tools-java'))
+            download_version(version=version, verbose=verbose, url=packages.scylla_tools_package,
+                             target_dir=os.path.join(tmp_download, 'scylla-tools-java'))
 
-        download_version(version=version, verbose=verbose, url=packages.scylla_jmx_package,
-                         target_dir=os.path.join(tmp_download, 'scylla-jmx'))
-        shutil.copytree(tmp_download, version_dir, dirs_exist_ok=True)
+            download_version(version=version, verbose=verbose, url=packages.scylla_jmx_package,
+                             target_dir=os.path.join(tmp_download, 'scylla-jmx'))
+            for p in Path(tmp_download).iterdir():
+                shutil.move(p, Path(version_dir) / p.name)
+    finally:
+        # a failed attempt (e.g. 404 before setup() retries with fallback packages) must not stay in version_dir
+        shutil.rmtree(tmp_download, ignore_errors=True)
 
     return package_version, packages
 
@@ -522,6 +528,7 @@ def download_version(version, url=None, verbose=False, target_dir=None, unified=
     """
     Download, scylla relocatable package tarballs.
     """
+    target = None
     try:
         if os.path.exists(url) and url.endswith('.tar.gz'):
             target = url
@@ -536,13 +543,12 @@ def download_version(version, url=None, verbose=False, target_dir=None, unified=
 
         if verbose:
             print(f"Extracting {target} ({url}, {target_dir}) as version {version} ...")
-        tar = tarfile.open(target)
         if sys.version_info >= (3, 12):
             kwargs = {'path': target_dir, 'filter': 'data'}
         else:
             kwargs = {'path': target_dir}
-        tar.extractall(**kwargs)
-        tar.close()
+        with gzip_open(target) as gz, tarfile.open(fileobj=gz, mode='r:') as tar:
+            tar.extractall(**kwargs)
 
         # if relocatable package format >= 2, need to extract files under subdir
         package_version_files = glob.glob(f"{Path(target_dir)}/.relocatable_package_version") + \
@@ -581,9 +587,12 @@ def download_version(version, url=None, verbose=False, target_dir=None, unified=
         msg = f"Invalid version {version}" if url is None else f"Invalid url {url}"
         msg = msg + f" (underlying error is: {str(e)})"
         raise ArgumentError(msg)
-    except tarfile.ReadError as e:
+    except (tarfile.ReadError, gzip.BadGzipFile, EOFError) as e:
         raise ArgumentError(
             f"Unable to uncompress downloaded file: {str(e)}")
+    finally:
+        if target and target != url:
+            os.unlink(target)
 
 
 def directory_name(version):

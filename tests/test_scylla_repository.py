@@ -7,8 +7,9 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
-from ccmlib.common import get_installed_scylla_package_hash, rmdirs
+from ccmlib.common import ArgumentError, get_installed_scylla_package_hash, rmdirs
 from ccmlib.scylla_repository import (
     setup as scylla_setup,
     CORE_PACKAGE_DIR_NAME,
@@ -19,6 +20,8 @@ from ccmlib.scylla_repository import (
     Architecture,
     directory_name,
     download_packages,
+    RelocatablePackages,
+    download_version,
 )
 from ccmlib.utils.download import get_url_hash, save_source_file
 from ccmlib.utils.scylla_versions import get_supported_scylla_versions, get_latest_scylla_release
@@ -346,6 +349,19 @@ class TestLocalFileCaching:
                 # The version_dir would be removed and re-created
 
 
+def test_download_packages_failure_leaves_no_temp_dir(tmp_path):
+    """a failed attempt must not leave its partial download in version_dir, setup() may retry with other packages"""
+    def fail(target_dir, **kwargs):
+        os.makedirs(target_dir, exist_ok=True)
+        (Path(target_dir) / 'partial').touch()
+        raise requests.HTTPError('404 Client Error')
+
+    with patch('ccmlib.scylla_repository.download_version', side_effect=fail), pytest.raises(requests.HTTPError):
+        download_packages(version_dir=str(tmp_path), packages=RelocatablePackages(scylla_unified_package='http://x/y.tar.gz'),
+                          s3_url='http://x', version='v', verbose=False)
+    assert list(tmp_path.iterdir()) == []
+
+
 @pytest.mark.parametrize('architecture', argvalues=typing.get_args(Architecture))
 class TestGetManagerFunctions:
     def test_get_manager_latest_reloc_url(self, architecture):
@@ -371,3 +387,12 @@ class TestGetManagerFunctions:
         assert url.startswith('https://s3.amazonaws.com/downloads.scylladb.com/downloads/scylla-manager/'
                               'relocatable/scylladb-manager-3.12/scylla-manager_3.12.')
         assert url.endswith(f'_linux_{architecture}.tar.gz')
+
+
+@pytest.mark.parametrize('content', [b'not a gzip file', b'\x1f\x8b\x08\x00truncated'])
+def test_download_version_bad_tarball(tmp_path, content):
+    tarball = tmp_path / 'bad.tar.gz'
+    tarball.write_bytes(content)
+    with pytest.raises(ArgumentError, match='Unable to uncompress'):
+        download_version(version='bad', url=str(tarball), target_dir=str(tmp_path / 'out'))
+    assert tarball.exists()  # local tarballs are never deleted
