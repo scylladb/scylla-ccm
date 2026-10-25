@@ -492,19 +492,21 @@ def setup_scylla_manager(scylla_manager_package=None, verbose=False):
                         else:
                             p.unlink(missing_ok=True)
 
-                _, destination_file = tempfile.mkstemp(suffix=".tar.gz", prefix="ccm-manager-")
-
-                if os.path.exists(scylla_manager_package) and scylla_manager_package.endswith('.tar.gz'):
-                    destination_file = scylla_manager_package
-                elif is_valid(scylla_manager_package):
-                    res = download_version_from_s3(url=scylla_manager_package, target_path=destination_file, verbose=verbose)
-                    if not res:
-                        download_file(url=scylla_manager_package, target_path=destination_file, verbose=verbose)
-
-                run(f"""
-                    tar -xvf {destination_file} -C {manager_install_dir}
-                    rm -f {destination_file}
-                    """)
+                fd, destination_file = tempfile.mkstemp(suffix=".tar.gz", prefix="ccm-manager-")
+                os.close(fd)
+                try:
+                    if os.path.exists(scylla_manager_package) and scylla_manager_package.endswith('.tar.gz'):
+                        # a local tarball is extracted in place, and never deleted
+                        tarball = scylla_manager_package
+                    else:
+                        tarball = destination_file
+                        if is_valid(scylla_manager_package):
+                            res = download_version_from_s3(url=scylla_manager_package, target_path=destination_file, verbose=verbose)
+                            if not res:
+                                download_file(url=scylla_manager_package, target_path=destination_file, verbose=verbose)
+                    run(f"tar -xvf {tarball} -C {manager_install_dir}")
+                finally:
+                    os.unlink(destination_file)
                 f.write_status('done')
         return manager_install_dir
 

@@ -1,6 +1,8 @@
+import io
 import os
 import random
 import re
+import tarfile
 import tempfile
 import typing
 from pathlib import Path
@@ -21,6 +23,7 @@ from ccmlib.scylla_repository import (
     directory_name,
     download_packages,
     RelocatablePackages,
+    setup_scylla_manager,
     download_version,
 )
 from ccmlib.utils.download import get_url_hash, save_source_file
@@ -396,3 +399,19 @@ def test_download_version_bad_tarball(tmp_path, content):
     with pytest.raises(ArgumentError, match='Unable to uncompress'):
         download_version(version='bad', url=str(tarball), target_dir=str(tmp_path / 'out'))
     assert tarball.exists()  # local tarballs are never deleted
+
+
+def test_setup_scylla_manager_keeps_local_tarball(tmp_path, monkeypatch):
+    """a local SCYLLA_MANAGER_PACKAGE is extracted, not deleted, and no temp file is left behind"""
+    monkeypatch.setenv('CCM_CONFIG_DIR', str(tmp_path / 'ccm'))
+    monkeypatch.setattr(tempfile, 'tempdir', str(tmp_path))
+    (tmp_path / 'ccm').mkdir()
+    tarball = tmp_path / 'scylla-manager.tar.gz'
+    with tarfile.open(tarball, 'w:gz') as tar:
+        info = tarfile.TarInfo('sctool')
+        tar.addfile(info, io.BytesIO(b''))
+
+    install_dir = setup_scylla_manager(str(tarball))
+    assert tarball.exists()
+    assert (install_dir / 'sctool').exists()
+    assert not list(tmp_path.glob('ccm-manager-*'))
