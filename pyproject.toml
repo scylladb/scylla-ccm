@@ -19,7 +19,10 @@ dependencies = [
     "boto3",
     "tqdm",
     "urllib3",
+    # faster gzip for extracting relocatable packages; no wheels yet for 3.15, where ccm falls back to stdlib gzip
+    "isal; python_version < '3.15'",
 ]
+
 [project.urls]
 Repository = "https://github.com/scylladb/scylla-ccm"
 Issues = "https://github.com/scylladb/scylla-ccm/issues"

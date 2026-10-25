@@ -18,6 +18,7 @@ localhost.";
         packaging
         boto3
         tqdm
+        isal
         setuptools
       ]);
       make_ccm_package = {python, jdk, pkgs}: python.pkgs.buildPythonApplication {
