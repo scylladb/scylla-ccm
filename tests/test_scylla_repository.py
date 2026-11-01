@@ -77,7 +77,7 @@ class TestScyllaRepositoryRelease:
         response.raise_for_status.return_value = None
         response.content = f'unified-pack-url: {unified_pack_url}\n'.encode()
         return patch('ccmlib.scylla_repository.aws_bucket_ls', return_value=['00-Build.txt']), \
-            patch('ccmlib.scylla_repository.requests.get', return_value=response)
+            patch('ccmlib.scylla_repository.http_get', return_value=response)
 
     @pytest.mark.parametrize(argnames=['version', 'expected_cdir', 'scylla_debug'], argvalues=[
         ("unstable/master:2021-01-18T15:48:13Z", "2021-01-18T15:48:13Z", False),
@@ -164,7 +164,9 @@ class TestReinstallPackages:
 
         scylla_setup.cache_clear()
 
-        with patch("ccmlib.scylla_repository.download_packages", wraps=download_packages) as download_spy:
+        # Pinned builds skip hash validation; disable that to exercise the floating-version path.
+        with patch("ccmlib.scylla_repository.PINNED_TIMESTAMP_RE", re.compile(r'(?!)')), \
+                patch("ccmlib.scylla_repository.download_packages", wraps=download_packages) as download_spy:
             cdir, version = scylla_setup(version="unstable/master:2026-05-17T13:55:59Z", verbose=True, skip_downloads=False)
         download_spy.assert_called_once()
         assert get_installed_scylla_package_hash(source_file) == original_hash
@@ -371,3 +373,30 @@ class TestGetManagerFunctions:
         assert url.startswith('https://s3.amazonaws.com/downloads.scylladb.com/downloads/scylla-manager/'
                               'relocatable/scylladb-manager-3.12/scylla-manager_3.12.')
         assert url.endswith(f'_linux_{architecture}.tar.gz')
+
+
+class TestPinnedBuildSkipsS3:
+    @pytest.mark.parametrize("version,cached,network", [
+        ("unstable/master:2026-10-11T11:02:24Z", True, False),
+        ("unstable/master:latest", True, True),
+        ("unstable/master:2026-10-11T11:02:24Z", False, True),
+    ])
+    def test_network_calls(self, version, cached, network, monkeypatch):
+        import ccmlib.scylla_repository as repo
+        for var in ("SCYLLA_JMX_PACKAGE", "SCYLLA_TOOLS_JAVA_PACKAGE", "SCYLLA_JAVA_TOOLS_PACKAGE",
+                    "SCYLLA_CORE_PACKAGE", "SCYLLA_UNIFIED_PACKAGE", "SCYLLA_MANAGER_PACKAGE"):
+            monkeypatch.delenv(var, raising=False)
+        repo.setup.cache_clear()
+        with patch.object(repo, "version_directory", return_value="/cache/dir" if cached else None), \
+                patch.object(repo, "get_relocatable_s3_url", return_value="s3://x") as url, \
+                patch.object(repo, "read_build_manifest", side_effect=RuntimeError("stop")) as manifest, \
+                patch.object(repo, "aws_bucket_ls", side_effect=RuntimeError("stop")) as ls, \
+                patch.object(repo, "get_scylla_version", return_value="1.0"):
+            if network:
+                with pytest.raises(RuntimeError):
+                    repo.setup(version)
+                assert url.called and manifest.called
+            else:
+                assert repo.setup(version) == ("/cache/dir", "1.0")
+                assert not (url.called or manifest.called or ls.called)
+        repo.setup.cache_clear()

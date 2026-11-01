@@ -86,7 +86,7 @@ class TestGetUrlHash:
         assert url_hash == "abc123def456"
 
     @patch('ccmlib.utils.download.Session')
-    @patch('ccmlib.utils.download.requests')
+    @patch('ccmlib.utils.download.http_session')
     def test_get_s3_url_hash_fallback_to_http(self, mock_requests, mock_session):
         """Test fallback to HTTP when S3 fails."""
         # Mock S3 client to raise an error
@@ -100,14 +100,14 @@ class TestGetUrlHash:
         # Mock HTTP response
         mock_response = MagicMock()
         mock_response.headers.get.return_value = '"fallback_hash"'
-        mock_requests.head.return_value = mock_response
+        mock_requests.return_value.head.return_value = mock_response
         
         url = "http://s3.amazonaws.com/bucket/path/to/package.tar.gz"
         url_hash = get_url_hash(url)
         
         assert url_hash == "fallback_hash"
 
-    @patch('ccmlib.utils.download.requests')
+    @patch('ccmlib.utils.download.http_session')
     @patch('ccmlib.utils.download.Session')
     def test_get_http_url_hash(self, mock_session, mock_requests):
         """Test hash retrieval from HTTP ETag header when S3 fails."""
@@ -122,14 +122,14 @@ class TestGetUrlHash:
         # Mock HTTP response
         mock_response = MagicMock()
         mock_response.headers.get.return_value = '"http_etag_value"'
-        mock_requests.head.return_value = mock_response
+        mock_requests.return_value.head.return_value = mock_response
         
         url = "https://example.com/path/to/package.tar.gz"
         url_hash = get_url_hash(url)
 
         assert url_hash == "http_etag_value"
 
-    @patch('ccmlib.utils.download.requests')
+    @patch('ccmlib.utils.download.http_session')
     @patch('ccmlib.utils.download.Session')
     def test_get_url_hash_raises_clear_error_when_http_fallback_has_no_etag(self, mock_session, mock_requests):
         """S3 failing (e.g. 403) and the HTTP fallback having no ETag header used to
@@ -144,7 +144,7 @@ class TestGetUrlHash:
 
         mock_response = MagicMock()
         mock_response.headers.get.return_value = None
-        mock_requests.head.return_value = mock_response
+        mock_requests.return_value.head.return_value = mock_response
 
         url = "https://example.com/path/to/package.tar.gz"
         with pytest.raises(RuntimeError, match="Forbidden.*no ETag"):

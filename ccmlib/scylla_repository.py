@@ -22,6 +22,7 @@ from ccmlib.common import (
     ArgumentError, CCMError, get_default_path, rmdirs, validate_install_dir, get_scylla_version, aws_bucket_ls,
     DOWNLOAD_IN_PROGRESS_FILE, print_if_standalone, LockFile, get_installed_scylla_package_hash)
 from ccmlib.utils.download import download_file, download_version_from_s3, get_url_hash, save_source_file
+from ccmlib.utils.net import http_get
 from ccmlib.utils.version import parse_version
 
 
@@ -190,7 +191,7 @@ def get_relocatable_s3_url(branch, s3_version, links):
 
 def read_build_manifest(url):
     build_url = f'{url}/00-Build.txt'
-    res = requests.get(build_url)
+    res = http_get(build_url)
     res.raise_for_status()
     # example of 00-Build.txt content: (each line is formatted as 'key: value`)
     #
@@ -222,6 +223,9 @@ def extract_major_version(version):
     major_version = version if version.count('.') == 1 else '.'.join(n for n in version.split('.')[:2])
     major_version = major_version.split('~')[0]
     return major_version
+
+
+PINNED_TIMESTAMP_RE = re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$')
 
 
 @lru_cache(maxsize=None)
@@ -272,6 +276,9 @@ def setup(version, verbose=True, skip_downloads=False):
     # Compare hash of saved version (it is saved in the 'scylla-core-package/source.txt' file) and hash of a new package.
     # If it is same - skip the download. If not - remove existing folder and download again.
     validate_by_hash = version_dir is not None and type_n_version[0] != "release"
+    # A pinned timestamped build is immutable and already validated; avoid S3 so an outage can't fail startup.
+    if validate_by_hash and PINNED_TIMESTAMP_RE.match(type_n_version[-1]) and not any(packages_from_env() or ()):
+        validate_by_hash = False
 
     if len(type_n_version) == 2 and (version_dir is None or validate_by_hash):
         s3_version = type_n_version[1]

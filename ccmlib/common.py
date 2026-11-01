@@ -26,7 +26,7 @@ import psutil
 from ruamel.yaml import YAML
 from boto3.session import Session
 from botocore import UNSIGNED
-from botocore.client import Config
+from ccmlib.utils.net import s3_config
 
 
 BIN_DIR = "bin"
@@ -1109,7 +1109,7 @@ def aws_bucket_ls(s3_url: str) -> List[str]:
     bucket_object = s3_url.replace('https://s3.amazonaws.com/', '').split('/')
     prefix = '/'.join(bucket_object[1:])
 
-    s3_resource = Session().resource(service_name='s3', config=Config(signature_version=UNSIGNED))
+    s3_resource = Session().resource(service_name='s3', config=s3_config(signature_version=UNSIGNED))
     bucket = s3_resource.Bucket(bucket_object[0])
 
     files_in_bucket = bucket.objects.filter(Prefix=prefix)
