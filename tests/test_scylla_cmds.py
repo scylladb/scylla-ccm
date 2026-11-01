@@ -49,8 +49,8 @@ def copy_cluster_data(request: FixtureRequest, cluster_under_test, test_dir):
 
 @cluster_params
 class TestCCMCreateCluster:
-    @staticmethod
     @pytest.fixture(scope="function", autouse=True)
+    @staticmethod
     def base_setup(request, cluster_under_test, test_dir):
         try:
             yield
@@ -81,9 +81,9 @@ class TestCCMCreateCluster:
 
 @cluster_params
 class TestCCMClusterStatus:
+    @pytest.fixture(scope="class", autouse=True)
 
     @staticmethod
-    @pytest.fixture(scope="class", autouse=True)
     def base_setup(request, cluster_under_test, test_dir):
         try:
             cluster_under_test.run_command(cluster_under_test.get_create_cmd(args=['-n', '1']))
@@ -111,9 +111,9 @@ class TestCCMClusterStatus:
 
 @cluster_params
 class TestCCMClusterStart:
+    @pytest.fixture(autouse=True)
 
     @staticmethod
-    @pytest.fixture(autouse=True)
     def base_setup(request, cluster_under_test, test_dir):
         try:
             yield
@@ -152,9 +152,9 @@ class TestCCMClusterStart:
 
 @cluster_params
 class TestCCMClusterNodetool:
+    @pytest.fixture(scope="class", autouse=True)
 
     @staticmethod
-    @pytest.fixture(scope="class", autouse=True)
     def base_setup_with_2_nodes(request, cluster_under_test, test_dir):
         try:
             cluster_under_test.run_command(cluster_under_test.get_create_cmd(args=['-n', '2']))
@@ -210,8 +210,8 @@ class TestCCMClusterNodetool:
     indirect=True
 )
 class TestCCMClusterManagerSctool:
-    @staticmethod
     @pytest.fixture(scope="class", autouse=True)
+    @staticmethod
     def base_setup(request, cluster_under_test, test_dir):
         try:
             cluster_under_test.run_command(cluster_under_test.get_create_cmd(args=['-n', '3',
