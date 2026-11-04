@@ -1,6 +1,7 @@
 import pytest
 
 from ccmlib import common, scylla_repository
+from ccmlib.cluster_factory import ClusterFactory
 from ccmlib.scylla_cluster import ScyllaCluster
 
 
@@ -64,3 +65,20 @@ def test_load_unstable_cluster_keeps_hash_validation(tmp_path, monkeypatch):
 
     load_cluster(tmp_path, version='unstable/master:latest')
     assert calls == ['unstable/master:latest']
+
+
+def test_factory_load_deleted_install_falls_back_to_setup(tmp_path, monkeypatch):
+    """ccm commands repair a relocatable cluster whose install dir was deleted"""
+    calls = []
+    def setup(version, verbose):
+        calls.append(version)
+        return str(tmp_path / 'release' / '2026.1.9'), '2026.1.9'
+    monkeypatch.setattr(scylla_repository, 'setup', setup)
+    (tmp_path / 'test').mkdir()
+    (tmp_path / 'test' / 'cluster.conf').write_text(
+        f"name: test\nnodes: []\nseeds: []\n"
+        f"install_dir: {tmp_path / 'deleted'}\nscylla_version: release:2026.1\n")
+
+    cluster = ClusterFactory.load(str(tmp_path), 'test')
+    assert isinstance(cluster, ScyllaCluster)
+    assert calls == ['release:2026.1']
