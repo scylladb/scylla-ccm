@@ -4,6 +4,7 @@ import shutil
 import time
 import subprocess
 import signal
+import tempfile
 import warnings
 from typing import List, Tuple
 import uuid
@@ -92,6 +93,18 @@ class ScyllaCluster(Cluster):
                 install_dir = None  # damaged or deleted install, let setup() repair it
         if not install_dir:
             install_dir, version = scylla_repository.setup(version, verbose)
+            if self._loaded_install_dir and install_dir != self._loaded_install_dir:
+                # the repair may resolve a newer patch dir, save it so later commands don't repeat the repair
+                filename = os.path.join(self.get_path(), 'cluster.conf')
+                with open(filename, 'r') as f:
+                    data = YAML().load(f)
+                data['install_dir'] = install_dir
+                # write a unique 0600 temp file and replace, so an interrupted or concurrent write leaves cluster.conf intact
+                fd, tmp = tempfile.mkstemp(dir=self.get_path(), prefix='cluster.conf.')
+                with os.fdopen(fd, 'w') as f:
+                    YAML().dump(data, f)
+                os.chmod(tmp, os.stat(filename).st_mode)
+                os.replace(tmp, filename)
         install_dir, self.scylla_mode = common.scylla_extract_install_dir_and_mode(install_dir)
         assert self.scylla_mode is not None
         self.__set_default_timeouts()
