@@ -22,7 +22,7 @@ def mock_response(json_data):
     response = MagicMock()
     response.raise_for_status.return_value = None
     response.json.return_value = json_data
-    return patch("ccmlib.utils.scylla_versions.requests.get", return_value=response)
+    return patch("ccmlib.utils.scylla_versions.http_get", return_value=response)
 
 
 @pytest.fixture(autouse=True)
