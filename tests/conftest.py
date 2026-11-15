@@ -65,9 +65,10 @@ def docker_cluster(test_dir, test_id):
         'truncate_request_timeout_in_ms': timeout,
         'request_timeout_in_ms': timeout
     })
-    cluster.populate(3)
-    cluster.start(wait_for_binary_proto=True)
+    # Setup inside try: a failed start must still clean up.
     try:
+        cluster.populate(3)
+        cluster.start(wait_for_binary_proto=True)
         yield cluster
     finally:
         cluster.clear()
@@ -90,9 +91,10 @@ def relocatable_cluster(test_dir, test_id):
         'skip_wait_for_gossip_to_settle': 0,
         'ring_delay_ms': 0,
     })
-    cluster.populate(1)
-    cluster.start(wait_for_binary_proto=True)
+    # Setup inside try: a failed start must still clean up.
     try:
+        cluster.populate(1)
+        cluster.start(wait_for_binary_proto=True)
         yield cluster
     finally:
         cluster.clear()
@@ -116,12 +118,15 @@ def podman_cluster(test_dir, test_id):
         'truncate_request_timeout_in_ms': timeout,
         'request_timeout_in_ms': timeout
     })
-    cluster.populate(1)
-    cluster.start(wait_for_binary_proto=True)
+    # Setup inside try: a failed start must still clean up.
     try:
+        cluster.populate(1)
+        cluster.start(wait_for_binary_proto=True)
         yield cluster
     finally:
         cluster.clear()
+        # clear() only stops scylla; the container and network would outlive the session.
+        cluster.remove()
 
 
 @pytest.fixture(scope="session")
