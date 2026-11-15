@@ -159,9 +159,9 @@ class TestReinstallPackages:
         - change the hash to be wrong
         - run setup again. It expected that the package will be downloaded again and the hash restored.
         """
-        cdir, version = scylla_setup(version="unstable/master:2026-05-17T13:55:59Z", verbose=True, skip_downloads=False)
-        assert '2026-05-17T13_55_59Z' in cdir
-        assert version == '2026.3.0-dev'
+        cdir, version = scylla_setup(version="unstable/branch-2026.4:2026-11-04T14:52:36Z", verbose=True, skip_downloads=False)
+        assert '2026-11-04T14_52_36Z' in cdir
+        assert version == '2026.4.0-rc2'
 
         source_file = Path(cdir) / CORE_PACKAGE_DIR_NAME / SOURCE_FILE_NAME
         original_hash = get_installed_scylla_package_hash(source_file)
@@ -171,11 +171,11 @@ class TestReinstallPackages:
         scylla_setup.cache_clear()
 
         with patch("ccmlib.scylla_repository.download_packages", wraps=download_packages) as download_spy:
-            cdir, version = scylla_setup(version="unstable/master:2026-05-17T13:55:59Z", verbose=True, skip_downloads=False)
+            cdir, version = scylla_setup(version="unstable/branch-2026.4:2026-11-04T14:52:36Z", verbose=True, skip_downloads=False)
         download_spy.assert_called_once()
         assert get_installed_scylla_package_hash(source_file) == original_hash
-        assert '2026-05-17T13_55_59Z' in cdir
-        assert version == '2026.3.0-dev'
+        assert '2026-11-04T14_52_36Z' in cdir
+        assert version == '2026.4.0-rc2'
 
 
 class TestLocalFileCaching:
