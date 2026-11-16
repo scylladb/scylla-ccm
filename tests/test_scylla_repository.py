@@ -1,6 +1,5 @@
 import io
 import os
-import random
 import re
 import tarfile
 import tempfile
@@ -117,9 +116,13 @@ class TestScyllaRepositoryHotfix:
         ("hotfix/privateLinkTest.v.0.0.12:2026-01-30T23:27:33Z", "hotfix/privateLinkTest.v.0.0.12/2026-01-30T23_27_33Z"),
     ])
     def test_setup_hotfix(self, version, expected_cdir):
-        cdir, packages = scylla_setup(version=version, verbose=True, skip_downloads=True)
+        unified_pack_url = ('s3.amazonaws.com/downloads.scylladb.com/unstable/scylla/hotfix/relocatable/'
+                            'scylla-unified-package.tar.gz')
+        mock_ls, mock_get = TestScyllaRepositoryRelease._mock_build_manifest(unified_pack_url)
+        with mock_ls, mock_get:
+            cdir, packages = scylla_setup(version=version, verbose=True, skip_downloads=True)
         assert expected_cdir in cdir
-        assert packages.scylla_unified_package or packages.scylla_package
+        assert packages.scylla_unified_package == f'http://{unified_pack_url}'
 
 
 class TestReinstallPackages:
@@ -129,53 +132,38 @@ class TestReinstallPackages:
         file_text = file_text.replace("hash=", "hash=123")
         source_file.write_text(file_text)
 
-    @pytest.mark.skip("no more version with no unified package, TODO: remove when rest of related code is removed")
-    def test_setup_no_unified_packages_reinstall(self):
-        """
-        Validate that if package hash is changed, new package will be downloaded.
-        - download the Scylla packages. Packages hash will be saved in the "source.txt" file under relevant package folder
-        - change the hash to be wrong for one of the packages (choose the package randomly). No matter hash of which package is wrong -
-        all packages should be re-downloaded
-        - run setup again. It expected that the packages will be downloaded again.
-        """
-        cdir, version = scylla_setup(version="unstable/master:2021-01-18T15:48:13Z", verbose=True, skip_downloads=False)
-        assert '2021-01-18T15_48_13Z' in cdir
-        assert version == '4.4.dev'
-
-        package_to_corrupt = random.choice([CORE_PACKAGE_DIR_NAME, "scylla-tools-java", "scylla-jmx"])
-        self.corrupt_hash_value(Path(cdir) / package_to_corrupt / SOURCE_FILE_NAME)
-
-        with patch("ccmlib.scylla_repository.download_packages", wraps=download_packages) as download_spy:
-            cdir, version = scylla_setup(version="unstable/master:2021-01-18T15:48:13Z", verbose=True, skip_downloads=False)
-        download_spy.assert_called_once()
-
-        assert '2021-01-18T15_48_13Z' in cdir
-        assert version == '4.4.dev'
-
     def test_setup_unified_package_reinstall(self):
         """
         Validate that if package hash is changed, new package will be downloaded.
         - download the unified package. Package hash will be saved in the "source.txt" file
         - change the hash to be wrong
         - run setup again. It expected that the package will be downloaded again and the hash restored.
+
+        Hash validation only applies to non-release versions, and unstable builds get pruned from S3,
+        so serve the latest official release's unified package through an unstable version name.
         """
-        cdir, version = scylla_setup(version="unstable/master:2026-05-17T13:55:59Z", verbose=True, skip_downloads=False)
-        assert '2026-05-17T13_55_59Z' in cdir
-        assert version == '2026.3.0-dev'
+        latest = get_latest_scylla_release()
+        _, release_packages = scylla_setup(version=f"release:{latest}", verbose=True, skip_downloads=True)
+        unified_url = release_packages.scylla_unified_package.split("://", 1)[1]
+        unstable_version = f"unstable/master:{latest}"
 
-        source_file = Path(cdir) / CORE_PACKAGE_DIR_NAME / SOURCE_FILE_NAME
-        original_hash = get_installed_scylla_package_hash(source_file)
-        self.corrupt_hash_value(source_file)
-        assert get_installed_scylla_package_hash(source_file) != original_hash
+        with patch("ccmlib.scylla_repository.get_relocatable_s3_url", return_value=("http://unused", [])), \
+                patch("ccmlib.scylla_repository.read_build_manifest", return_value={"unified-pack-url": unified_url}):
+            cdir, version = scylla_setup(version=unstable_version, verbose=True, skip_downloads=False)
+            assert version.startswith(latest)
 
-        scylla_setup.cache_clear()
+            source_file = Path(cdir) / CORE_PACKAGE_DIR_NAME / SOURCE_FILE_NAME
+            original_hash = get_installed_scylla_package_hash(source_file)
+            self.corrupt_hash_value(source_file)
+            assert get_installed_scylla_package_hash(source_file) != original_hash
 
-        with patch("ccmlib.scylla_repository.download_packages", wraps=download_packages) as download_spy:
-            cdir, version = scylla_setup(version="unstable/master:2026-05-17T13:55:59Z", verbose=True, skip_downloads=False)
-        download_spy.assert_called_once()
-        assert get_installed_scylla_package_hash(source_file) == original_hash
-        assert '2026-05-17T13_55_59Z' in cdir
-        assert version == '2026.3.0-dev'
+            scylla_setup.cache_clear()
+
+            with patch("ccmlib.scylla_repository.download_packages", wraps=download_packages) as download_spy:
+                cdir, version = scylla_setup(version=unstable_version, verbose=True, skip_downloads=False)
+            download_spy.assert_called_once()
+            assert get_installed_scylla_package_hash(source_file) == original_hash
+            assert version.startswith(latest)
 
 
 class TestLocalFileCaching:
