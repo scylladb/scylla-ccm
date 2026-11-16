@@ -54,6 +54,9 @@ class ScyllaCluster(Cluster):
             install_dir, self.scylla_mode = install_func(install_dir)
 
         self.started = False
+        # CQL statements run once, by the first node start that waits for CQL (cluster-config options have no yaml form).
+        self.initial_cql = []
+        self._initial_cql_applied = False
         self.force_wait_for_cluster_start = force_wait_for_cluster_start
         self._scylla_manager = None
         self.skip_manager_server = skip_manager_server
@@ -200,6 +203,38 @@ class ScyllaCluster(Cluster):
                                                       wait_normal_token_owner=wait_normal_token_owner)
 
         return started
+
+    def _apply_initial_cql(self, node):
+        """Called by ScyllaNode.start() once the node accepts CQL."""
+        if not self.initial_cql or self._initial_cql_applied:
+            return
+        authenticator = {**self._config_options, **node.get_config_options()}.get('authenticator') or 'AllowAllAuthenticator'
+        options = [] if 'AllowAllAuthenticator' in authenticator else ['-u', 'cassandra', '-p', 'cassandra']
+        # Best effort, one start only: retry briefly while auth/group0 settle; InvalidRequest
+        # (older Scylla rejecting an option) is final. Never fails the node start.
+        error = None
+        for attempt in range(3):
+            if attempt:
+                time.sleep(2)
+            try:
+                _, stderr = node.run_cqlsh(';'.join(self.initial_cql), cqlsh_options=options, timeout=60, return_output=True)
+            except subprocess.TimeoutExpired as e:
+                error = f"timed out: {e}"
+                break  # a hung cqlsh would block the start for another 60s
+            except Exception as e:
+                error = repr(e)
+                continue
+            # cqlsh also prints the password-on-command-line warning (two lines) to stderr
+            error = '\n'.join(l for l in stderr.splitlines() if l.strip() and not l.startswith(('Warning:', 'Recommendation:'))) or None
+            if not error or 'InvalidRequest' in error or 'SyntaxException' in error:
+                break
+        if error:
+            self.warning(f"initial_cql not fully applied: {error}")
+        self._initial_cql_applied = True
+
+    def clear(self):
+        super().clear()
+        self._initial_cql_applied = False  # the cluster config is wiped with the data
 
     # override cluster
     def start(self, no_wait=False, verbose=False, wait_for_binary_proto=None,

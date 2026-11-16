@@ -895,6 +895,8 @@ class ScyllaNode(Node):
 
         self._update_pid(scylla_process)
         wait_for(func=lambda: self.is_running(), timeout=10, step=0.01)
+        if wait_for_binary_proto:
+            self.cluster._apply_initial_cql(self)
 
         if self.scylla_manager and self.scylla_manager.is_agent_available:
             self.start_scylla_manager_agent()
