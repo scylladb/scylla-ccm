@@ -1,23 +1,43 @@
-import filecmp
-import os
+import subprocess
 
 from ccmlib.utils.ssl_utils import generate_ssl_stores
 
 
-def test_generate_ssl_stores_creates_trust_pem(tmp_path):
-    """enable_internode_ssl() (scylla_cluster.py) requires a 'trust.pem' file;
-    generate_ssl_stores() must produce one alongside the other cert/key files."""
+def test_generate_ssl_stores_creates_scylla_pem_set(tmp_path):
+    """enable_internode_ssl() (scylla_cluster.py) requires 'trust.pem'; no keytool/Java needed."""
     generate_ssl_stores(str(tmp_path))
 
-    trust_pem = tmp_path / "trust.pem"
-    ccm_node_pem = tmp_path / "ccm_node.pem"
-    assert trust_pem.exists()
-    assert ccm_node_pem.exists()
-    assert filecmp.cmp(trust_pem, ccm_node_pem, shallow=False)
+    for name in ("trust.pem", "ccm_node.pem", "ccm_node.key", "ccm_node.cer"):
+        assert (tmp_path / name).exists()
+    assert not (tmp_path / "keystore.jks").exists()
+    subprocess.check_call(["openssl", "verify", "-CAfile", tmp_path / "trust.pem", tmp_path / "ccm_node.pem"])
 
 
-def test_generate_ssl_stores_is_noop_when_keystore_exists(tmp_path):
-    (tmp_path / "keystore.jks").write_bytes(b"existing")
+def test_generate_ssl_stores_leaves_complete_set_untouched(tmp_path):
+    generate_ssl_stores(str(tmp_path))
+    names = ("trust.pem", "ccm_node.pem", "ccm_node.key", "ccm_node.cer")
+    before = {n: (tmp_path / n).read_bytes() for n in names}
+
     generate_ssl_stores(str(tmp_path))
 
-    assert not os.path.exists(tmp_path / "trust.pem")
+    assert {n: (tmp_path / n).read_bytes() for n in names} == before
+
+
+def test_generate_ssl_stores_regenerates_partial_set(tmp_path):
+    (tmp_path / "ccm_node.pem").write_bytes(b"existing")
+    generate_ssl_stores(str(tmp_path))
+
+    for name in ("trust.pem", "ccm_node.key", "ccm_node.cer"):
+        assert (tmp_path / name).exists()
+    subprocess.check_call(["openssl", "verify", "-CAfile", tmp_path / "trust.pem", tmp_path / "ccm_node.pem"])
+
+
+def test_generate_ssl_stores_restores_missing_cer_without_rotating_ca(tmp_path):
+    generate_ssl_stores(str(tmp_path))
+    trust = (tmp_path / "trust.pem").read_bytes()
+    (tmp_path / "ccm_node.cer").unlink()
+
+    generate_ssl_stores(str(tmp_path))
+
+    assert (tmp_path / "trust.pem").read_bytes() == trust
+    assert (tmp_path / "ccm_node.cer").read_bytes() == trust

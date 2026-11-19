@@ -2,6 +2,8 @@ from unittest.mock import patch
 
 import pytest
 
+from ccmlib.cluster import Cluster
+from ccmlib.common import CCMError
 from ccmlib.scylla_cluster import ScyllaCluster
 from ccmlib.utils.ssl_utils import generate_ssl_stores
 
@@ -46,3 +48,24 @@ def test_enable_internode_ssl_raises_clear_error_when_trust_pem_missing(tmp_path
 
     with pytest.raises(FileNotFoundError, match="trust.pem"):
         cluster.enable_internode_ssl(str(ssl_dir))
+
+
+@pytest.mark.parametrize("method", ["enable_ssl", "enable_internode_ssl"])
+def test_cassandra_cluster_ssl_raises_clear_error_for_pem_only_dir(tmp_path, method):
+    generate_ssl_stores(str(tmp_path))
+    with patch.object(Cluster, '__init__', lambda self, *a, **kw: None):
+        cluster = Cluster(None)
+    args = (str(tmp_path), False) if method == "enable_ssl" else (str(tmp_path),)
+
+    with pytest.raises(CCMError, match=r"keystore\.jks.*Scylla PEM"):
+        getattr(cluster, method)(*args)
+
+
+def test_cassandra_enable_ssl_requires_truststore_for_client_auth(tmp_path):
+    (tmp_path / "keystore.jks").write_text("ks")
+    (tmp_path / "cassandra.crt").write_text("crt")
+    with patch.object(Cluster, '__init__', lambda self, *a, **kw: None):
+        cluster = Cluster(None)
+
+    with pytest.raises(CCMError, match=r"truststore\.jks"):
+        cluster.enable_ssl(str(tmp_path), True)
