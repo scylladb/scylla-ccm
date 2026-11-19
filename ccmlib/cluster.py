@@ -4,6 +4,7 @@ import os
 import random
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import warnings
@@ -40,6 +41,15 @@ class Cluster(object):
         # Classes that are to follow the respective logging level
         self._debug = []
         self._trace = []
+
+        # Monitoring (Scylla-only): present on every Cluster so config persistence
+        # and the CLI need no type checks; auto-start lives in ScyllaCluster.
+        self.monitoring_enabled = False
+        self.monitoring_stack = None  # runtime only, not persisted
+        self.monitoring_dir = None
+        self.grafana_port = 3000
+        self.prometheus_port = 9090
+        self.alertmanager_port = 9093
 
         if self.name.lower() == "current":
             raise RuntimeError("Cannot name a cluster 'current'.")
@@ -226,6 +236,31 @@ class Cluster(object):
     def cassandra_version(self):
         return self.version()
 
+    def _reconnect_monitoring_stack(self):
+        """Reconnect to a monitoring stack from a previous process.
+
+        Base implementation is a no-op.  ScyllaCluster overrides this to
+        probe Docker containers and re-attach monitoring_stack.
+        """
+
+    def _notify_topology_change(self):
+        """Called after any operation that changes which nodes are UP.
+
+        Only updates targets if automatic monitoring is enabled AND running.
+        Each ccm CLI invocation is a separate process, so monitoring_stack
+        starts as None after loading from disk.  We must reconnect before
+        checking whether targets need updating.
+        """
+        if not self.monitoring_enabled or getattr(self, '_notify_suspended', False):
+            return
+        if not self.monitoring_stack:
+            self._reconnect_monitoring_stack()
+        if self.monitoring_stack and self.monitoring_stack.is_running():
+            try:
+                self.monitoring_stack.update_targets()
+            except Exception as e:
+                self.warning(f"Failed to update monitoring targets: {e}")
+
     def add(self, node: ScyllaNode, is_seed, data_center=None, rack=None):
         if node.name in self.nodes:
             raise common.ArgumentError(f'Cannot create existing node {node.name}')
@@ -257,6 +292,7 @@ class Cluster(object):
             self.debug(f"{node.name}: data_center={node.data_center} rack={node.rack} snitch={self.snitch}")
             self.__update_topology_files()
         node._save()
+        self._notify_topology_change()
         return self
 
     # nodes can be provided in multiple notations, determining the cluster topology:
@@ -410,7 +446,7 @@ class Cluster(object):
         tokens.extend(new_tokens)
         return tokens
 
-    def remove(self, node: ScyllaNode=None, wait_other_notice=False, other_nodes=None, remove_node_dir=True):
+    def remove(self, node: ScyllaNode=None, wait_other_notice=False, other_nodes=None, remove_node_dir=True, keep_monitoring=False):
         if node is not None:
             if node.name not in self.nodes:
                 return
@@ -426,11 +462,43 @@ class Cluster(object):
             for n in list(self.nodes.values()):
                 if hasattr(n, '_cleanup_workdir_symlink'):
                     n._cleanup_workdir_symlink()
-            self.stop(gently=False, wait_other_notice=wait_other_notice, other_nodes=other_nodes)
+            self.stop(gently=False, wait_other_notice=wait_other_notice, other_nodes=other_nodes,
+                      keep_monitoring=keep_monitoring)
 
         if remove_node_dir:
+            if node is None and keep_monitoring:
+                self._preserve_monitoring_dir()
             node_path = node.get_path() if node is not None else self.get_path()
             self.remove_dir_with_retry(node_path)
+
+    def _preserve_subdir(self, subdir, container_names=(), runtime='docker'):
+        """Move <cluster>/<subdir> out of the cluster dir, so kept containers that
+        bind-mount it survive remove(). Same filesystem, so open mounts stay valid."""
+        src = os.path.join(self.get_path(), subdir)
+        if not os.path.isdir(src):
+            return None
+        dest = os.path.join(os.path.dirname(self.get_path()), f'.kept-{subdir}',
+                            f'{self.name}-{int(time.time())}')
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        os.rename(src, dest)
+        print(f"Kept {subdir} directory moved to {dest}", file=sys.stderr)
+        if container_names:
+            print(f"Kept containers still running: {' '.join(container_names)}; "
+                  f"remove with: {runtime} rm -f {' '.join(container_names)}", file=sys.stderr)
+        return dest
+
+    def _preserve_monitoring_dir(self):
+        if not os.path.isdir(os.path.join(self.get_path(), 'monitoring')):
+            return
+        self._reconnect_monitoring_stack()
+        stack = self.monitoring_stack
+        names, runtime = [], 'docker'
+        if stack:
+            running = stack._running_containers()
+            names = [n for svc in ('prometheus', 'grafana', 'alertmanager')
+                     if (n := stack._container_name(svc)) in running]
+            runtime = stack._runtime()
+        self._preserve_subdir('monitoring', names, runtime)
 
     # We can race w/shutdown on Windows and get Access is denied attempting to delete node logs.
     # see CASSANDRA-10075
@@ -544,7 +612,7 @@ class Cluster(object):
 
         return started
 
-    def stop(self, wait=True, gently=True, wait_other_notice=False, other_nodes=None, wait_seconds=127):
+    def stop(self, wait=True, gently=True, wait_other_notice=False, other_nodes=None, wait_seconds=127, keep_monitoring=False):
         not_running = []
         for node in list(self.nodes.values()):
             if not node.stop(wait, gently=gently, wait_other_notice=wait_other_notice, other_nodes=other_nodes, wait_seconds=wait_seconds):
@@ -705,7 +773,12 @@ class Cluster(object):
                 'log_level': self.__log_level,
                 'use_vnodes': self.use_vnodes,
                 'id': self.id,
-                'ipprefix': self.ipprefix
+                'ipprefix': self.ipprefix,
+                'monitoring_enabled': self.monitoring_enabled,
+                'monitoring_dir': self.monitoring_dir,
+                'grafana_port': self.grafana_port,
+                'prometheus_port': self.prometheus_port,
+                'alertmanager_port': self.alertmanager_port,
             }
 
         with open(filename, 'w') as f:
@@ -798,4 +871,8 @@ class Cluster(object):
 
     @staticmethod
     def is_docker():
+        return False
+
+    @staticmethod
+    def is_podman():
         return False

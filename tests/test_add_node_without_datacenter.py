@@ -36,9 +36,17 @@ def mock_cluster(temp_dir):
     cluster._debug = []
     cluster._trace = []
     
+    cluster.monitoring_enabled = False
+    cluster.monitoring_stack = None
+    cluster.monitoring_dir = None
+    cluster.grafana_port = 3000
+    cluster.prometheus_port = 9090
+    cluster.alertmanager_port = 9093
+
     # Mock methods
     cluster._update_config = Mock()
     cluster.debug = Mock()
+    cluster.warning = Mock()
     
     return cluster
 
