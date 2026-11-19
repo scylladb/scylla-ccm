@@ -1,4 +1,6 @@
 import os
+import subprocess
+import time
 
 import pytest
 
@@ -83,3 +85,65 @@ def test_factory_load_deleted_install_falls_back_to_setup(tmp_path, monkeypatch,
     monkeypatch.setattr(common, 'get_scylla_version', lambda install_dir: '2026.1.9')
     ClusterFactory.load(str(tmp_path), 'test')
     assert setup_calls == ['release:2026.1']
+
+
+class FakeNode:
+    """run_cqlsh returns stderr from `results` in turn (an exception is raised); '' once exhausted."""
+    def __init__(self, *results):
+        self.calls = []
+        self.results = list(results)
+
+    def get_config_options(self):
+        return {}
+
+    def run_cqlsh(self, cmds, cqlsh_options=None, timeout=None, return_output=False):
+        self.calls.append((cmds, cqlsh_options))
+        result = self.results.pop(0) if self.results else ''
+        if isinstance(result, BaseException):
+            raise result
+        return '', result
+
+
+def test_initial_cql_runs_once(tmp_path, setup_calls):
+    cluster = load_cluster(tmp_path)
+    node = FakeNode()
+    cluster._apply_initial_cql(node)
+    assert node.calls == []  # nothing to run
+
+    cluster.initial_cql = ["ALTER CLUSTER WITH a = 0", "ALTER CLUSTER WITH b = 1"]
+    cluster._config_options['authenticator'] = 'PasswordAuthenticator'
+    cluster._apply_initial_cql(node)
+    cluster._apply_initial_cql(node)
+    assert node.calls == [("ALTER CLUSTER WITH a = 0;ALTER CLUSTER WITH b = 1", ['-u', 'cassandra', '-p', 'cassandra'])]
+
+
+@pytest.mark.parametrize('results, calls', [
+    # connect failures, exceptions and transient server errors are retried within the start
+    (["Connection error: ('Unable to connect to any servers')", RuntimeError("boom"), ''], 3),
+    (["<stdin>:1:OperationTimedOut: errors={}", ''], 2),
+    # warnings alone are success; InvalidRequest (option unknown to older Scylla) and syntax errors are final
+    (["Warning: Using a password on the command line interface can be insecure.\n"
+      "Recommendation: use the credentials file to securely provide the password.\n"], 1),
+    (["<stdin>:1:InvalidRequest: Error from server: code=2200 [Invalid query] message=\"Unknown cluster config option 'a'\""], 1),
+    (["<stdin>:1:SyntaxException: line 1:0 no viable alternative"], 1),
+    # a hung cqlsh is not retried
+    ([subprocess.TimeoutExpired('cqlsh', 60)], 1),
+    # persistent failure: gives up after 3 tries and is not retried on later starts
+    (["Connection error: x"] * 5, 3),
+])
+def test_initial_cql_retries_within_one_start(tmp_path, setup_calls, monkeypatch, results, calls):
+    monkeypatch.setattr(time, 'sleep', lambda s: None)
+    cluster = load_cluster(tmp_path)
+    cluster.initial_cql = ["ALTER CLUSTER WITH a = 0"]
+    node = FakeNode(*results)
+    cluster._apply_initial_cql(node)
+    cluster._apply_initial_cql(node)
+    assert cluster._initial_cql_applied and len(node.calls) == calls
+
+
+def test_initial_cql_reset_by_clear(tmp_path, setup_calls):
+    cluster = load_cluster(tmp_path)
+    cluster._initial_cql_applied = True
+    cluster.clear()
+    assert not cluster._initial_cql_applied
+
