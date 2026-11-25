@@ -325,13 +325,14 @@ class TestDockerErrorHandling:
             # when trying to validate/pull the image
             # Note: This may succeed if image validation is skipped
             try:
-                ScyllaDockerCluster(
+                cluster = ScyllaDockerCluster(
                     tmpdir,
                     'test-invalid',
                     docker_image='nonexistent/invalid:tag'
                 )
                 # If we get here, validation was skipped or it auto-pulls
                 # That's okay - the error will occur when trying to run containers
+                cluster.remove()  # drops the ccm-test-invalid network it created
             except ContainerImageNotFoundError:
                 # Expected behavior
                 pass
